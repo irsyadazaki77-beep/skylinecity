@@ -124,6 +124,7 @@ export function syncWorkplaceFacilities(
   workplaces: Map<string, WorkplaceFacility>,
   citizens: Map<string, Citizen>,
   prng: SeededRandom,
+  populationScale = 1,
 ): void {
   const height = grid.length;
   const width = grid[0]?.length || 0;
@@ -183,7 +184,12 @@ export function syncWorkplaceFacilities(
         const existingPositions = facility?.positions || [];
         const positions: WorkplaceJob[] = [];
 
-        for (let i = 0; i < capacity; i++) {
+        // Large-city fixtures represent many residents with a sampled citizen
+        // population. Keep aggregate capacity truthful while materializing only
+        // a small deterministic job sample; otherwise every tick allocates
+        // hundreds of thousands of WorkplaceJob objects for a few agents.
+        const materializedCapacity = populationScale > 1 ? Math.min(capacity, 8) : capacity;
+        for (let i = 0; i < materializedCapacity; i++) {
           if (i < existingPositions.length) {
             positions.push(existingPositions[i]);
           } else {

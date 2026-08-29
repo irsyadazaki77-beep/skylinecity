@@ -4,6 +4,18 @@ import { buildRoadGraph } from './traffic';
 import { simulateCityServices } from './services';
 
 describe('service response telemetry', () => {
+  it('provides a visible civic baseline for a micro-town before dedicated facilities', () => {
+    const grid = Array.from({ length: 4 }, (_, y) => Array.from({ length: 4 }, (_, x) => createTile(x, y)));
+    for (let x = 0; x < 4; x += 1) grid[1][x] = createTile(x, 1, { type: TileType.ROAD });
+    grid[0][1] = createTile(1, 0, { type: TileType.RESIDENTIAL, population: 8, powered: true, watered: true });
+    const result = simulateCityServices(grid, buildRoadGraph(grid), 8, 4, 50, 5, 9, []);
+
+    expect(result.fireSafety).toBeGreaterThanOrEqual(70);
+    expect(result.wasteCoverage).toBeGreaterThanOrEqual(75);
+    expect(grid[0][1].fireCovered).toBe(true);
+    expect(grid[0][1].wasteCovered).toBe(true);
+  });
+
   it('writes deterministic response minutes for covered buildings', () => {
     const grid = Array.from({ length: 4 }, (_, y) => Array.from({ length: 3 }, (_, x) => createTile(x, y)));
     grid[0][1] = createTile(1, 0, { type: TileType.ROAD });

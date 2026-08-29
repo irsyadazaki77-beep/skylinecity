@@ -30,7 +30,7 @@ export function DistrictsModal({ isOpen, onClose, districts, onStartPlacement, o
               <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">Spatial identity & local policy</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl"><X size={20} /></button>
+          <button type="button" aria-label="Tutup districts" onClick={onClose} className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl"><X size={20} /></button>
         </div>
 
         <div className="p-6 overflow-y-auto space-y-5 flex-1">

@@ -90,7 +90,12 @@ export const POLICIES: Policy[] = [
 
 export const MISSIONS: Mission[] = [
   { id: 'first_road', title: 'Connect the District', description: 'Build at least 8 road tiles.', rewardMoney: 1_000, check: (state) => state.grid.flat().filter((tile) => tile.type === 'ROAD').length >= 8 },
+  { id: 'first_utilities', title: 'Essential Services', description: 'Bring both power and water capacity online.', rewardMoney: 1_500, check: (state) => state.powerCapacity > 0 && state.waterCapacity > 0 },
   { id: 'first_citizens', title: 'Welcome Citizens', description: 'Reach a population of 25.', rewardMoney: 2_500, check: (state) => state.population >= 25 },
+  { id: 'healthy_neighborhood', title: 'Healthy Neighborhood', description: 'Reach 25 residents with at least 60% happiness.', rewardMoney: 3_000, check: (state) => state.population >= 25 && state.happiness >= 60 },
+  { id: 'positive_budget', title: 'Balanced Books', description: 'Reach 50 residents while keeping daily operating budget positive.', rewardMoney: 4_000, check: (state) => state.population >= 50 && (state.operatingBudget ?? state.income - state.expenses) >= 0 },
+  { id: 'mobility_network', title: 'Move the City', description: 'Operate public transit with at least 20% population coverage.', rewardMoney: 5_000, check: (state) => (state.transitCoverage ?? 0) >= 20 && (state.transitActiveLines ?? 0) > 0 },
+  { id: 'resilient_city', title: 'Resilient City', description: 'Build flood protection or resolve a natural disaster.', rewardMoney: 4_500, check: (state) => (state.floodBarrierCount ?? 0) > 0 || (state.disastersResolved ?? 0) > 0 },
   { id: 'balanced_city', title: 'Balanced City', description: 'Reach 70% happiness.', rewardMoney: 5_000, check: (state) => state.happiness >= 70 },
   { id: 'metro_ready', title: 'Metro Ready', description: 'Reach the Metro milestone.', rewardMoney: 10_000, check: (state) => state.milestoneLevel >= 3 },
 ];

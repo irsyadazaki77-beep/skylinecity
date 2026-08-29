@@ -9,6 +9,8 @@ describe('public beta benchmark and scheduler guardrails', () => {
     expect(first.finite).toBe(true);
     expect(first.stateHash).toBe(second.stateHash);
     expect(first.tickMs.p95).toBeGreaterThanOrEqual(0);
+    expect(first.budgetMs).toBe(50);
+    expect(typeof first.budgetExceeded).toBe('boolean');
     expect(Object.values(first.phaseMs).every((sample) => Number.isFinite(sample.p95))).toBe(true);
   });
 

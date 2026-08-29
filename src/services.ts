@@ -505,6 +505,38 @@ export function simulateCityServices(
     isMicroTown && !hasFacility(type) ? Math.max(actual, fallback) : actual
   );
 
+  // The baseline is a real gameplay contract, not only a summary percentage:
+  // mark the covered starter lots so land value/evolution and resident
+  // satisfaction use the same civic signal. A dedicated facility always wins
+  // and disables only that service's fallback.
+  if (isMicroTown) {
+    const baseline = {
+      fire: !hasFacility(TileType.FIRE_STATION),
+      police: !hasFacility(TileType.POLICE_STATION),
+      health: !hasFacility(TileType.CLINIC),
+      school: !hasFacility(TileType.SCHOOL),
+      waste: !hasFacility(TileType.WASTE_MANAGEMENT),
+    };
+    for (const row of grid) {
+      for (const tile of row) {
+        const zoned = tile.type === TileType.RESIDENTIAL || tile.type === TileType.COMMERCIAL || tile.type === TileType.INDUSTRIAL;
+        if (!zoned) continue;
+        if (baseline.fire) tile.fireCovered = true;
+        if (baseline.police) tile.policeCovered = true;
+        if (baseline.health && tile.type === TileType.RESIDENTIAL) tile.healthCovered = true;
+        if (baseline.school && tile.type === TileType.RESIDENTIAL) tile.schoolCovered = true;
+        if (baseline.waste) tile.wasteCovered = true;
+        const baselineTimes = { ...(tile.serviceResponseTimes ?? {}) };
+        if (baseline.fire && baselineTimes.fire === undefined) baselineTimes.fire = 8;
+        if (baseline.police && baselineTimes.police === undefined) baselineTimes.police = 8;
+        if (baseline.health && tile.type === TileType.RESIDENTIAL && baselineTimes.health === undefined) baselineTimes.health = 8;
+        if (baseline.school && tile.type === TileType.RESIDENTIAL && baselineTimes.school === undefined) baselineTimes.school = 8;
+        if (baseline.waste && baselineTimes.waste === undefined) baselineTimes.waste = 8;
+        tile.serviceResponseTimes = baselineTimes;
+      }
+    }
+  }
+
   // Compute effective coverage percentages.
   const healthcareCoverage = totalPopulation > 0
     ? Math.min(100, Math.round(microTownCoverage(TileType.CLINIC, 45, healthCoveredCapacity / totalPopulation * 100)))

@@ -9,7 +9,7 @@ import { simulateDisasters } from './disasters';
 import { simulateHydrology } from './hydrology';
 import { getMilestoneLevel, MISSIONS, ACHIEVEMENTS } from './progression';
 import { BUILD_COSTS, CityEventData, CityState, createTile, GameSettings, getRoadClass, ROAD_MAINTENANCE_COSTS, TileData, TileType } from './types';
-import { reconcileParcels } from './parcels';
+import { reconcileParcels, refreshParcelStatuses } from './parcels';
 import { 
   createInitialDemographics, 
   createInitialCitizenSimulationState, 
@@ -96,7 +96,8 @@ export function calculateDemandsAndDesirability(
   waterCapacity: number,
   waterDemand: number,
 ) {
-  const buildings = grid.flat().filter((tile) => tile.type === TileType.RESIDENTIAL || tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE || tile.type === TileType.INDUSTRIAL);
+  const allTiles = grid.flat();
+  const buildings = allTiles.filter((tile) => tile.type === TileType.RESIDENTIAL || tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE || tile.type === TileType.INDUSTRIAL);
   const utilityReliability = buildings.length
     ? buildings.filter((tile) => tile.powered && tile.watered).length / buildings.length
     : 1;
@@ -130,7 +131,7 @@ export function calculateDemandsAndDesirability(
   ));
   const universityWorkforce = state.demographics?.educationDistribution?.university ?? Math.round(state.workers * 0.2);
   const officeDemand = Math.round(clamp(
-    (desirability - 42) * 1.15 + Math.max(0, universityWorkforce - (state.grid.flat().filter((tile) => tile.type === TileType.OFFICE).reduce((sum, tile) => sum + (tile.jobs || 0), 0) * 0.7)) * 0.25 - taxFriction(state.commercialTaxRate),
+    (desirability - 42) * 1.15 + Math.max(0, universityWorkforce - (allTiles.filter((tile) => tile.type === TileType.OFFICE).reduce((sum, tile) => sum + (tile.jobs || 0), 0) * 0.7)) * 0.25 - taxFriction(state.commercialTaxRate),
     GAME_CONFIG.DEMAND_MIN,
     GAME_CONFIG.DEMAND_MAX,
   ));
@@ -306,7 +307,8 @@ export function calculateEconomy(
   let officeJobs = 0;
   let industrialJobs = 0;
 
-  for (const tile of grid.flat()) {
+  const allTiles = grid.flat();
+  for (const tile of allTiles) {
     if (tile.type === TileType.RESIDENTIAL) resRevenue += (tile.population || 0) * GAME_CONFIG.BASE_RES_TAX_COEFF * (residentialTaxRate / 9);
     if (tile.type === TileType.COMMERCIAL) {
       commercialJobs += tile.jobs || 0;
@@ -495,6 +497,9 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     causalDiagnostics: input.causalDiagnostics ? input.causalDiagnostics.map((diagnostic) => ({ ...diagnostic, location: diagnostic.location ? { ...diagnostic.location } : undefined })) : [],
     signalStates: Object.fromEntries(Object.entries(input.signalStates ?? {}).map(([key, signal]) => [key, { ...signal }])),
   };
+  // The cloned tile objects are mutated throughout this tick. Keeping one
+  // flattened view avoids repeated allocations for aggregate UI metrics.
+  const allTiles = grid.flat();
 
   markPhase('INPUT');
   state.simulationPhase = 'INPUT';
@@ -630,7 +635,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   state.mixedUseBlocks = initialMixedUse.mixedUseBlocks;
   state.mixedUseFloorArea = initialMixedUse.mixedUseFloorArea;
   state.mixedUseJobs = initialMixedUse.mixedUseJobs;
-  const environmentTiles = state.grid.flat().filter((tile) => tile.type !== TileType.EMPTY && !tile.water);
+  const environmentTiles = allTiles.filter((tile) => tile.type !== TileType.EMPTY && !tile.water);
   if (environmentTiles.length > 0) {
     state.landValueAverage = Math.round(environmentTiles.reduce((sum, tile) => sum + tile.landValue, 0) / environmentTiles.length);
     state.pollutionAverage = Math.round(environmentTiles.reduce((sum, tile) => sum + tile.pollution, 0) / environmentTiles.length * 10) / 10;
@@ -688,7 +693,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     Math.round(state.industrialDemand * logisticsGrowthFactor),
     state.unlockedUpgrades,
   );
-  const evolvedParcels = reconcileParcels(state.grid);
+  const evolvedParcels = refreshParcelStatuses(state.grid);
   state.parcelCount = evolvedParcels.parcelCount;
   state.developedParcelCount = evolvedParcels.developedParcelCount;
   state.privateParcelCount = evolvedParcels.privateParcelCount;
@@ -707,7 +712,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     Math.round(state.industrialDemand * logisticsGrowthFactor),
     state.unlockedUpgrades,
   );
-  for (const tile of state.grid.flat()) {
+  for (const tile of allTiles) {
     if (tile.type !== TileType.RESIDENTIAL) continue;
     tile.rent = calculateTileRent(tile, state.residentialTaxRate);
     const estimatedHouseholds = Math.max(1, (tile.population || 0) / 2.2);
@@ -776,7 +781,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   state.congestionIndex = citizenResults.congestionIndex;
   state.averageQueuePressure = citizenResults.averageQueuePressure;
   if (climate.trafficMultiplier !== 1) {
-    for (const tile of state.grid.flat()) {
+    for (const tile of allTiles) {
       if (tile.type === TileType.ROAD) tile.traffic = Math.min(100, Math.round((tile.traffic || 0) * climate.trafficMultiplier * 10) / 10);
     }
     state.trafficAverage = Math.min(100, Math.round(state.trafficAverage * climate.trafficMultiplier * 10) / 10);
@@ -969,11 +974,19 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   // Monotonic milestone progression: achieved milestones never regress
   state.milestoneLevel = Math.max(state.milestoneLevel ?? 0, getMilestoneLevel(state));
 
-  state.buildingLevelCounts = {
-    residential: [1, 2, 3, 4, 5].map((level) => state.grid.flat().filter((tile) => tile.type === TileType.RESIDENTIAL && tile.level === level).length),
-    commercial: [1, 2, 3, 4, 5].map((level) => state.grid.flat().filter((tile) => tile.type === TileType.COMMERCIAL && tile.level === level).length),
-    industrial: [1, 2, 3, 4, 5].map((level) => state.grid.flat().filter((tile) => tile.type === TileType.INDUSTRIAL && tile.level === level).length),
+  const buildingLevelCounts = {
+    residential: [0, 0, 0, 0, 0],
+    commercial: [0, 0, 0, 0, 0],
+    industrial: [0, 0, 0, 0, 0],
   };
+  for (const tile of allTiles) {
+    if (tile.abandoned) continue;
+    const levelIndex = Math.max(0, Math.min(4, Math.round(tile.level ?? 1) - 1));
+    if (tile.type === TileType.RESIDENTIAL) buildingLevelCounts.residential[levelIndex] += 1;
+    else if (tile.type === TileType.COMMERCIAL) buildingLevelCounts.commercial[levelIndex] += 1;
+    else if (tile.type === TileType.INDUSTRIAL) buildingLevelCounts.industrial[levelIndex] += 1;
+  }
+  state.buildingLevelCounts = buildingLevelCounts;
   state.completedMissions = [...state.completedMissions];
   state.unlockedAchievements = [...state.unlockedAchievements];
   for (const achievement of ACHIEVEMENTS) {

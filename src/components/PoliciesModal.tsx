@@ -36,6 +36,8 @@ export function PoliciesModal({
             </div>
           </div>
           <button
+            type="button"
+            aria-label="Tutup policies"
             onClick={onClose}
             className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
           >

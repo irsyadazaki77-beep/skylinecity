@@ -45,7 +45,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .colorblind-deuteranopia .app-world canvas { filter: sepia(.18) saturate(1.18) hue-rotate(-12deg) contrast(1.06); }
 .colorblind-protanopia .app-world canvas { filter: sepia(.12) saturate(1.16) hue-rotate(13deg) contrast(1.06); }
 .colorblind-tritanopia .app-world canvas { filter: saturate(1.12) hue-rotate(166deg) contrast(1.05); }
-.game-hud { left: 7rem !important; }
+.game-hud { left: 9rem !important; }
 .status-dot { width: 7px; height: 7px; border-radius: 999px; background: #34d399; box-shadow: 0 0 12px rgba(52,211,153,.9); }
 
 .performance-overlay {
@@ -67,7 +67,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .performance-overlay > div { display: flex; align-items: center; gap: 5px; }
 .city-pulse { max-height: min(60vh, 34rem); overflow-y: auto; }
-.camera-toolbar { max-width: calc(100vw - 7rem); overflow-x: auto; scrollbar-width: thin; }
+.camera-toolbar { max-width: calc(100vw - 9rem); overflow-x: auto; scrollbar-width: thin; }
+.next-action-card { border-color: rgba(34,211,238,.25); }
+.next-action-emerald { border-color: rgba(52,211,153,.38); }
+.next-action-amber { border-color: rgba(251,191,36,.38); }
+.next-action-rose { border-color: rgba(251,113,133,.42); }
 
 .release-failure-screen {
   display: grid;

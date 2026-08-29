@@ -1,7 +1,7 @@
 import { getLastSimulationPhaseTimings, simulateTick } from './engine';
 import { createBenchmarkState, BenchmarkScenario } from './metropolisBenchmarks';
 import { getStateHash } from './releaseReadiness';
-import { percentile } from './simulationScheduler';
+import { getSimulationBudgetMs, percentile } from './simulationScheduler';
 import { CityState } from './types';
 
 export const OFFICIAL_BENCHMARKS: BenchmarkScenario[] = [
@@ -32,6 +32,8 @@ export interface BenchmarkReport {
   activeRegions: number;
   stateHash: string;
   finite: boolean;
+  budgetMs: number;
+  budgetExceeded: boolean;
 }
 
 export interface BenchmarkSuiteReport {
@@ -72,11 +74,13 @@ export function runOfficialBenchmark(scenario: BenchmarkScenario, ticks = 10, se
     }
   }
   const phaseMs = Object.fromEntries(Object.entries(phaseSamples).map(([phase, samples]) => [phase, summarize(samples)]));
+  const budgetMs = getSimulationBudgetMs(state.population);
+  const tickMs = summarize(tickSamples);
   return {
     scenario,
     seed,
     ticks,
-    tickMs: summarize(tickSamples),
+    tickMs,
     phaseMs,
     population: state.population,
     gridPopulation: state.grid.flat().reduce((sum, tile) => sum + (tile.type === 'RESIDENTIAL' ? tile.population : 0), 0),
@@ -86,6 +90,8 @@ export function runOfficialBenchmark(scenario: BenchmarkScenario, ticks = 10, se
     activeRegions: state.activeRegionKeys?.length ?? state.unlockedRegions.length,
     stateHash: getStateHash(state),
     finite: isFiniteCityState(state),
+    budgetMs,
+    budgetExceeded: tickMs.p95 > budgetMs,
   };
 }
 

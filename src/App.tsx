@@ -43,6 +43,7 @@ import { calculateTransitLineInsights } from './transitInsights';
 import { calculateServiceDispatchInsights } from './serviceDispatchInsights';
 import { createRuntimeAuditScenario } from './runtimeAuditScenario';
 import { createSimulationSchedulerState, observeSimulationTick, SimulationSchedulerTelemetry } from './simulationScheduler';
+import { getCoreLoopAdvice } from './coreLoopAdvisor';
 import { calculateBuildForecast } from './buildForecast';
 import { playUiSound, type UiSound } from './audio';
 import { createLocalizationCatalog, translate } from './localization';
@@ -1567,6 +1568,34 @@ export default function App() {
     specialization: gameState.specialization,
   }), [gameState, handleRemoveTransitLine, handleToggleTransitLine, handleUpdateTransitLine, panel, settings.language]);
 
+  const nextAction = useMemo(() => getCoreLoopAdvice(gameState, speed), [gameState, speed]);
+  const handleNextAction = useCallback((advice: ReturnType<typeof getCoreLoopAdvice>) => {
+    if (advice.action.kind === 'SPEED') {
+      setSpeed(advice.action.speed);
+      return;
+    }
+    if (advice.action.kind === 'TOOL') {
+      setActiveTool(advice.action.tool);
+      setDragStart(null);
+      setSelectedTile(null);
+      return;
+    }
+    if (advice.action.kind === 'OBJECTIVES') {
+      setPanel('missions');
+      return;
+    }
+    if (advice.action.kind === 'TREASURY') {
+      setPanel('treasury');
+      return;
+    }
+    if (advice.action.kind === 'FOCUS_DIAGNOSTIC') {
+      focusLocation(advice.action.location);
+      setPanel('city');
+      return;
+    }
+    setPanel('city');
+  }, [focusLocation]);
+
   return (
     <main className={`app-shell ui-scale-${settings.uiScale ?? 'medium'} ${settings.reducedMotion ? 'reduced-motion' : ''} ${settings.highContrast ? 'accessibility-high-contrast' : ''} colorblind-${settings.colorblindMode ?? 'none'}`}>
       {showStartScreen && (
@@ -1642,6 +1671,8 @@ export default function App() {
           onOpenSaveLoad={() => setPanel('save')}
           onOpenSettings={() => setPanel('settings')}
           onNewGame={resetCity}
+          nextAction={gameState.day <= 1 ? nextAction : undefined}
+          onNextAction={handleNextAction}
         />
 
         {activeTool === 'TRANSIT_LINE' && (

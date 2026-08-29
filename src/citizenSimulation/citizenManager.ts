@@ -284,7 +284,7 @@ export function simulateCitizenTick(
   syncSchoolFacilitiesAndEnrollment(grid, schools, citizens, prng);
 
   // 2. Sync Workplaces & Job Positions
-  syncWorkplaceFacilities(grid, workplaces, citizens, prng);
+  syncWorkplaceFacilities(grid, workplaces, citizens, prng, state.populationScale ?? 1);
 
   // 3. Demographic Migration (In-migration, Out-migration, Internal Relocation)
   const migration = allowMigration

@@ -97,7 +97,7 @@ export function CityPulse({ day, diagnostics, delta, onOpenInfo, onFocusLocation
   const hasDelta = day > 1 && [delta.population, delta.money, delta.income, delta.expenses, delta.happiness, delta.congestion, delta.commute].some((value) => Math.abs(value) > 0.001);
 
   return (
-    <section className="city-pulse fixed left-[7.5rem] top-20 z-30 w-[min(26rem,calc(100vw-9rem))] rounded-2xl border border-white/15 bg-[#0f172a]/94 p-3 text-white shadow-2xl backdrop-blur-xl" aria-label="City Pulse">
+    <section className="city-pulse fixed left-[9.5rem] top-20 z-30 w-[min(26rem,calc(100vw-11rem))] rounded-2xl border border-white/15 bg-[#0f172a]/94 p-3 text-white shadow-2xl backdrop-blur-xl" aria-label="City Pulse" aria-live="polite">
       <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2">
         <div className="flex items-center gap-2">
           <span className={`grid h-7 w-7 place-items-center rounded-lg ${criticalCount > 0 ? 'bg-rose-500/15 text-rose-300' : diagnostics.length > 0 ? 'bg-amber-500/15 text-amber-300' : 'bg-cyan-500/15 text-cyan-300'}`}>

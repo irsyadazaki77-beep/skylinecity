@@ -35,8 +35,10 @@ export function InfoViewsToolbar({ activeOverlay, onSelectOverlay }: InfoViewsTo
   if (!isOpen) {
     return (
       <div className="absolute bottom-28 left-4 z-[60]">
-        <button
-          onClick={() => setIsOpen(true)}
+      <button
+        type="button"
+        aria-label="Buka info views"
+        onClick={() => setIsOpen(true)}
           className="p-2.5 bg-[#0f172a]/90 backdrop-blur-md border border-white/10 rounded-full shadow-lg text-gray-300 hover:text-white transition-all hover:scale-105"
           title="Info Views"
         >
@@ -51,6 +53,8 @@ export function InfoViewsToolbar({ activeOverlay, onSelectOverlay }: InfoViewsTo
     return (
       <button
         onClick={() => onSelectOverlay(isActive ? 'NONE' : mode)}
+        aria-label={label}
+        aria-pressed={isActive}
         className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${
           isActive
             ? `${colorClass} shadow-inner`

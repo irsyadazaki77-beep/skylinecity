@@ -97,11 +97,11 @@ export function StarterTutorial({ gameState, speed, onSetSpeed, onSelectTool }: 
     {
       id: 'step_growth',
       title: '5. Warga Pertama Tiba',
-      subtitle: 'Capai Populasi 15 Warga',
+      subtitle: 'Capai Populasi 25 Warga',
       description: 'Warga baru akan pindah ke zona residensial yang teraliri listrik dan air bersih. Perhatikan indeks kebahagiaan!',
       icon: <Sparkles size={18} className="text-yellow-400" />,
       hint: 'Jika bangunan tidak tumbuh, klik petak dengan Select tool untuk memeriksa diagnosa masalah.',
-      isComplete: (state) => state.population >= 15,
+      isComplete: (state) => state.population >= 25,
     },
     {
       id: 'step_expansion',
@@ -182,7 +182,6 @@ export function StarterTutorial({ gameState, speed, onSetSpeed, onSelectTool }: 
         <button
           type="button"
           onClick={closeTutorial}
-          onPointerDown={closeTutorial}
           className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
           aria-label="Tutup panduan"
           title="Tutup panduan"
@@ -252,6 +251,7 @@ export function StarterTutorial({ gameState, speed, onSetSpeed, onSelectTool }: 
           {/* Navigation */}
           <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs text-gray-400">
             <button
+              type="button"
               disabled={currentStepIndex === 0}
               onClick={() => setCurrentStepIndex((prev) => Math.max(0, prev - 1))}
               className="px-2 py-1 rounded hover:bg-white/5 disabled:opacity-30 disabled:hover:bg-transparent"
@@ -259,6 +259,7 @@ export function StarterTutorial({ gameState, speed, onSetSpeed, onSelectTool }: 
               Sebelumnya
             </button>
             <button
+              type="button"
               disabled={currentStepIndex === steps.length - 1}
               onClick={() => setCurrentStepIndex((prev) => Math.min(steps.length - 1, prev + 1))}
               className="flex items-center gap-1 px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg disabled:opacity-30"

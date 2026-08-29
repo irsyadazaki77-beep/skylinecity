@@ -68,6 +68,8 @@ export function BottomToolbar({
         {/* Speed Controls */}
         <div className="flex items-center gap-0.5 bg-black/40 p-1 rounded-xl border border-white/5">
           <button
+            type="button"
+            aria-label="Pause simulasi"
             onClick={() => setSpeed(0)}
             title="Pause (Space / 1)"
             className={`p-2 rounded-lg transition-all ${
@@ -77,6 +79,8 @@ export function BottomToolbar({
             <Pause size={15} />
           </button>
           <button
+            type="button"
+            aria-label="Kecepatan normal"
             onClick={() => setSpeed(1)}
             title="Normal Speed (Space / 2)"
             className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${
@@ -86,6 +90,8 @@ export function BottomToolbar({
             1×
           </button>
           <button
+            type="button"
+            aria-label="Kecepatan cepat"
             onClick={() => setSpeed(2)}
             title="Fast Speed (3)"
             className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${
@@ -95,6 +101,8 @@ export function BottomToolbar({
             2×
           </button>
           <button
+            type="button"
+            aria-label="Kecepatan ultra"
             onClick={() => setSpeed(3)}
             title="Ultra Fast (4)"
             className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${
@@ -137,6 +145,9 @@ export function BottomToolbar({
           {[1, 2, 3].map((size) => (
             <button
               key={size}
+              type="button"
+              aria-label={`Ukuran brush ${size}`}
+              aria-pressed={brushSize === size}
               onClick={() => onSetBrushSize(size)}
               className={`w-6 h-6 rounded-lg text-xs font-mono font-bold flex items-center justify-center transition-all ${
                 brushSize === size

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Home, 
   Briefcase, 
@@ -51,6 +51,16 @@ export function Sidebar({ activeTool, setActiveTool: applyTool, activeRoadClass 
     try { return JSON.parse(localStorage.getItem('skyline_favorite_tools') ?? '[]') as ActiveTool[]; } catch { return []; }
   });
   const catalog = createLocalizationCatalog(language);
+  useEffect(() => {
+    const includesTool = (tools: readonly string[]) => tools.includes(activeTool);
+    if (includesTool([TileType.ROAD, 'TUNNEL_ROAD', 'ROAD_REPAIR'])) setCategory('ROADS');
+    else if (includesTool([TileType.RESIDENTIAL, 'RESIDENTIAL_MEDIUM', 'RESIDENTIAL_HIGH', TileType.COMMERCIAL, TileType.OFFICE, TileType.INDUSTRIAL])) setCategory('ZONING');
+    else if (includesTool([TileType.POWER_PLANT, TileType.WATER_PUMP])) setCategory('UTILITIES');
+    else if (includesTool([TileType.FIRE_STATION, TileType.POLICE_STATION, TileType.CLINIC, TileType.SCHOOL, TileType.WASTE_MANAGEMENT])) setCategory('SERVICES');
+    else if (includesTool([TileType.BUS_DEPOT, TileType.BUS_STOP, TileType.TRAM_STATION, TileType.TRAM_STOP, 'TRANSIT_LINE'])) setCategory('TRANSIT');
+    else if (includesTool([TileType.WAREHOUSE, TileType.CARGO_TERMINAL])) setCategory('LOGISTICS');
+    else if (includesTool(['RAISE_TERRAIN', 'LOWER_TERRAIN', 'LEVEL_TERRAIN', 'SMOOTH_TERRAIN'])) setCategory('TERRAIN');
+  }, [activeTool]);
   const setActiveTool = (tool: ActiveTool) => {
     applyTool(tool);
     const nextRecent = [tool, ...recentTools.filter((item) => item !== tool)].slice(0, 4);
@@ -77,7 +87,7 @@ export function Sidebar({ activeTool, setActiveTool: applyTool, activeRoadClass 
   ];
 
   return (
-    <aside id="app-sidebar" className="w-28 bg-[#14161A] border-r border-white/5 flex flex-col items-center py-4 gap-2 z-20 overflow-y-auto select-none">
+    <aside id="app-sidebar" className="w-36 bg-[#14161A] border-r border-white/5 flex flex-col items-center py-4 gap-2 z-20 overflow-y-auto select-none">
       {/* Category Picker Tabs */}
       <div className="w-full px-2 flex flex-col gap-1 mb-2">
           <label className="relative block" title={translate(catalog, 'tool.search')}>
@@ -90,6 +100,7 @@ export function Sidebar({ activeTool, setActiveTool: applyTool, activeRoadClass 
         <div className="grid grid-cols-1 gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
           <button
             onClick={() => setCategory('ROADS')}
+            aria-pressed={category === 'ROADS'}
             className={`text-[9px] uppercase tracking-wider py-1.5 rounded-lg transition-colors font-mono ${
               category === 'ROADS' ? 'bg-[#D4AF37] text-black font-bold' : 'text-gray-400 hover:text-white'
             }`}
@@ -98,6 +109,7 @@ export function Sidebar({ activeTool, setActiveTool: applyTool, activeRoadClass 
           </button>
           <button
             onClick={() => setCategory('ZONING')}
+            aria-pressed={category === 'ZONING'}
             className={`text-[9px] uppercase tracking-wider py-1.5 rounded-lg transition-colors font-mono ${
               category === 'ZONING' ? 'bg-[#D4AF37] text-black font-bold' : 'text-gray-400 hover:text-white'
             }`}
@@ -106,6 +118,7 @@ export function Sidebar({ activeTool, setActiveTool: applyTool, activeRoadClass 
           </button>
           <button
             onClick={() => setCategory('UTILITIES')}
+            aria-pressed={category === 'UTILITIES'}
             className={`text-[9px] uppercase tracking-wider py-1.5 rounded-lg transition-colors font-mono ${
               category === 'UTILITIES' ? 'bg-[#D4AF37] text-black font-bold' : 'text-gray-400 hover:text-white'
             }`}
@@ -114,6 +127,7 @@ export function Sidebar({ activeTool, setActiveTool: applyTool, activeRoadClass 
           </button>
           <button
             onClick={() => setCategory('SERVICES')}
+            aria-pressed={category === 'SERVICES'}
             className={`text-[9px] uppercase tracking-wider py-1.5 rounded-lg transition-colors font-mono ${
               category === 'SERVICES' ? 'bg-[#D4AF37] text-black font-bold' : 'text-gray-400 hover:text-white'
             }`}
@@ -122,6 +136,7 @@ export function Sidebar({ activeTool, setActiveTool: applyTool, activeRoadClass 
           </button>
           <button
             onClick={() => setCategory('TRANSIT')}
+            aria-pressed={category === 'TRANSIT'}
             className={`text-[9px] uppercase tracking-wider py-1.5 rounded-lg transition-colors font-mono ${
               category === 'TRANSIT' ? 'bg-[#D4AF37] text-black font-bold' : 'text-gray-400 hover:text-white'
             }`}
@@ -130,6 +145,7 @@ export function Sidebar({ activeTool, setActiveTool: applyTool, activeRoadClass 
           </button>
           <button
             onClick={() => setCategory('LOGISTICS')}
+            aria-pressed={category === 'LOGISTICS'}
             className={`text-[9px] uppercase tracking-wider py-1.5 rounded-lg transition-colors font-mono ${
               category === 'LOGISTICS' ? 'bg-[#D4AF37] text-black font-bold' : 'text-gray-400 hover:text-white'
             }`}
@@ -138,6 +154,7 @@ export function Sidebar({ activeTool, setActiveTool: applyTool, activeRoadClass 
           </button>
           <button
             onClick={() => setCategory('TERRAIN')}
+            aria-pressed={category === 'TERRAIN'}
             className={`text-[9px] uppercase tracking-wider py-1.5 rounded-lg transition-colors font-mono ${
               category === 'TERRAIN' ? 'bg-[#D4AF37] text-black font-bold' : 'text-gray-400 hover:text-white'
             }`}
@@ -425,7 +442,7 @@ function ToolButton({ icon, label, cost, active, onClick, disabled = false }: To
       } ${disabled ? 'opacity-35 cursor-not-allowed hover:bg-transparent hover:text-gray-400' : ''}`}
     >
       <div className="mb-0.5">{icon}</div>
-      <div className="text-[8px] uppercase tracking-wider text-center truncate max-w-full">{label}</div>
+      <div className="text-[8px] uppercase tracking-wider text-center leading-tight whitespace-normal max-w-full">{label}</div>
       {cost !== undefined && <div className="text-[8px] text-[#D4AF37] font-mono mt-0.5">${cost}</div>}
     </button>
   );

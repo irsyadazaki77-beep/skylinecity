@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reconcileParcels } from './parcels';
+import { reconcileParcels, refreshParcelStatuses } from './parcels';
 import { createTile, TileType } from './types';
 
 function residentialGrid(width = 4, height = 4) {
@@ -42,5 +42,17 @@ describe('persistent parcel ownership and subdivision', () => {
     expect(grid[0][0].parcelStatus).toBe('ACTIVE');
     expect(grid[0][0].parcelWidth).toBe(shape.width);
     expect(grid[0][0].parcelHeight).toBe(shape.height);
+  });
+
+  it('refreshes status and ownership without reshaping existing parcels', () => {
+    const grid = residentialGrid(1, 1);
+    reconcileParcels(grid);
+    const parcelId = grid[0][0].parcelId;
+    grid[0][0].population = 2;
+    const refreshed = refreshParcelStatuses(grid);
+    expect(grid[0][0].parcelId).toBe(parcelId);
+    expect(grid[0][0].parcelOwnership).toBe('PRIVATE');
+    expect(grid[0][0].parcelStatus).toBe('ACTIVE');
+    expect(refreshed.developedParcelCount).toBe(1);
   });
 });

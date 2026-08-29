@@ -28,6 +28,9 @@ export function TreasuryModal({ isOpen, onClose, gameState, setTaxRates, onCreat
   } = gameState;
 
   const netCashflow = income - expenses;
+  const operatingBudget = gameState.operatingBudget ?? netCashflow;
+  const municipalDebt = gameState.municipalDebt ?? 0;
+  const runwayDays = netCashflow < 0 ? Math.floor(Math.max(0, money) / Math.abs(netCashflow)) : Infinity;
 
   // Calculate detailed upkeep expenses per sector
   let roadUpkeep = 0;
@@ -79,6 +82,8 @@ export function TreasuryModal({ isOpen, onClose, gameState, setTaxRates, onCreat
             </div>
           </div>
           <button
+            type="button"
+            aria-label="Tutup treasury"
             onClick={onClose}
             className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
           >
@@ -88,7 +93,7 @@ export function TreasuryModal({ isOpen, onClose, gameState, setTaxRates, onCreat
 
         <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
           {/* Main Financial Balance Cards */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <div className="bg-white/5 p-4 rounded-xl border border-white/5 flex flex-col">
               <span className="text-[10px] uppercase font-mono tracking-wider text-gray-400">Total Treasury</span>
               <span className="font-mono text-2xl font-bold text-white mt-1">
@@ -113,6 +118,21 @@ export function TreasuryModal({ isOpen, onClose, gameState, setTaxRates, onCreat
                 {netCashflow >= 0 ? '+' : ''}${netCashflow.toLocaleString()}
               </span>
             </div>
+
+            <div className="bg-white/5 p-4 rounded-xl border border-white/5 flex flex-col">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-gray-400">Operational Runway</span>
+              <span className={`font-mono text-2xl font-bold mt-1 ${runwayDays < 7 ? 'text-rose-300' : runwayDays < 30 ? 'text-amber-300' : 'text-cyan-200'}`}>
+                {Number.isFinite(runwayDays) ? `${runwayDays}d` : '∞'}
+              </span>
+              <span className="mt-1 text-[9px] text-slate-500">{operatingBudget >= 0 ? 'cash flow sehat' : 'hari sampai kas habis'}</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/5 bg-black/25 p-3 text-[10px] font-mono text-slate-400 md:grid-cols-4">
+            <span>Operating budget <b className={operatingBudget >= 0 ? 'text-emerald-300' : 'text-rose-300'}>${operatingBudget.toLocaleString()}</b></span>
+            <span>Capital budget <b className="text-cyan-200">${(gameState.capitalBudget ?? money).toLocaleString()}</b></span>
+            <span>Municipal debt <b className={municipalDebt > 0 ? 'text-amber-300' : 'text-slate-300'}>${municipalDebt.toLocaleString()}</b></span>
+            <span>Tax optimum <b className="text-emerald-300">9%</b></span>
           </div>
 
           {history.length > 1 && (

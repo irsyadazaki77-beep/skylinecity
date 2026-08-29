@@ -16,12 +16,17 @@ npm run build   # production build
 npm run lint    # TypeScript check
 npm test        # Vitest regression suite
 npm run benchmark # official deterministic performance/integrity suite
+npm run balance   # deterministic economy/progression health trace
+npm run smoke     # release smoke: build command, simulate, save preview, replay
+npm run release-check # lint + full tests + production build + smoke gate
 ```
 
 `npm run benchmark` menjalankan `SMALL_TOWN`, `CONGESTED_CORRIDOR`,
 `INDUSTRIAL_CITY`, `FLOOD_RECOVERY`, dan `PERFORMANCE_100K`. Laporan menampilkan
-percentile tick/fase, populasi, entitas aktif, dan hash state. Gate ini gagal bila
-state menjadi non-finite atau replay seed yang sama menghasilkan hash berbeda.
+percentile tick/fase, target budget, populasi, entitas aktif, dan hash state. Gate ini
+gagal bila state menjadi non-finite atau replay seed yang sama menghasilkan hash
+berbeda; pelampauan budget hanya advisory karena runtime scheduler akan menurunkan
+quality/cadence secara otomatis.
 Gunakan `SKYLINE_BENCHMARK_TICKS=30 npm run benchmark` untuk sampel lebih panjang.
 
 ## Sistem utama
@@ -33,6 +38,8 @@ Gunakan `SKYLINE_BENCHMARK_TICKS=30 npm run benchmark` untuk sampel lebih panjan
 - Citizen simulation dengan household, migration, rent, satisfaction, education, job matching, commute, modal split, dan traffic trips.
 - RCI demand, building evolution level 1–5, city services, land value, pollution, noise, crime, waste, economy, milestones, missions, achievements, policies, events, tech tree, serta save migration.
 - Early-game balance menyediakan municipal baseline sampai 25 warga agar starter town tidak runtuh sebelum layanan pertama dibangun; pertumbuhan pekerjaan komersial/industri dipisahkan dari migrasi warga sehingga taxable activity benar-benar terbentuk.
+- Core-loop advisor menampilkan satu langkah berikutnya yang actionable (build/connect/grow/diagnose/progress) dan langsung mengaktifkan tool atau panel yang relevan.
+- Starter missions mencakup utilitas, kesehatan lingkungan, cashflow positif, transit, dan resilience; grant memberi recovery path yang terukur.
 - Public transit yang benar-benar dapat dibangun setelah unlock: Bus Depot dan Tram Station memiliki biaya/upkeep, syarat road + power, jangkauan jaringan, kapasitas, coverage berbobot populasi, ridership, modal split warga, traffic relief, overlay, dan armada bus/tram instanced di scene 3D.
 - Transit line planner untuk membuat line bus/tram dengan stop berurutan, fleet/headway estimate, average wait, transfer-stop detection, route-aware citizen trips, serta pause/aktifkan dan penghapusan line dari City Information.
 - City services memakai kapasitas operasional dan assignment berbasis kedekatan jalan; klinik, sekolah, pemadam, dan polisi tidak lagi memberi coverage tak terbatas hanya karena berada dalam radius.

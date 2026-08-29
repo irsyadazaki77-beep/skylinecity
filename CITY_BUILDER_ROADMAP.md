@@ -15,7 +15,7 @@ Project sudah memiliki fondasi simulasi yang jauh lebih lengkap daripada prototy
 - Utilities, city services, service fleet, incidents, disasters, hydrology, flood barrier, reservoir, climate, parking, transit, logistics, warehouses, cargo terminal, dan trade contracts.
 - District policy, policies, tech tree, missions, scenarios, achievements, causal diagnostics, save migration, autosave, undo/redo, stable/experimental feature gate.
 - World renderer dengan procedural buildings, roads, terrain, vegetation, day/night, overlays, traffic vehicles, service vehicles, freight, transit fleet, dan camera orbit.
-- 44 file test dengan 161 test yang lulus; TypeScript lint dan production build lulus pada 2.320 modul.
+- 49 file test dengan 178 test yang lulus; TypeScript lint dan production build lulus pada 2.324 modul.
 
 Kesimpulan: pekerjaan utama berikutnya harus memperkuat kualitas pengalaman, keterbacaan, sebab-akibat, konsistensi telemetry, dan performa. Menambah sistem baru tanpa memperbaiki lapisan tersebut akan membuat game makin lebar tetapi tidak otomatis terasa lebih dalam.
 
@@ -231,6 +231,10 @@ Iterasi lanjutan 26 Agustus 2026 menutup beberapa gap UX yang tersisa:
 - Runtime audit scenario kini memakai dua bus line dengan satu transfer stop bersama, sehingga active line, vehicle fleet, transfer opportunity, route path, modal split, dan emergency dispatch diuji dalam satu fixture.
 - `runTransitCapacityStressBenchmark` menambahkan horizon stress dua tick dengan corridor padat dan stop pattern rapat untuk memverifikasi utilisasi kapasitas kendaraan tinggi sebelum demographic churn mengubah fixture.
 - Audit performance terbaru: `PERFORMANCE_100K` menghabiskan sekitar `915 ms / 20 tick` (~45,8 ms/tick) pada fixture world/grid, tetapi `citizenState` belum berisi 100k entity sehingga `state.population` kembali `0`; benchmark ini belum cukup untuk mengklaim performa simulasi warga 100k dan harus dilengkapi sampled/aggregate citizen workload.
+- Balance harness deterministik (`npm run balance`) merekam trajectory treasury, debt, happiness, population, demand, dan bankruptcy advisory per benchmark scenario.
+- Core-loop advisor di HUD memilih satu tindakan berikutnya dari live state dan dapat mengaktifkan tool, menjalankan simulasi, membuka objectives, atau memfokuskan diagnostic.
+- Starter town civic baseline kini ditulis ke tile coverage flags agar land value, satisfaction, dan building evolution memakai sinyal yang sama sampai 25 warga.
+- Reconciliation parcel kini dipisah menjadi full topology pass sebelum urban-form mutation dan lightweight status/ownership refresh sesudahnya; struktur lot tidak dibangun ulang dua kali dalam tick yang sama.
 
 ## 8. Status implementasi saat ini
 
@@ -241,7 +245,7 @@ start paused → pilih tool → preview biaya/validasi → bangun → jalankan s
 → City Pulse membaca delta dan causal diagnostics → fokus lokasi → buka City Info
 ```
 
-Regression gate terakhir: `44` test files, `161` tests lulus; TypeScript lint dan production build lulus (2.320 modules). Smoke test WebGL pada audit scenario menghasilkan console error `0` (warning hanya deprecation `THREE.Clock`), line aktif `2`, vehicle `4`, depot `1`, kapasitas `80`, transfer stop `1`, `road path live 2/2`, incident dispatch `1` dengan fire band `CRITICAL`, lifecycle `ON SCENE` setelah tiga tick, dan overlay world Transit Routes/Emergency Dispatch terverifikasi pada Hari 2 pukul 12:00. Save round-trip mempertahankan dua line, vehicle route telemetry, incident path, dan service vehicle. Benchmark transit relief, capacity stress, dan full test suite juga deterministik.
+Regression gate terakhir: `49` test files, `178` tests lulus; TypeScript lint dan production build lulus (2.324 modules). Smoke test WebGL pada audit scenario menghasilkan console error `0` (warning hanya deprecation `THREE.Clock`), line aktif `2`, vehicle `4`, depot `1`, kapasitas `80`, transfer stop `1`, `road path live 2/2`, incident dispatch `1` dengan fire band `CRITICAL`, lifecycle `ON SCENE` setelah tiga tick, dan overlay world Transit Routes/Emergency Dispatch terverifikasi pada Hari 2 pukul 12:00. Save round-trip mempertahankan dua line, vehicle route telemetry, incident path, dan service vehicle. Benchmark transit relief, capacity stress, balance harness, dan full test suite juga deterministik. Benchmark report juga menampilkan target tick budget sebagai advisory (`50 ms` kota kecil, `120 ms` benchmark 100K); jika terlampaui, scheduler reduced-quality/cadence fallback tetap menjadi jalur runtime.
 
 Prioritas implementasi berikutnya: menangkap dan mengaudit return-leg incident pada runtime dengan fixture yang mempertahankan insiden cukup lama, memperluas benchmark transit ke kapasitas penuh dan transfer demand nyata, cache topology lanjutan yang mempertahankan data dinamis dengan aman, optimasi POPULATION/logistics, serta benchmark visual/runtime pada city density tinggi. Target p95 <50 ms masih terbuka dan harus diukur ulang setelah setiap cache besar.
 

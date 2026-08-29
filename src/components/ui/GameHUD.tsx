@@ -1,7 +1,8 @@
 import React from 'react';
-import { Play, Pause, FastForward, Bell, Smile, Target, Calendar } from 'lucide-react';
+import { Play, Pause, FastForward, Bell, Smile, Target, Calendar, ArrowRight, Activity } from 'lucide-react';
 import { MILESTONES } from '../../progression';
 import { GameMenu } from './GameMenu';
+import { CoreLoopAdvice } from '../../coreLoopAdvisor';
 
 interface GameHUDProps {
   population: number;
@@ -25,6 +26,8 @@ interface GameHUDProps {
   onOpenSaveLoad: () => void;
   onOpenSettings: () => void;
   onNewGame: () => void;
+  nextAction?: CoreLoopAdvice;
+  onNextAction?: (advice: CoreLoopAdvice) => void;
 }
 
 export function GameHUD({
@@ -49,6 +52,8 @@ export function GameHUD({
   onOpenSaveLoad,
   onOpenSettings,
   onNewGame,
+  nextAction,
+  onNextAction,
 }: GameHUDProps) {
   const safePopulation = Math.max(0, isNaN(population) || !isFinite(population) ? 0 : population);
   const safeMoney = isNaN(money) || !isFinite(money) ? 0 : money;
@@ -66,6 +71,19 @@ export function GameHUD({
           <Target size={14} className="text-blue-400" />
           <span className="font-semibold">{currentMilestone.name}</span>
         </div>
+        {nextAction && onNextAction && (
+          <div className={`next-action-card next-action-${nextAction.tone} mt-1 w-[min(19rem,calc(100vw-9rem))] rounded-xl border bg-black/55 px-3 py-2.5 backdrop-blur-md shadow-lg`} role="status" aria-live="polite">
+            <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-300">
+              <Activity size={12} />
+              <span>Langkah berikutnya · {nextAction.phase}</span>
+            </div>
+            <div className="mt-1 text-xs font-bold text-white">{nextAction.title}</div>
+            <div className="mt-0.5 text-[10px] leading-relaxed text-slate-300">{nextAction.description}</div>
+            <button type="button" onClick={() => onNextAction(nextAction)} className="mt-2 inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/10 px-2 py-1 text-[10px] font-bold text-white hover:bg-white/20">
+              <span>{nextAction.actionLabel}</span><ArrowRight size={12} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* TOP CENTER: Core Stats */}
@@ -77,7 +95,7 @@ export function GameHUD({
         
         <div className="w-[1px] h-6 bg-white/10"></div>
         
-        <button type="button" aria-label="Buka informasi treasury" className="flex flex-col items-center cursor-pointer hover:bg-white/5 px-2 rounded transition-colors" onClick={onOpenCityInfo}>
+        <button type="button" aria-label="Buka ekonomi dan treasury" className="flex flex-col items-center cursor-pointer hover:bg-white/5 px-2 rounded transition-colors" onClick={onOpenEconomy}>
           <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Treasury</span>
           <div className="flex items-center gap-1">
             <span className="text-white font-bold text-sm">${safeMoney.toLocaleString()}</span>
@@ -107,16 +125,16 @@ export function GameHUD({
           </div>
           <div className="w-[1px] h-4 bg-white/10 mx-1"></div>
           <div className="flex items-center gap-1">
-            <button aria-label="Pause simulasi" title="Pause (Space / 1)" onClick={() => setSpeed(0)} className={`p-1.5 rounded-full transition-colors ${speed === 0 ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>
+            <button type="button" aria-label="Pause simulasi" title="Pause (Space / 1)" onClick={() => setSpeed(0)} className={`p-1.5 rounded-full transition-colors ${speed === 0 ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>
               <Pause size={14} />
             </button>
-            <button aria-label="Kecepatan normal" title="Normal Speed (Space / 2)" onClick={() => setSpeed(1)} className={`p-1.5 rounded-full transition-colors ${speed === 1 ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>
+            <button type="button" aria-label="Kecepatan normal" title="Normal Speed (Space / 2)" onClick={() => setSpeed(1)} className={`p-1.5 rounded-full transition-colors ${speed === 1 ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>
               <Play size={14} />
             </button>
-            <button aria-label="Kecepatan cepat" title="Fast Speed (3)" onClick={() => setSpeed(2)} className={`p-1.5 rounded-full transition-colors ${speed === 2 ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>
+            <button type="button" aria-label="Kecepatan cepat" title="Fast Speed (3)" onClick={() => setSpeed(2)} className={`p-1.5 rounded-full transition-colors ${speed === 2 ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>
               <FastForward size={14} />
             </button>
-            <button aria-label="Kecepatan ultra" title="Ultra Fast (4)" onClick={() => setSpeed(3)} className={`p-1.5 rounded-full transition-colors ${speed === 3 ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>
+            <button type="button" aria-label="Kecepatan ultra" title="Ultra Fast (4)" onClick={() => setSpeed(3)} className={`p-1.5 rounded-full transition-colors ${speed === 3 ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>
               <FastForward size={14} strokeWidth={3} />
             </button>
           </div>
@@ -124,6 +142,7 @@ export function GameHUD({
 
         <div className="flex gap-2 mt-1">
           <button
+            type="button"
             onClick={onToggleNotifications}
             aria-label={`Notifikasi${unreadNotificationsCount > 0 ? ` (${unreadNotificationsCount} belum dibaca)` : ''}`}
             title="Buka notifikasi"

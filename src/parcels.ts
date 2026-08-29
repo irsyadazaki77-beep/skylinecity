@@ -175,6 +175,51 @@ export function reconcileParcels(grid: TileData[][]): ParcelReconciliationResult
   };
 }
 
+/**
+ * Refresh parcel telemetry after a simulation-only change (growth,
+ * abandonment, or level evolution) without rebuilding ownership boundaries.
+ * The full reconciler runs before urban form changes; this cheaper pass keeps
+ * the inspector/status counts current for the same tick.
+ */
+export function refreshParcelStatuses(grid: TileData[][]): ParcelReconciliationResult {
+  const parcelIds = new Set<string>();
+  const developedIds = new Set<string>();
+  const privateIds = new Set<string>();
+  const sizeById = new Map<string, number>();
+  const tilesByParcel = new Map<string, TileData[]>();
+
+  for (const row of grid) {
+    for (const tile of row) {
+      if (!isParcelTile(tile) || !tile.parcelId) continue;
+      const parcelId = tile.parcelId;
+      const developed = isDeveloped(tile);
+      tile.parcelStatus = statusFor(tile);
+      parcelIds.add(parcelId);
+      sizeById.set(parcelId, (sizeById.get(parcelId) ?? 0) + 1);
+      if (developed) developedIds.add(parcelId);
+      const parcelTiles = tilesByParcel.get(parcelId) ?? [];
+      parcelTiles.push(tile);
+      tilesByParcel.set(parcelId, parcelTiles);
+    }
+  }
+
+  for (const [parcelId, tiles] of tilesByParcel.entries()) {
+    const privateOwnership = developedIds.has(parcelId) || tiles.some((tile) => tile.parcelOwnership === 'PRIVATE');
+    if (!privateOwnership) continue;
+    privateIds.add(parcelId);
+    for (const tile of tiles) tile.parcelOwnership = 'PRIVATE';
+  }
+
+  const parcelCount = parcelIds.size;
+  const totalSize = [...sizeById.values()].reduce((sum, size) => sum + size, 0);
+  return {
+    parcelCount,
+    developedParcelCount: developedIds.size,
+    privateParcelCount: privateIds.size,
+    averageParcelSize: parcelCount > 0 ? Math.round(totalSize / parcelCount * 100) / 100 : 0,
+  };
+}
+
 export function parcelCapacityMultiplier(tile: TileData): number {
   const area = Math.max(1, (tile.parcelWidth ?? 1) * (tile.parcelHeight ?? 1));
   return Math.round((1 + Math.min(0.35, (area - 1) * 0.12)) * 100) / 100;
