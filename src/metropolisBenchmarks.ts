@@ -87,6 +87,26 @@ export function createBenchmarkState(scenario: BenchmarkScenario, seed = 2088): 
         grid[32][x].type = TileType.COMMERCIAL;
         grid[32][x].jobs = 45;
       }
+      // Every stress fixture is difficult by design, not accidentally
+      // impossible: seed a minimal connected utility pair and a small
+      // residential foothold so diagnostics can guide a measurable recovery.
+      grid[29][6].type = TileType.POWER_PLANT;
+      grid[32][6].type = TileType.WATER_PUMP;
+      grid[29][12].type = TileType.FIRE_STATION;
+      grid[29][24].type = TileType.POLICE_STATION;
+      grid[29][36].type = TileType.CLINIC;
+      grid[32][24].type = TileType.SCHOOL;
+      grid[32][36].type = TileType.WASTE_MANAGEMENT;
+      if (scenario === 'INDUSTRIAL_CITY') {
+        grid[29][7].type = TileType.RESIDENTIAL;
+        grid[29][7].population = 40;
+        grid[29][8].type = TileType.RESIDENTIAL;
+        grid[29][8].population = 40;
+        grid[29][16].type = TileType.RESIDENTIAL;
+        grid[29][16].population = 40;
+        grid[29][44].type = TileType.RESIDENTIAL;
+        grid[29][44].population = 40;
+      }
       if (scenario === 'FLOOD_RECOVERY') {
         for (let x = 10; x < 48; x += 1) grid[29][x].waterDepth = 0.9;
       }

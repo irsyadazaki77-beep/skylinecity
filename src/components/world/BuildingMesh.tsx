@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import * as THREE from 'three';
 import { TileData, TileType } from '../../types';
+import { buildingVariant, buildingScale } from './visualModel';
 import { gridToWorld } from './types3D';
 import { BuildingFootprint } from '../../urbanForm';
 
@@ -65,7 +66,7 @@ const sharedMats = {
   resFacadeSlate: new THREE.MeshStandardMaterial({ color: '#52606d', roughness: 0.55, metalness: 0.12 }),
   resFacadeBlue: new THREE.MeshStandardMaterial({ color: '#6f8796', roughness: 0.58, metalness: 0.08 }),
   resConcrete: new THREE.MeshStandardMaterial({ color: '#b8b4ab', roughness: 0.82 }),
-  resDarkMetal: new THREE.MeshStandardMaterial({ color: '#26313a', roughness: 0.38, metalness: 0.72 }),
+  resDarkMetal: new THREE.MeshStandardMaterial({ color: '#44575c', roughness: 0.58, metalness: 0.22 }),
   resTimber: new THREE.MeshStandardMaterial({ color: '#8b5e3c', roughness: 0.78 }),
   resGlassBlue: new THREE.MeshStandardMaterial({ color: '#8fb9c9', emissive: '#4fd1c5', emissiveIntensity: 0, roughness: 0.15, metalness: 0.72, transparent: true, opacity: 0.82 }),
   resGlassDark: new THREE.MeshStandardMaterial({ color: '#294454', emissive: '#38bdf8', emissiveIntensity: 0, roughness: 0.16, metalness: 0.8, transparent: true, opacity: 0.88 }),
@@ -83,15 +84,126 @@ const sharedMats = {
   indConcrete: new THREE.MeshStandardMaterial({ color: '#a8b0b2', roughness: 0.88 }),
   indGlass: new THREE.MeshStandardMaterial({ color: '#7ab7c5', emissive: '#22d3ee', emissiveIntensity: 0, roughness: 0.12, metalness: 0.78, transparent: true, opacity: 0.84 }),
   indSafety: new THREE.MeshStandardMaterial({ color: '#e0a43a', roughness: 0.58, metalness: 0.24 }),
+
+  // High-end office & commercial palette
+  officeGlass: new THREE.MeshStandardMaterial({ color: '#7dd3fc', roughness: 0.1, metalness: 0.85, transparent: true, opacity: 0.88 }),
+  officeSteel: new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.35, metalness: 0.75 }),
+  officeBronze: new THREE.MeshStandardMaterial({ color: '#78543d', roughness: 0.45, metalness: 0.4 }),
+  officeWhite: new THREE.MeshStandardMaterial({ color: '#f1f5f9', roughness: 0.6 }),
+  retailAwningRed: new THREE.MeshStandardMaterial({ color: '#be123c', roughness: 0.7 }),
+  retailAwningBlue: new THREE.MeshStandardMaterial({ color: '#1d4ed8', roughness: 0.7 }),
+  retailAwningGreen: new THREE.MeshStandardMaterial({ color: '#047857', roughness: 0.7 }),
 };
 
-function residentialVariant(tile: TileData): number {
-  // Stable variation is essential: the same save must render the same city,
-  // but adjacent parcels should not all share one blueprint.
-  let hash = (tile.x * 374761393 + tile.y * 668265263 + tile.level * 1442695041) | 0;
-  hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
-  return (hash ^ (hash >>> 16)) & 7;
+// A rich shared silhouette kit for crisp, distinctive building rooflines without
+// runtime allocations.
+const sharedBuildingGeos = {
+  roofPyramid: new THREE.ConeGeometry(0.44, 0.24, 4),
+  canopy: new THREE.BoxGeometry(0.74, 0.045, 0.26),
+  parapet: new THREE.BoxGeometry(0.78, 0.06, 0.78),
+  towerStep: new THREE.BoxGeometry(0.5, 0.07, 0.5),
+  verticalFin: new THREE.BoxGeometry(0.045, 0.46, 0.07),
+  farMass: new THREE.BoxGeometry(0.72, 1, 0.72),
+  silo: new THREE.CylinderGeometry(0.17, 0.17, 0.68, 10),
+  stack: new THREE.CylinderGeometry(0.045, 0.055, 0.72, 8),
+  crownSpire: new THREE.CylinderGeometry(0.015, 0.04, 0.48, 8),
+  coolingUnit: new THREE.BoxGeometry(0.18, 0.12, 0.18),
+  awningStrip: new THREE.BoxGeometry(0.68, 0.04, 0.22),
+};
+
+function BuildingSilhouetteAccent({ type, level, variant, abandoned, frontageRotation }: { type: TileType; level: number; variant: number; abandoned: boolean; frontageRotation: number }) {
+  const safeLevel = Math.min(5, Math.max(1, level));
+  const roofMaterial = abandoned ? sharedMats.roof : sharedMats.roof;
+  const industrialMaterial = abandoned ? sharedMats.indFacadeSteel : sharedMats.indSafety;
+
+  if (type === TileType.RESIDENTIAL) {
+    const roofY = safeLevel === 1 ? 0.62 : safeLevel === 2 ? 1.18 : safeLevel === 3 ? 1.68 : safeLevel === 4 ? 2.22 : 2.9;
+    return (
+      <group name="BuildingNearDetail" rotation={[0, frontageRotation + (variant % 4) * (Math.PI / 2), 0]}>
+        {safeLevel === 1 && (
+          <mesh geometry={sharedBuildingGeos.roofPyramid} material={roofMaterial} position={[0, roofY, 0]} scale={[0.88, 0.82, 0.84]} castShadow />
+        )}
+        {safeLevel === 2 && (
+          <group position={[0, roofY, 0]}>
+            <mesh geometry={sharedBuildingGeos.parapet} material={sharedMats.resDarkMetal} scale={[0.84, 0.2, 0.84]} />
+            <mesh geometry={sharedBuildingGeos.coolingUnit} material={sharedMats.metal} position={[0.18, 0.08, -0.15]} />
+          </group>
+        )}
+        {safeLevel === 3 && (
+          <group position={[0, roofY, 0]}>
+            <mesh geometry={sharedBuildingGeos.parapet} material={sharedMats.resDarkMetal} scale={[0.88, 0.24, 0.88]} />
+            <mesh geometry={sharedBuildingGeos.coolingUnit} material={sharedMats.metal} position={[-0.16, 0.1, 0.16]} />
+          </group>
+        )}
+        {safeLevel === 4 && (
+          <group position={[0, roofY, 0]}>
+            <mesh geometry={sharedBuildingGeos.towerStep} material={sharedMats.resDarkMetal} scale={[1.1, 0.8, 1.1]} />
+            <mesh geometry={sharedBuildingGeos.coolingUnit} material={sharedMats.metal} position={[0.12, 0.1, 0.1]} />
+          </group>
+        )}
+        {safeLevel === 5 && (
+          <group position={[0, roofY, 0]}>
+            <mesh geometry={sharedBuildingGeos.crownSpire} material={sharedMats.metal} position={[0, 0.32, 0]} />
+            <mesh geometry={sharedBuildingGeos.towerStep} material={sharedMats.metal} scale={[0.85, 0.7, 0.85]} />
+          </group>
+        )}
+      </group>
+    );
+  }
+
+  if (type === TileType.COMMERCIAL) {
+    const roofY = safeLevel === 1 ? 0.58 : safeLevel === 2 ? 1.2 : safeLevel === 3 ? 1.76 : safeLevel === 4 ? 2.52 : 3.38;
+    return (
+      <group name="BuildingNearDetail" rotation={[0, frontageRotation + (variant % 4) * (Math.PI / 2), 0]}>
+        {safeLevel <= 2 ? (
+          <mesh geometry={sharedBuildingGeos.awningStrip} material={variant % 2 === 0 ? sharedMats.retailAwningRed : sharedMats.retailAwningBlue} position={[0, safeLevel === 1 ? 0.44 : 0.98, 0.32]} castShadow />
+        ) : (
+          <group position={[0, roofY, 0]}>
+            <mesh geometry={sharedBuildingGeos.towerStep} material={safeLevel >= 4 ? sharedMats.comL5 : sharedMats.resDarkMetal} position={[variant % 2 === 0 ? -0.06 : 0.08, 0, 0]} scale={[1.25, 0.9, 1.18]} castShadow />
+            <mesh geometry={sharedBuildingGeos.coolingUnit} material={sharedMats.metal} position={[0.18, 0.1, -0.15]} />
+          </group>
+        )}
+        {safeLevel === 5 && (
+          <mesh geometry={sharedBuildingGeos.crownSpire} material={sharedMats.metal} position={[0.04, roofY + 0.3, 0]} castShadow />
+        )}
+      </group>
+    );
+  }
+
+  if (type === TileType.OFFICE) {
+    const roofY = 0.28 + safeLevel * 0.38 + 0.16;
+    return (
+      <group name="BuildingNearDetail" rotation={[0, frontageRotation + (variant % 2) * (Math.PI / 2), 0]}>
+        <mesh geometry={sharedBuildingGeos.towerStep} material={sharedMats.officeSteel} position={[0, roofY, 0]} scale={[1.18, 0.85, 1.18]} castShadow />
+        {safeLevel >= 3 && (
+          <>
+            <mesh geometry={sharedBuildingGeos.verticalFin} material={abandoned ? sharedMats.roof : sharedMats.officeSteel} position={[variant % 2 === 0 ? 0.22 : -0.22, roofY + 0.26, 0]} scale={[1, 1.3, 1]} castShadow />
+            <mesh geometry={sharedBuildingGeos.coolingUnit} material={sharedMats.metal} position={[-0.15, roofY + 0.1, -0.15]} />
+          </>
+        )}
+        {safeLevel >= 4 && (
+          <mesh geometry={sharedBuildingGeos.crownSpire} material={sharedMats.metal} position={[0, roofY + 0.34, 0]} />
+        )}
+      </group>
+    );
+  }
+
+  if (type === TileType.INDUSTRIAL) {
+    const roofY = safeLevel === 1 ? 0.58 : safeLevel === 2 ? 1.08 : safeLevel === 3 ? 1.45 : safeLevel === 4 ? 2.02 : 2.58;
+    return (
+      <group name="BuildingNearDetail" rotation={[0, frontageRotation, 0]}>
+        {safeLevel <= 2 && <mesh geometry={sharedBuildingGeos.roofPyramid} material={industrialMaterial} position={[0, roofY, 0]} scale={[0.92, 0.48, 0.8]} castShadow />}
+        {safeLevel >= 3 && variant % 3 === 0 && <mesh geometry={sharedBuildingGeos.stack} material={sharedMats.metal} position={[-0.24, roofY + 0.34, -0.18]} castShadow />}
+        {safeLevel >= 3 && variant % 3 === 1 && <mesh geometry={sharedBuildingGeos.silo} material={sharedMats.indFacadeSteel} position={[0.28, 0.44, -0.2]} scale={[0.92, 1, 0.92]} castShadow />}
+        {safeLevel >= 3 && variant % 3 === 2 && <mesh geometry={sharedBuildingGeos.canopy} material={sharedMats.indSafety} position={[0, roofY + 0.06, 0.18]} scale={[0.74, 1, 0.84]} castShadow />}
+      </group>
+    );
+  }
+
+  return null;
 }
+
+const residentialVariant = buildingVariant;
 
 function ModernResidentialBuilding({ level, variant, abandoned, frontageRotation = 0 }: { level: number; variant: number; abandoned: boolean; frontageRotation?: number }) {
   const facadeOptions = [sharedMats.resFacadeSand, sharedMats.resFacadeWhite, sharedMats.resFacadeClay, sharedMats.resFacadeSlate, sharedMats.resFacadeBlue];
@@ -125,7 +237,7 @@ function ModernResidentialBuilding({ level, variant, abandoned, frontageRotation
 
   if (level === 1) {
     return (
-      <group rotation={[0, frontageRotation + angle, 0]}>
+      <group rotation={[0, frontageRotation, 0]}>
         {lot}
         {variant % 6 === 0 && (
           <group>
@@ -184,7 +296,7 @@ function ModernResidentialBuilding({ level, variant, abandoned, frontageRotation
   if (level === 2) {
     const floors = variant % 3 === 0 ? 2 : 3;
     return (
-      <group rotation={[0, frontageRotation + angle, 0]}>
+      <group rotation={[0, frontageRotation, 0]}>
         {lot}
         {variant % 3 === 0 && (
           <group>
@@ -219,11 +331,13 @@ function ModernResidentialBuilding({ level, variant, abandoned, frontageRotation
     );
   }
 
-  const towerHeight = level === 3 ? 1.35 : level === 4 ? 1.9 : 2.55;
-  const towerWidth = level === 3 ? 0.68 : level === 4 ? 0.73 : 0.62;
+  const towerHeight = level === 3 ? 1.35 : level === 4 ? 1.65 : 2.15;
+  const towerWidth = level === 3 ? 0.68 : level === 4 ? 0.74 : 0.66;
   const balconyCount = level === 3 ? 2 : level === 4 ? 3 : 4;
+  const setbackHeight = level >= 4 ? (level === 5 ? 0.55 : 0.42) : 0;
+  const setbackWidth = towerWidth * 0.78;
   return (
-    <group rotation={[0, frontageRotation + angle, 0]}>
+    <group rotation={[0, frontageRotation, 0]}>
       {lot}
       {variant % 3 === 0 ? (
         <group>
@@ -248,10 +362,30 @@ function ModernResidentialBuilding({ level, variant, abandoned, frontageRotation
           <boxGeometry args={[0.22, 0.035, 0.16]} />
         </mesh>
       ))}
-      <mesh material={level === 5 ? sharedMats.resGlassDark : sharedMats.resDarkMetal} position={[0, towerHeight + 0.18, 0]} castShadow>
-        <boxGeometry args={[towerWidth * 0.78, 0.08, 0.68]} />
+      <mesh material={level === 5 ? sharedMats.resGlassDark : sharedMats.resDarkMetal} position={[0, towerHeight + 0.11, 0]} castShadow>
+        <boxGeometry args={[towerWidth * 0.88, 0.06, 0.66]} />
       </mesh>
-      {level >= 4 && <mesh material={sharedMats.resSolar} position={[0.12, towerHeight + 0.24, 0]} rotation={[0.14, 0, 0]}><boxGeometry args={[0.25, 0.025, 0.32]} /></mesh>}
+      {level >= 4 && (
+        <group position={[0, towerHeight + 0.14, 0]}>
+          <mesh material={facadeAlt} position={[0, setbackHeight / 2, 0]} castShadow receiveShadow>
+            <boxGeometry args={[setbackWidth, setbackHeight, 0.52]} />
+          </mesh>
+          <mesh material={glass} position={[0, setbackHeight / 2, 0.268]}>
+            <boxGeometry args={[setbackWidth * 0.72, setbackHeight * 0.68, 0.018]} />
+          </mesh>
+          <mesh material={level === 5 ? sharedMats.resGlassDark : sharedMats.resDarkMetal} position={[0, setbackHeight + 0.04, 0]} castShadow>
+            <boxGeometry args={[setbackWidth * 0.9, 0.06, 0.56]} />
+          </mesh>
+          <mesh material={sharedMats.resSolar} position={[0.12, setbackHeight + 0.09, 0]} rotation={[0.14, 0, 0]}>
+            <boxGeometry args={[0.24, 0.025, 0.28]} />
+          </mesh>
+          {level === 5 && (
+            <mesh material={sharedMats.metal} position={[0, setbackHeight + 0.26, 0]}>
+              <cylinderGeometry args={[0.012, 0.03, 0.38, 8]} />
+            </mesh>
+          )}
+        </group>
+      )}
     </group>
   );
 }
@@ -278,7 +412,7 @@ function ModernCommercialBuilding({ level, variant, abandoned, frontageRotation 
 
   if (level === 1) {
     return (
-      <group rotation={[0, frontageRotation + angle, 0]}>
+      <group rotation={[0, frontageRotation, 0]}>
         {paving}
         {variant % 4 === 0 && (
           <group>
@@ -317,7 +451,7 @@ function ModernCommercialBuilding({ level, variant, abandoned, frontageRotation 
 
   const height = level === 2 ? 0.9 : level === 3 ? 1.45 : level === 4 ? 2.2 : 3.05;
   return (
-    <group rotation={[0, frontageRotation + angle, 0]}>
+    <group rotation={[0, frontageRotation, 0]}>
       {paving}
       {variant % 3 === 0 ? (
         <group>
@@ -396,23 +530,134 @@ function industrialVariant(tile: TileData): number {
 
 function ModernOfficeBuilding({ level, variant, abandoned, frontageRotation = 0 }: { level: number; variant: number; abandoned: boolean; frontageRotation?: number }) {
   const safeLevel = Math.min(5, Math.max(1, level));
-  const height = 0.28 + safeLevel * 0.34;
-  const width = variant % 2 === 0 ? 0.58 : 0.7;
-  const material = abandoned ? sharedMats.comL1_abd : (variant % 3 === 0 ? sharedMats.comL4 : sharedMats.comL5);
+  const baseHeight = 0.36 + safeLevel * 0.42;
+  const mainWidth = variant % 2 === 0 ? 0.64 : 0.72;
+  const glass = abandoned ? sharedMats.window_abd : sharedMats.officeGlass;
+  const steel = abandoned ? sharedMats.comL1_abd : sharedMats.officeSteel;
+  const bronze = abandoned ? sharedMats.comL2_abd : sharedMats.officeBronze;
+  const white = abandoned ? sharedMats.resConcrete : sharedMats.officeWhite;
+
+  const podium = (
+    <group position={[0, 0.05, 0]}>
+      <mesh material={sharedMats.resPaving} receiveShadow>
+        <boxGeometry args={[0.92, 0.05, 0.92]} />
+      </mesh>
+      <mesh material={sharedMats.officeSteel} position={[0, 0.07, 0]} receiveShadow>
+        <boxGeometry args={[0.82, 0.09, 0.82]} />
+      </mesh>
+      <mesh material={glass} position={[0, 0.1, 0.39]}>
+        <boxGeometry args={[0.5, 0.15, 0.03]} />
+      </mesh>
+      <mesh material={sharedMats.resDarkMetal} position={[0, 0.18, 0.42]}>
+        <boxGeometry args={[0.56, 0.025, 0.1]} />
+      </mesh>
+    </group>
+  );
+
   return (
-    <group rotation={[0, frontageRotation + (variant % 2) * Math.PI / 2, 0]}>
-      <mesh material={sharedMats.metal} position={[0, 0.04, 0]} receiveShadow>
-        <boxGeometry args={[0.82, 0.08, 0.82]} />
-      </mesh>
-      <mesh material={material} position={[0, height / 2 + 0.08, 0]} castShadow receiveShadow>
-        <boxGeometry args={[width, height, width]} />
-      </mesh>
-      <mesh material={abandoned ? sharedMats.window_abd : sharedMats.windowCyan} position={[0, height / 2 + 0.08, width / 2 + 0.012]}>
-        <planeGeometry args={[width * 0.72, Math.max(0.18, height * 0.68)]} />
-      </mesh>
-      <mesh material={sharedMats.metal} position={[0, height + 0.12, 0]}>
-        <boxGeometry args={[width * 0.72, 0.045, width * 0.72]} />
-      </mesh>
+    <group rotation={[0, frontageRotation + (variant % 2) * (Math.PI / 2), 0]}>
+      {podium}
+      {safeLevel === 1 && (
+        <group position={[0, 0.14, 0]}>
+          <mesh material={white} position={[0, baseHeight / 2, 0]} castShadow receiveShadow>
+            <boxGeometry args={[mainWidth, baseHeight, 0.62]} />
+          </mesh>
+          <mesh material={glass} position={[0, baseHeight / 2, 0.315]}>
+            <boxGeometry args={[mainWidth * 0.76, baseHeight * 0.72, 0.02]} />
+          </mesh>
+          <mesh material={steel} position={[0, baseHeight + 0.03, 0]}>
+            <boxGeometry args={[mainWidth * 0.88, 0.06, 0.58]} />
+          </mesh>
+        </group>
+      )}
+
+      {safeLevel === 2 && (
+        <group position={[0, 0.14, 0]}>
+          <mesh material={steel} position={[-0.14, baseHeight / 2, 0]} castShadow receiveShadow>
+            <boxGeometry args={[0.34, baseHeight, 0.64]} />
+          </mesh>
+          <mesh material={white} position={[0.16, baseHeight * 0.42, 0]} castShadow receiveShadow>
+            <boxGeometry args={[0.32, baseHeight * 0.84, 0.56]} />
+          </mesh>
+          <mesh material={glass} position={[-0.14, baseHeight / 2, 0.325]}>
+            <boxGeometry args={[0.26, baseHeight * 0.75, 0.02]} />
+          </mesh>
+          <mesh material={glass} position={[0.16, baseHeight * 0.42, 0.285]}>
+            <boxGeometry args={[0.24, baseHeight * 0.6, 0.02]} />
+          </mesh>
+          <mesh material={sharedMats.resDarkMetal} position={[-0.14, baseHeight + 0.03, 0]}>
+            <boxGeometry args={[0.38, 0.06, 0.68]} />
+          </mesh>
+          <mesh material={sharedMats.roofGreen} position={[0.16, baseHeight * 0.84 + 0.02, 0]}>
+            <boxGeometry args={[0.34, 0.04, 0.58]} />
+          </mesh>
+        </group>
+      )}
+
+      {safeLevel === 3 && (
+        <group position={[0, 0.14, 0]}>
+          <mesh material={bronze} position={[0, baseHeight / 2, 0]} castShadow receiveShadow>
+            <boxGeometry args={[mainWidth, baseHeight, 0.64]} />
+          </mesh>
+          <mesh material={glass} position={[0, baseHeight / 2, 0]}>
+            <boxGeometry args={[mainWidth * 0.68, baseHeight + 0.04, 0.66]} />
+          </mesh>
+          <mesh material={steel} position={[-0.24, baseHeight / 2, 0.335]}>
+            <boxGeometry args={[0.04, baseHeight * 0.9, 0.03]} />
+          </mesh>
+          <mesh material={steel} position={[0.24, baseHeight / 2, 0.335]}>
+            <boxGeometry args={[0.04, baseHeight * 0.9, 0.03]} />
+          </mesh>
+          <mesh material={steel} position={[0, baseHeight + 0.05, 0]}>
+            <boxGeometry args={[mainWidth * 0.8, 0.08, 0.56]} />
+          </mesh>
+        </group>
+      )}
+
+      {safeLevel === 4 && (
+        <group position={[0, 0.14, 0]}>
+          <mesh material={steel} position={[0, baseHeight * 0.45, 0]} castShadow receiveShadow>
+            <boxGeometry args={[0.72, baseHeight * 0.9, 0.7]} />
+          </mesh>
+          <mesh material={glass} position={[0, baseHeight * 0.45, 0.355]}>
+            <boxGeometry args={[0.62, baseHeight * 0.82, 0.02]} />
+          </mesh>
+          <mesh material={white} position={[0, baseHeight * 0.85, 0]} castShadow receiveShadow>
+            <boxGeometry args={[0.54, baseHeight * 0.4, 0.54]} />
+          </mesh>
+          <mesh material={glass} position={[0, baseHeight * 0.85, 0.275]}>
+            <boxGeometry args={[0.44, baseHeight * 0.34, 0.02]} />
+          </mesh>
+          <mesh material={sharedMats.metal} position={[0, baseHeight + 0.1, 0]}>
+            <boxGeometry args={[0.38, 0.12, 0.38]} />
+          </mesh>
+        </group>
+      )}
+
+      {safeLevel === 5 && (
+        <group position={[0, 0.14, 0]}>
+          <mesh material={steel} position={[0, baseHeight * 0.48, 0]} castShadow receiveShadow>
+            <boxGeometry args={[0.68, baseHeight * 0.96, 0.68]} />
+          </mesh>
+          <mesh material={glass} position={[0, baseHeight * 0.48, 0]}>
+            <boxGeometry args={[0.62, baseHeight * 0.92, 0.7]} />
+          </mesh>
+          {[-0.26, 0, 0.26].map((finX) => (
+            <mesh key={`fin-${finX}`} material={bronze} position={[finX, baseHeight * 0.48, 0.355]}>
+              <boxGeometry args={[0.04, baseHeight * 0.92, 0.03]} />
+            </mesh>
+          ))}
+          <mesh material={white} position={[0, baseHeight + 0.06, 0]} castShadow>
+            <boxGeometry args={[0.52, 0.14, 0.52]} />
+          </mesh>
+          <mesh material={glass} position={[0, baseHeight + 0.18, 0]} castShadow>
+            <boxGeometry args={[0.36, 0.12, 0.36]} />
+          </mesh>
+          <mesh material={sharedMats.metal} position={[0, baseHeight + 0.4, 0]}>
+            <cylinderGeometry args={[0.015, 0.035, 0.36, 8]} />
+          </mesh>
+        </group>
+      )}
     </group>
   );
 }
@@ -442,7 +687,7 @@ function ModernIndustrialBuilding({ level, variant, abandoned, frontageRotation 
 
   if (level === 1) {
     return (
-      <group rotation={[0, frontageRotation + angle, 0]}>
+      <group rotation={[0, frontageRotation, 0]}>
         {yard}
         {variant % 4 === 0 && (
           <group>
@@ -478,7 +723,7 @@ function ModernIndustrialBuilding({ level, variant, abandoned, frontageRotation 
 
   const height = level === 2 ? 0.78 : level === 3 ? 1.15 : level === 4 ? 1.7 : 2.25;
   return (
-    <group rotation={[0, frontageRotation + angle, 0]}>
+    <group rotation={[0, frontageRotation, 0]}>
       {yard}
       {variant % 3 === 0 && (
         <group>
@@ -570,13 +815,20 @@ export function BuildingMesh({ tile, nightFactor, gridWidth, gridHeight, footpri
 
   // Handle empty or zero occupancy
   const safeLevel = Math.min(5, Math.max(1, level));
+  const silhouetteVariant = type === TileType.INDUSTRIAL
+    ? industrialVariant(tile)
+    : type === TileType.RESIDENTIAL
+      ? residentialVariant(tile)
+      : commercialVariant(tile);
 
   // Render individual building procedural shapes based on TileType & Level
   return (
     <group
+      name="BuildingRenderRoot"
       position={[wx, wy, wz]}
-      scale={footprint ? [footprint.width * 0.92, 1, footprint.height * 0.92] : undefined}
+      scale={footprint ? [footprint.width * 0.92, buildingScale(tile), footprint.height * 0.92] : [1, buildingScale(tile), 1]}
     >
+      <group name="BuildingDetail">
       {/* ---------------- RESIDENTIAL BUILDINGS (L1 - L5) ---------------- */}
       {type === TileType.RESIDENTIAL && (
         <ModernResidentialBuilding level={safeLevel} variant={residentialVariant(tile)} abandoned={abandoned} frontageRotation={frontageRotation} />
@@ -776,6 +1028,16 @@ export function BuildingMesh({ tile, nightFactor, gridWidth, gridHeight, footpri
       {/* ---------------- INDUSTRIAL BUILDINGS (L1 - L5) ---------------- */}
       {type === TileType.INDUSTRIAL && (
         <ModernIndustrialBuilding level={safeLevel} variant={industrialVariant(tile)} abandoned={abandoned} frontageRotation={frontageRotation} />
+      )}
+
+      {[TileType.RESIDENTIAL, TileType.COMMERCIAL, TileType.OFFICE, TileType.INDUSTRIAL].includes(type) && (
+        <BuildingSilhouetteAccent
+          type={type}
+          level={safeLevel}
+          variant={silhouetteVariant}
+          abandoned={abandoned}
+          frontageRotation={frontageRotation}
+        />
       )}
 
       {/* Legacy industrial kit retained as a reference while the clean-tech
@@ -1143,6 +1405,21 @@ export function BuildingMesh({ tile, nightFactor, gridWidth, gridHeight, footpri
         </group>
       )}
 
+      </group>
+
+      {/* Far tier keeps the city readable while avoiding full facade detail
+          for buildings that are outside the camera's near field. */}
+      {[TileType.RESIDENTIAL, TileType.COMMERCIAL, TileType.OFFICE, TileType.INDUSTRIAL].includes(type) && (
+        <mesh
+          name="BuildingFar"
+          geometry={sharedBuildingGeos.farMass}
+          material={type === TileType.INDUSTRIAL ? (abandoned ? sharedMats.indFacadeSteel : sharedMats.indFacadeTeal) : abandoned ? sharedMats.resL1_abd : type === TileType.OFFICE ? sharedMats.comL4 : type === TileType.COMMERCIAL ? sharedMats.comL2 : sharedMats.resFacadeSlate}
+          position={[0, (type === TileType.OFFICE ? 0.32 + safeLevel * 0.23 : 0.34 + safeLevel * 0.25) / 2 + 0.03, 0]}
+          scale={[1, type === TileType.OFFICE ? 0.32 + safeLevel * 0.23 : 0.34 + safeLevel * 0.25, 1]}
+          visible={false}
+        />
+      )}
+
       {/* ---------------- UNPOWERED / UNWATERED / ABANDONED WARNING BADGE ---------------- */}
       {(type === TileType.RESIDENTIAL ||
         type === TileType.COMMERCIAL ||
@@ -1168,3 +1445,4 @@ export function BuildingMesh({ tile, nightFactor, gridWidth, gridHeight, footpri
     </group>
   );
 }
+

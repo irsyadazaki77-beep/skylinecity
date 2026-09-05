@@ -12,6 +12,14 @@ export interface ReleaseSmokeResult {
   population: number;
 }
 
+export const RELEASE_VIEWPORTS = [
+  { width: 360, height: 800 },
+  { width: 390, height: 844 },
+  { width: 768, height: 1024 },
+  { width: 1024, height: 768 },
+  { width: 1440, height: 900 },
+] as const;
+
 /** Fast, dependency-free release smoke for the authoritative gameplay loop. */
 export function runReleaseSmoke(seed = 2088): ReleaseSmokeResult {
   const initial = createInitialCityState(createEmptyGrid(), seed);
@@ -20,6 +28,11 @@ export function runReleaseSmoke(seed = 2088): ReleaseSmokeResult {
   const envelope = JSON.stringify(createSaveEnvelope(afterBuild));
   const preview = importSavePreview(envelope);
   const replay = simulateTick(queued);
+
+  // This is a contract declaration, not browser layout execution. Real
+  // layout checks live in browserSmoke.test.ts/source contracts.
+  const allViewportsValid = RELEASE_VIEWPORTS.length === 5 && RELEASE_VIEWPORTS.every((v) => v.width > 0 && v.height > 0);
+
   const checks = {
     roadCommandApplied: afterBuild.grid[3][3].type === TileType.ROAD,
     commandQueueDrained: (afterBuild.commandQueue ?? []).length === 0,
@@ -27,6 +40,7 @@ export function runReleaseSmoke(seed = 2088): ReleaseSmokeResult {
     stateFinite: Number.isFinite(afterBuild.money) && Number.isFinite(afterBuild.population),
     saveRoundTripValid: preview.valid && Boolean(preview.state),
     deterministicReplay: getStateHash(afterBuild) === getStateHash(replay),
+    viewportContractDeclared: allViewportsValid,
   };
   return {
     passed: Object.values(checks).every(Boolean),

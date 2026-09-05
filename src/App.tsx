@@ -1,28 +1,30 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { City3DCanvas } from './components/world/City3DCanvas';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { City2DCanvas } from './components/world/City2DCanvas';
 import { Sidebar } from './components/Sidebar';
 import { GameHUD } from './components/ui/GameHUD';
-import { CityInformationPanel } from './components/ui/CityInformationPanel';
 import { InfoViewsToolbar } from './components/ui/InfoViewsToolbar';
 import { NotificationCenter, NotificationItem } from './components/ui/NotificationCenter';
 import { NotificationToast } from './components/NotificationToast';
-import { SaveLoadModal } from './components/SaveLoadModal';
-import { TreasuryModal } from './components/TreasuryModal';
-import { TechTreeModal } from './components/TechTreeModal';
-import { PoliciesModal } from './components/PoliciesModal';
-import { MissionsModal } from './components/MissionsModal';
-import { DistrictsModal } from './components/DistrictsModal';
 import { SettingsModal, DEFAULT_SETTINGS } from './components/ui/SettingsModal';
 import { StarterTutorial } from './components/ui/StarterTutorial';
+import {
+  useSimulationControls,
+  usePanelState,
+  useTutorialFlow,
+  useSaveLifecycle,
+  useBuildActions,
+  SimulationCommit,
+} from './hooks';
 import { BuildingInspector } from './components/ui/BuildingInspector';
 import { BottomToolbar } from './components/ui/BottomToolbar';
 import { CameraToolbar } from './components/ui/CameraToolbar';
+import { MilestoneBanner } from './components/MilestoneBanner';
 import { ActiveTool, BUILD_COSTS, CityState, createTile, getRoadClass, GameSettings, IntersectionControl, OverlayMode, ROAD_BUILD_COSTS, RoadClass, SignalTimingMode, TileData, TileType, TransitLine, TERRAFORM_COST, TUNNEL_BUILD_COST, TurnMovement, ZoneDensity } from './types';
 import { FreightCommodity } from './logistics';
 import { GAME_CONFIG } from './config';
 import { createInitialCityState, getLastSimulationPhaseTimings, simulateTick, unlockRegion } from './engine';
 import { isTileInUnlockedRegion, canUnlockRegion } from './mapGenerator';
-import { TECH_NODES } from './progression';
+import { MILESTONES, TECH_NODES } from './progression';
 import { saveGameAsync } from './saveSystem';
 import { createStarterGrid } from './starterCity';
 import { applyTerrainTool, getTerrainBrushTiles, isTerrainTool } from './terrain';
@@ -43,10 +45,23 @@ import { calculateTransitLineInsights } from './transitInsights';
 import { calculateServiceDispatchInsights } from './serviceDispatchInsights';
 import { createRuntimeAuditScenario } from './runtimeAuditScenario';
 import { createSimulationSchedulerState, observeSimulationTick, SimulationSchedulerTelemetry } from './simulationScheduler';
-import { getCoreLoopAdvice } from './coreLoopAdvisor';
 import { calculateBuildForecast } from './buildForecast';
-import { playUiSound, type UiSound } from './audio';
+import { playUiSound, updateProceduralAmbience, type UiSound } from './audio';
 import { createLocalizationCatalog, translate } from './localization';
+import { hasWebGLSupport } from './releaseReadiness';
+import type { TrafficBeforeAfter } from './trafficInsights';
+import { RendererFailureBoundary, WebGLFallback } from './components/ReleaseBoundary';
+import { getRendererFallbackKind } from './rendererStatus';
+import { getNextActionModel, NextActionModel } from './nextAction';
+
+const City3DCanvas = lazy(() => import('./components/world/City3DCanvas').then((module) => ({ default: module.City3DCanvas })));
+const CityInformationPanel = lazy(() => import('./components/ui/CityInformationPanel').then((module) => ({ default: module.CityInformationPanel })));
+const SaveLoadModal = lazy(() => import('./components/SaveLoadModal').then((module) => ({ default: module.SaveLoadModal })));
+const TreasuryModal = lazy(() => import('./components/TreasuryModal').then((module) => ({ default: module.TreasuryModal })));
+const TechTreeModal = lazy(() => import('./components/TechTreeModal').then((module) => ({ default: module.TechTreeModal })));
+const PoliciesModal = lazy(() => import('./components/PoliciesModal').then((module) => ({ default: module.PoliciesModal })));
+const MissionsModal = lazy(() => import('./components/MissionsModal').then((module) => ({ default: module.MissionsModal })));
+const DistrictsModal = lazy(() => import('./components/DistrictsModal').then((module) => ({ default: module.DistrictsModal })));
 
 function createNewState(difficulty: 'easy' | 'normal' | 'hard' = 'normal'): CityState {
   const state = createInitialCityState(createStarterGrid(), 2088, difficulty);
@@ -74,10 +89,7 @@ function cloneCityState(state: CityState): CityState {
 
 const ROAD_CLASS_ORDER: RoadClass[] = ['LOCAL', 'ARTERIAL', 'HIGHWAY'];
 
-interface SimulationCommit {
-  previous: CityState;
-  next: CityState;
-}
+
 
 function roadClassRank(roadClass: RoadClass): number {
   return ROAD_CLASS_ORDER.indexOf(roadClass);
@@ -111,97 +123,124 @@ export default function App() {
   });
 
   const [gameState, setGameState] = useState<CityState>(() => createNewState(settings.difficulty));
-  const [activeTool, setActiveTool] = useState<ActiveTool>('POINTER');
-  const [activeRoadClass, setActiveRoadClass] = useState<RoadClass>('LOCAL');
-  const [activeOverlay, setActiveOverlay] = useState<OverlayMode>('NONE');
-  // Game starts paused by requirement B
-  const [speed, setSpeed] = useState<0 | 1 | 2 | 3>(0);
-  const [selectedTile, setSelectedTile] = useState<TileData | null>(null);
-  const [cameraFocus, setCameraFocus] = useState<[number, number] | null>(null);
-  const [cameraViewMode, setCameraViewMode] = useState<'2D' | '3D'>('3D');
-  const [cameraZoom, setCameraZoom] = useState(1.25);
-  const [cameraRotation, setCameraRotation] = useState(0);
-  const playSound = useCallback((sound: UiSound) => playUiSound(settings, sound), [settings.volume]);
-  const [mapExpansionMode, setMapExpansionMode] = useState(false);
-  const [brushSize, setBrushSize] = useState(1);
-  const [dragStart, setDragStart] = useState<[number, number] | null>(null);
-  const [hoveredPos, setHoveredPos] = useState<[number, number] | null>(null);
-  const [transitLineDraft, setTransitLineDraft] = useState<[number, number][]>([]);
-  const [districtPlacementConfig, setDistrictPlacementConfig] = useState<{ name: string; policy: DistrictPolicy; radius: number } | null>(null);
-  const lastAutosaveDay = useRef(-1);
-  const lastSimulationTickMs = useRef(0);
-  const lastSimulationPhaseTimings = useRef<Record<string, number>>({});
-  const simulationTickId = useRef(0);
-  const simulationScheduler = useRef(createSimulationSchedulerState());
-  const [schedulerTelemetry, setSchedulerTelemetry] = useState<SimulationSchedulerTelemetry>({
-    budgetMs: 50,
-    latestTickMs: 0,
-    rollingP95Ms: 0,
-    intervalMs: 1000,
-    ticksPerInterval: 1,
-    qualityTier: 'balanced',
-    overloaded: false,
-  });
+  // Onboarding preferences are UI state, not authoritative simulation state.
+  // A session key prevents a New City or a loaded save from inheriting the
+  // previous city's tutorial position.
+  const [tutorialSessionKey, setTutorialSessionKey] = useState(() => `new:${Date.now()}`);
   const pendingSimulationCommit = useRef<SimulationCommit | null>(null);
-  const [cityPulseDelta, setCityPulseDelta] = useState<CityPulseDelta>({ population: 0, money: 0, income: 0, expenses: 0, happiness: 0, congestion: 0, commute: 0 });
-  const undoStack = useRef<CityState[]>([]);
-  const redoStack = useRef<CityState[]>([]);
-  const [qualityTier, setQualityTier] = useState<'balanced' | 'reduced'>('balanced');
-  const handleQualityHint = useCallback((tier: 'balanced' | 'reduced') => {
-    setQualityTier((current) => current === tier ? current : tier);
-  }, []);
 
-  const recordEdit = useCallback((state: CityState) => {
-    undoStack.current.push(cloneCityState(state));
-    if (undoStack.current.length > 30) undoStack.current.shift();
-    redoStack.current = [];
-  }, []);
+  const {
+    panel,
+    setPanel,
+    activeOverlay,
+    setActiveOverlay,
+    selectedTile,
+    setSelectedTile,
+    cameraFocus,
+    setCameraFocus,
+    cameraViewMode,
+    setCameraViewMode,
+    cameraZoom,
+    setCameraZoom,
+    cameraRotation,
+    setCameraRotation,
+    resetCamera,
+    rendererMode,
+    setRendererMode,
+    rendererReady,
+    setRendererReady,
+    rendererFailure,
+    setRendererFailure,
+    mapExpansionMode,
+    setMapExpansionMode,
+    notificationOpen,
+    setNotificationOpen,
+    notifications,
+    setNotifications,
+    milestoneCelebration,
+    setMilestoneCelebration,
+    showStartScreen,
+    setShowStartScreen,
+  } = usePanelState();
 
-  const undoEdit = useCallback(() => {
-    const previous = undoStack.current.pop();
-    if (!previous) return;
-    redoStack.current.push(cloneCityState(gameState));
-    pendingSimulationCommit.current = null;
-    setGameState(previous);
-    setSelectedTile(null);
-  }, [gameState]);
-
-  const redoEdit = useCallback(() => {
-    const next = redoStack.current.pop();
-    if (!next) return;
-    undoStack.current.push(cloneCityState(gameState));
-    pendingSimulationCommit.current = null;
-    setGameState(next);
-    setSelectedTile(null);
-  }, [gameState]);
-
-  const [notifications, setNotifications] = useState<NotificationItem[]>([
-    { id: 'welcome', type: 'milestone', title: 'Selamat Datang di Skyline Simulator 2.0', message: 'Kota dimulai dalam status PAUSED. Ikuti panduan walikota di sisi kiri layar.', timestamp: 'Hari 1', unread: true },
-  ]);
-  const [notificationOpen, setNotificationOpen] = useState(false);
-  const [panel, setPanel] = useState<'city' | 'treasury' | 'tech' | 'policies' | 'districts' | 'missions' | 'save' | 'settings' | null>(null);
-  const [hasAutosave, setHasAutosave] = useState(false);
-  const [showStartScreen, setShowStartScreen] = useState(() => {
-    if (isRuntimeAuditScenarioRequested()) return false;
-    try { return localStorage.getItem('skyline_release_intro_seen') !== 'true'; } catch { return true; }
+  const {
+    activeTool,
+    setActiveTool,
+    activeRoadClass,
+    setActiveRoadClass,
+    brushSize,
+    setBrushSize,
+    dragStart,
+    setDragStart,
+    hoveredPos,
+    setHoveredPos,
+    transitLineDraft,
+    setTransitLineDraft,
+    districtPlacementConfig,
+    setDistrictPlacementConfig,
+    undoStack,
+    redoStack,
+    recordEdit,
+    undoEdit,
+    redoEdit,
+    cancelTileInteraction,
+  } = useBuildActions({
+    gameState,
+    setGameState,
+    setSelectedTile,
+    pendingSimulationCommit,
   });
+
+  const playSound = useCallback((sound: UiSound) => playUiSound(settings, sound), [settings]);
+
+  useEffect(() => {
+    updateProceduralAmbience(settings);
+    return () => updateProceduralAmbience({ volume: settings.volume, musicVolume: 0 });
+  }, [settings]);
+
+  const {
+    tutorialHighlight,
+    setTutorialHighlight,
+    handleEmergencyGrant,
+  } = useTutorialFlow({
+    setGameState,
+    setNotifications,
+    playSound,
+  });
+
+  const {
+    hasAutosave,
+    setHasAutosave,
+    handleAutosaveOnTick,
+  } = useSaveLifecycle({
+    settings,
+  });
+
+  const {
+    speed,
+    setSpeed,
+    qualityTier,
+    handleQualityHint,
+    schedulerTelemetry,
+    setSchedulerTelemetry,
+    lastSimulationTickMs,
+    lastSimulationPhaseTimings,
+    simulationTickId,
+  } = useSimulationControls({
+    settings,
+    setGameState,
+    pendingSimulationCommit,
+  });
+
+  const [webglAvailable] = useState(() => hasWebGLSupport());
+  const [cityPulseDelta, setCityPulseDelta] = useState<CityPulseDelta>({ population: 0, money: 0, income: 0, expenses: 0, happiness: 0, congestion: 0, commute: 0 });
+  const [trafficComparison, setTrafficComparison] = useState<TrafficBeforeAfter | null>(null);
+
   const nightFactor = useMemo(() => {
     if (settings.dayNightCycle === 'locked_night') return 1;
     if (settings.dayNightCycle === 'locked_day' || settings.dayNightCycle === 'disabled') return 0;
     return getNightFactor(gameState.timeOfDay ?? 6);
   }, [gameState.timeOfDay, settings.dayNightCycle]);
-
-  useEffect(() => {
-    let active = true;
-    void saveRepository.load('autosave')
-      .then((save) => {
-        if (active) setHasAutosave(Boolean(save?.gameState));
-      })
-      .catch(() => {
-        if (active) setHasAutosave(false);
-      });
-    return () => { active = false; };
-  }, []);
 
   useEffect(() => {
     const handleError = (event: ErrorEvent) => recordDiagnosticError(event.error ?? event.message, 'WINDOW_ERROR');
@@ -219,6 +258,27 @@ export default function App() {
     setGameState((current) => current.featureSet === featureSet ? current : { ...current, featureSet });
   }, [settings.experimentalFeatures]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (cameraFocus) {
+          setCameraFocus(null);
+        } else if (selectedTile) {
+          setSelectedTile(null);
+        } else if (activeTool !== 'POINTER') {
+          setActiveTool('POINTER');
+          setDragStart(null);
+          setTransitLineDraft([]);
+          setDistrictPlacementConfig(null);
+        } else if (panel) {
+          setPanel(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cameraFocus, selectedTile, activeTool, panel, setCameraFocus, setSelectedTile, setActiveTool, setDragStart, setTransitLineDraft, setDistrictPlacementConfig, setPanel]);
+
   const commitTransitLine = useCallback(() => {
     if (activeTool !== 'TRANSIT_LINE' || transitLineDraft.length < 2) return;
     const first = gameState.grid[transitLineDraft[0][1]]?.[transitLineDraft[0][0]];
@@ -227,7 +287,9 @@ export default function App() {
 
     const line: TransitLine = {
       id: `line-${gameState.day}-${(gameState.transitLines?.length ?? 0) + 1}-${transitLineDraft.map(([x, y]) => `${x}-${y}`).join('_')}`,
-      name: `${mode === 'BUS' ? 'Bus' : 'Tram'} Line ${(gameState.transitLines?.length ?? 0) + 1}`,
+      name: settings.language === 'en'
+        ? `${mode === 'BUS' ? 'Bus' : 'Tram'} Line ${(gameState.transitLines?.length ?? 0) + 1}`
+        : `${mode === 'BUS' ? 'Jalur Bus' : 'Jalur Trem'} ${(gameState.transitLines?.length ?? 0) + 1}`,
       mode,
       stops: transitLineDraft.map(([x, y]) => [x, y]),
       frequency: mode === 'TRAM' ? 6 : 8,
@@ -247,14 +309,14 @@ export default function App() {
     setNotifications((items) => [{
       id: `line-created-${line.id}`,
       type: 'milestone' as const,
-      title: 'Transit Line Dibuat',
-      message: `${line.name} aktif dengan ${line.stops.length} stop.`,
+      title: settings.language === 'en' ? 'Transit Line Created' : 'Jalur Transit Dibuat',
+      message: settings.language === 'en' ? `${line.name} is active with ${line.stops.length} stops.` : `${line.name} aktif dengan ${line.stops.length} pemberhentian.`,
       timestamp: `Hari ${gameState.day}`,
       unread: true,
     }, ...items].slice(0, 30));
     setTransitLineDraft([]);
     setActiveTool('POINTER');
-  }, [activeTool, gameState.day, gameState.grid, gameState.transitLines, recordEdit, transitLineDraft]);
+  }, [activeTool, gameState.day, gameState.grid, gameState.transitLines, recordEdit, settings.language, transitLineDraft]);
 
   const handleRemoveTransitLine = useCallback((lineId: string) => {
     if (!(gameState.transitLines ?? []).some((line) => line.id === lineId)) return;
@@ -266,12 +328,12 @@ export default function App() {
     setNotifications((items) => [{
       id: `line-removed-${lineId}-${Date.now()}`,
       type: 'event' as const,
-      title: 'Transit Line Dihapus',
-      message: 'Jadwal line telah dihapus dari jaringan transit kota.',
+      title: settings.language === 'en' ? 'Transit Line Removed' : 'Jalur Transit Dihapus',
+      message: settings.language === 'en' ? 'The line schedule was removed from the city transit network.' : 'Jadwal jalur telah dihapus dari jaringan transit kota.',
       timestamp: `Hari ${gameState.day}`,
       unread: true,
     }, ...items].slice(0, 30));
-  }, [gameState, recordEdit]);
+  }, [gameState, recordEdit, settings.language]);
 
   const handleToggleTransitLine = useCallback((lineId: string) => {
     if (!(gameState.transitLines ?? []).some((line) => line.id === lineId)) return;
@@ -297,44 +359,6 @@ export default function App() {
     }, createSimulationCommand('UPDATE_TRANSIT_LINE', current.day, { lineId, patch })));
   }, [gameState, recordEdit]);
 
-  // Scheduler state stays outside CityState/save files. Under load it slows the
-  // wall-clock cadence and requests reduced rendering before changing any
-  // deterministic simulation rule.
-  useEffect(() => {
-    if (speed === 0) return undefined;
-    let timer = 0;
-    let cancelled = false;
-    const runTick = () => {
-      setGameState((current) => {
-        const simulationStartedAt = performance.now();
-        let next = current;
-        const requestedTicks = schedulerTelemetry.ticksPerInterval;
-        for (let i = 0; i < requestedTicks; i += 1) next = simulateTick(next, settings);
-        const elapsedMs = performance.now() - simulationStartedAt;
-        lastSimulationTickMs.current = elapsedMs;
-        lastSimulationPhaseTimings.current = getLastSimulationPhaseTimings();
-        const scheduled = observeSimulationTick(simulationScheduler.current, elapsedMs, next.population, speed);
-        simulationScheduler.current = scheduled.state;
-        setSchedulerTelemetry((previous) => (
-          previous.rollingP95Ms === scheduled.telemetry.rollingP95Ms
-            && previous.qualityTier === scheduled.telemetry.qualityTier
-            && previous.intervalMs === scheduled.telemetry.intervalMs
-            ? previous
-            : scheduled.telemetry
-        ));
-        handleQualityHint(scheduled.telemetry.qualityTier);
-        pendingSimulationCommit.current = { previous: current, next };
-        return next;
-      });
-      if (!cancelled) timer = window.setTimeout(runTick, schedulerTelemetry.intervalMs);
-    };
-    timer = window.setTimeout(runTick, schedulerTelemetry.intervalMs);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [handleQualityHint, schedulerTelemetry.intervalMs, schedulerTelemetry.ticksPerInterval, settings, speed]);
-
   // React state updaters must stay pure. Process simulation side effects only
   // after the committed state is visible, which also prevents StrictMode from
   // duplicating notifications and autosaves.
@@ -353,18 +377,38 @@ export default function App() {
       congestion: next.congestionIndex - previous.congestionIndex,
       commute: next.averageCommuteTime - previous.averageCommuteTime,
     });
-    if (settings.autosave && next.day % 10 === 0 && lastAutosaveDay.current !== next.day) {
-      lastAutosaveDay.current = next.day;
-      void saveGameAsync('autosave', next, 'Skyline Metropolis').catch((error) => {
-        recordDiagnosticError(error, 'AUTOSAVE_WRITE_ERROR');
+    const trafficInterventions = new Set([
+      'BUILD_ROAD', 'DEMOLISH_TILE', 'REPAIR_ROAD', 'SET_SIGNAL',
+      'CREATE_TRANSIT_LINE', 'REMOVE_TRANSIT_LINE', 'TOGGLE_TRANSIT_LINE', 'UPDATE_TRANSIT_LINE',
+    ]);
+    const intervention = (previous.commandQueue ?? []).find((command) => trafficInterventions.has(command.type));
+    if (intervention) {
+      setTrafficComparison({
+        day: next.day,
+        intervention: intervention.type,
+        before: {
+          congestion: previous.congestionIndex,
+          commute: previous.averageCommuteTime,
+          queue: previous.averageQueuePressure ?? 0,
+          carTrips: (previous.activeTrips ?? []).filter((trip) => trip.mode === 'CAR').length,
+        },
+        after: {
+          congestion: next.congestionIndex,
+          commute: next.averageCommuteTime,
+          queue: next.averageQueuePressure ?? 0,
+          carTrips: (next.activeTrips ?? []).filter((trip) => trip.mode === 'CAR').length,
+        },
       });
     }
+    handleAutosaveOnTick(next);
     const addNotification = (item: NotificationItem) => {
       setNotifications((items) => items.some((existing) => existing.id === item.id)
         ? items
         : [item, ...items].slice(0, 30));
     };
     if (next.milestoneLevel > previous.milestoneLevel) {
+      setMilestoneCelebration(next.milestoneLevel);
+      playSound('success');
       addNotification({
         id: `milestone-${next.milestoneLevel}-${next.day}`,
         type: 'milestone',
@@ -384,13 +428,29 @@ export default function App() {
         unread: true,
       });
     }
+    const previousStoryIds = new Set((previous.citizenStoryState?.history ?? []).map((story) => story.id));
+    const newStories = (next.citizenStoryState?.history ?? []).filter((story) => !previousStoryIds.has(story.id));
+    for (const story of newStories) {
+      addNotification({
+        id: story.id,
+        type: story.status === 'RESOLVED' ? 'mission' : 'population',
+        title: story.title,
+        message: `${story.summary} ${story.status === 'RESOLVED' ? story.impact : `Pilihan: ${story.choice}`}`,
+        timestamp: `Hari ${story.day}`,
+        unread: true,
+        location: story.location,
+      });
+    }
     const previousIncidentIds = new Set((previous.incidents ?? []).map((incident) => incident.id));
     const newIncidents = (next.incidents ?? []).filter((incident) => !previousIncidentIds.has(incident.id));
+    if (newIncidents.length > 0) {
+      playSound('siren');
+    }
     for (const incident of newIncidents) {
       addNotification({
         id: `incident-${incident.id}`,
         type: 'event',
-        title: `Dispatch ${incident.type}`,
+        title: `Respons ${incident.type}`,
         message: `Insiden severity ${incident.severity} terdeteksi di (${incident.x}, ${incident.y}). Unit layanan sedang merespons.`,
         timestamp: `Hari ${next.day}`,
         unread: true,
@@ -399,6 +459,9 @@ export default function App() {
     }
     const previousDisasterIds = new Set((previous.disasters ?? []).map((disaster) => disaster.id));
     const newDisasters = (next.disasters ?? []).filter((disaster) => !previousDisasterIds.has(disaster.id));
+    if (newDisasters.length > 0) {
+      playSound('warning');
+    }
     for (const disaster of newDisasters) {
       addNotification({
         id: `disaster-${disaster.id}`,
@@ -410,15 +473,12 @@ export default function App() {
         location: { x: disaster.centerX, y: disaster.centerY },
       });
     }
-  }, [gameState, settings.autosave]);
+    if (next.weather === 'RAIN' && previous.weather !== 'RAIN') {
+      playSound('rain');
+    }
+  }, [gameState, playSound, settings.autosave]);
 
-  const cancelTileInteraction = useCallback(() => {
-    setActiveTool('POINTER');
-    setTransitLineDraft([]);
-    setDistrictPlacementConfig(null);
-    setDragStart(null);
-    setHoveredPos(null);
-  }, []);
+
 
   // Keyboard shortcut bindings
   useEffect(() => {
@@ -559,7 +619,7 @@ export default function App() {
         totalPlacementCost: cost,
         previewValidCount: validCount,
         previewBlockedCount: blockedCount,
-        previewReason: valid ? 'Semua tile valid · endpoint tersambung' : firstBlockedReason,
+        previewReason: valid ? 'Semua petak valid · ujung jalur tersambung' : firstBlockedReason,
       };
     }
 
@@ -768,8 +828,8 @@ export default function App() {
         setNotifications((items) => [{
           id: `line-stop-${Date.now()}`,
           type: 'event' as const,
-          title: 'Stop Transit Tidak Valid',
-          message: 'Line Planner menerima depot/station utama atau halte mode yang sesuai sebagai stop.',
+        title: 'Pemberhentian Transit Tidak Valid',
+        message: 'Perencana Rute menerima depo/stasiun utama atau halte mode yang sesuai sebagai pemberhentian.',
           timestamp: `Hari ${gameState.day}`,
           unread: true,
         }, ...items].slice(0, 30));
@@ -780,8 +840,8 @@ export default function App() {
         setNotifications((items) => [{
           id: `line-stop-unavailable-${Date.now()}`,
           type: 'event' as const,
-          title: 'Stop Transit Belum Siap',
-          message: 'Stop harus memakai teknologi yang sudah terbuka dan memiliki aliran listrik.',
+        title: 'Pemberhentian Transit Belum Siap',
+        message: 'Pemberhentian harus memakai teknologi yang sudah terbuka dan memiliki aliran listrik.',
           timestamp: `Hari ${gameState.day}`,
           unread: true,
         }, ...items].slice(0, 30));
@@ -794,8 +854,8 @@ export default function App() {
         setNotifications((items) => [{
           id: `line-stop-road-${Date.now()}`,
           type: 'event' as const,
-          title: 'Stop Belum Terhubung Jalan',
-          message: 'Setiap depot atau stasiun dalam line harus menyentuh jalan.',
+        title: 'Pemberhentian Belum Terhubung Jalan',
+        message: 'Setiap depo atau stasiun dalam jalur harus menyentuh jalan.',
           timestamp: `Hari ${gameState.day}`,
           unread: true,
         }, ...items].slice(0, 30));
@@ -812,7 +872,7 @@ export default function App() {
             id: `line-mode-${Date.now()}`,
             type: 'event' as const,
             title: 'Mode Transit Berbeda',
-            message: 'Satu line harus memakai stop bus atau stop tram yang konsisten.',
+        message: 'Satu jalur harus memakai pemberhentian bus atau trem yang konsisten.',
             timestamp: `Hari ${gameState.day}`,
             unread: true,
           }, ...items].slice(0, 30));
@@ -996,8 +1056,8 @@ export default function App() {
         type: 'event' as const,
         title: 'Teknologi Transit Terkunci',
         message: requiredUpgrade === 'bus_network'
-          ? 'Unlock Bus Network di Tech Tree sebelum membangun depot bus.'
-          : 'Unlock Tram System di Tech Tree sebelum membangun stasiun trem.',
+          ? 'Buka Jaringan Bus di Pohon Teknologi sebelum membangun depo bus.'
+          : 'Buka Sistem Trem di Pohon Teknologi sebelum membangun stasiun trem.',
         timestamp: `Hari ${gameState.day}`,
         unread: true,
       }, ...items].slice(0, 30));
@@ -1032,7 +1092,7 @@ export default function App() {
           id: `pump-warn-${Date.now()}`,
           type: 'event' as const,
           title: 'Lokasi Pompa Tidak Valid',
-          message: 'Water Pump harus dibangun di daratan yang bersentuhan langsung dengan perairan/sungai.',
+          message: 'Pompa air harus dibangun di daratan yang bersentuhan langsung dengan perairan/sungai.',
           timestamp: `Hari ${gameState.day}`,
           unread: true,
         }, ...items].slice(0, 30));
@@ -1291,6 +1351,14 @@ export default function App() {
     }, ...items].slice(0, 30));
   };
 
+  const handlePreparationAction = useCallback((action: import('./disasterPreparation').PreparationAction, enabled: boolean) => {
+    setGameState((current) => queueSimulationCommand(current, createSimulationCommand('SET_DISASTER_PREPARATION', current.day, { action, enabled })));
+  }, []);
+
+  const handleCampaignStyle = useCallback((style: import('./campaigns').CityStyleGoal) => {
+    setGameState((current) => queueSimulationCommand(current, createSimulationCommand('SET_CAMPAIGN_STYLE', current.day, { style })));
+  }, []);
+
   const handleCreateTradeContract = useCallback((commodity: FreightCommodity, direction: 'IMPORT' | 'EXPORT') => {
     const fee = direction === 'IMPORT' ? 180 : 120;
     if (gameState.money < fee) return;
@@ -1315,6 +1383,10 @@ export default function App() {
   }, [gameState, recordEdit]);
 
   const resetCity = () => {
+    setTutorialSessionKey(`new:${Date.now()}`);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('skyline:reset-onboarding'));
+    }
     setGameState(createNewState(settings.difficulty));
     undoStack.current = [];
     redoStack.current = [];
@@ -1322,6 +1394,8 @@ export default function App() {
     setSelectedTile(null);
     setCameraFocus(null);
     setCameraViewMode('3D');
+    setRendererMode('3d');
+    setRendererFailure(false);
     setCameraZoom(1.25);
     setCameraRotation(0);
     setPanel(null);
@@ -1343,6 +1417,7 @@ export default function App() {
   const continueAutosave = async () => {
     const loaded = await saveRepository.load('autosave');
     if (loaded?.gameState) {
+      setTutorialSessionKey('save:autosave');
       setGameState({
         ...loaded.gameState,
         unlockedRegions: loaded.gameState.unlockedRegions ?? ['1,1'],
@@ -1389,6 +1464,7 @@ export default function App() {
     ? (gameState.recoveryProjects ?? []).some((project) => project.active && project.tiles.some(([x, y]) => x === selected.x && y === selected.y))
     : false;
 
+
   const transitLineInsights = useMemo(() => calculateTransitLineInsights({
     grid: gameState.grid,
     lines: gameState.transitLines ?? [],
@@ -1413,6 +1489,7 @@ export default function App() {
   }), [gameState]);
 
   const cityInfoProps = useMemo(() => ({
+    grid: gameState.grid,
     isOpen: panel === 'city',
     onClose: () => setPanel(null),
     language: settings.language,
@@ -1474,6 +1551,9 @@ export default function App() {
     averageCommuteTime: gameState.averageCommuteTime,
     congestionIndex: gameState.congestionIndex,
     averageQueuePressure: gameState.averageQueuePressure ?? 0,
+    activeTrips: gameState.activeTrips ?? [],
+    activeFreightTrips: gameState.activeFreightTrips ?? [],
+    trafficComparison,
     happiness: gameState.happiness,
     crimeRate: gameState.crimeRate,
     fireSafety: gameState.fireSafety,
@@ -1555,6 +1635,7 @@ export default function App() {
     history: gameState.history,
     demographics: gameState.demographics,
     causalDiagnostics: gameState.causalDiagnostics ?? [],
+    citizenStories: gameState.citizenStoryState?.history ?? [],
     regions: gameState.regions ?? {},
     activeRegionKeys: gameState.activeRegionKeys ?? gameState.unlockedRegions ?? [],
     recoveryProjects: gameState.recoveryProjects ?? [],
@@ -1566,10 +1647,19 @@ export default function App() {
     activeScenarioId: gameState.activeScenarioId,
     scenarioCompleted: gameState.scenarioCompleted,
     specialization: gameState.specialization,
-  }), [gameState, handleRemoveTransitLine, handleToggleTransitLine, handleUpdateTransitLine, panel, settings.language]);
+    neighborhoodIdentities: gameState.neighborhoodIdentityState?.identities ?? [],
+    disasterPreparation: gameState.disasterPreparationState,
+    onPreparationAction: handlePreparationAction,
+    policyConsequences: gameState.policyConsequences ?? [],
+    cityHistory: gameState.cityHistoryState?.events ?? [],
+    campaignEvaluation: gameState.campaignEvaluation,
+    campaignStyleGoal: gameState.campaignStyleGoal,
+    onCampaignStyleChange: handleCampaignStyle,
+  }), [gameState, handleCampaignStyle, handlePreparationAction, handleRemoveTransitLine, handleToggleTransitLine, handleUpdateTransitLine, panel, settings.language, trafficComparison]);
 
-  const nextAction = useMemo(() => getCoreLoopAdvice(gameState, speed), [gameState, speed]);
-  const handleNextAction = useCallback((advice: ReturnType<typeof getCoreLoopAdvice>) => {
+  const nextAction = useMemo(() => getNextActionModel(gameState, speed), [gameState, speed]);
+  const handleNextAction = useCallback((advice: NextActionModel) => {
+    if (advice.targetTile) setCameraFocus(advice.targetTile);
     if (advice.action.kind === 'SPEED') {
       setSpeed(advice.action.speed);
       return;
@@ -1594,7 +1684,20 @@ export default function App() {
       return;
     }
     setPanel('city');
-  }, [focusLocation]);
+  }, [focusLocation, setCameraFocus]);
+
+  const handleViewModeChange = useCallback((mode: '2D' | '3D') => {
+    setCameraViewMode(mode);
+    setRendererMode(mode === '2D' ? '2d' : '3d');
+    setRendererFailure(false);
+    if (mode === '2D') setSelectedTile(null);
+  }, [setCameraViewMode, setRendererFailure, setRendererMode, setSelectedTile]);
+
+  const handleResetCamera = useCallback(() => {
+    resetCamera();
+    setRendererMode('3d');
+    setRendererFailure(false);
+  }, [resetCamera, setRendererFailure, setRendererMode]);
 
   return (
     <main className={`app-shell ui-scale-${settings.uiScale ?? 'medium'} ${settings.reducedMotion ? 'reduced-motion' : ''} ${settings.highContrast ? 'accessibility-high-contrast' : ''} colorblind-${settings.colorblindMode ?? 'none'}`}>
@@ -1604,12 +1707,40 @@ export default function App() {
           onContinue={continueAutosave}
           onLoad={() => { dismissStartScreen(); setPanel('save'); }}
           onSettings={() => { dismissStartScreen(); setPanel('settings'); }}
+          onClose={dismissStartScreen}
           language={settings.language}
           canContinue={hasAutosave}
         />
       )}
       <div className="app-world">
+        {rendererMode === '2d' ? (
+          <City2DCanvas
+            grid={gameState.grid}
+            activeTool={activeTool}
+            focusTile={cameraFocus}
+            tutorialHighlight={tutorialHighlight}
+            activeOverlay={activeOverlay}
+            unlockedRegions={gameState.unlockedRegions}
+            onTileClick={handleTileClick}
+            onTilePointerEnter={handlePointerEnter}
+            onTilePointerLeave={handlePointerLeave}
+          />
+        ) : !webglAvailable || rendererFailure ? (
+          <WebGLFallback
+            kind={getRendererFallbackKind(webglAvailable, rendererReady)}
+            onUse2D={() => setRendererMode('2d')}
+          />
+        ) : (
+          <RendererFailureBoundary
+            rendererWasReady={rendererReady}
+            onFailure={(_error, wasReady) => {
+              setRendererReady(wasReady);
+              setRendererFailure(true);
+            }}
+          >
+            <Suspense fallback={<div className="renderer-loading" role="status">Menyiapkan tampilan 3D…</div>}>
         <City3DCanvas
+          selectedTile={selectedTile}
           grid={gameState.grid}
           activeTool={activeTool}
           activeRoadClass={activeRoadClass}
@@ -1645,7 +1776,12 @@ export default function App() {
           cameraZoom={cameraZoom}
           cameraRotation={cameraRotation}
           onCameraRotationChange={setCameraRotation}
+          tutorialHighlight={tutorialHighlight}
+          onRendererReady={() => setRendererReady(true)}
         />
+            </Suspense>
+          </RendererFailureBoundary>
+        )}
       </div>
 
       <div className="app-ui">
@@ -1654,8 +1790,6 @@ export default function App() {
           money={gameState.money}
           income={gameState.income}
           expenses={gameState.expenses}
-          speed={speed}
-          setSpeed={(value) => setSpeed(Math.max(0, Math.min(3, value)) as 0 | 1 | 2 | 3)}
           day={gameState.day}
           timeOfDay={gameState.timeOfDay ?? 6}
           milestoneLevel={gameState.milestoneLevel}
@@ -1671,16 +1805,15 @@ export default function App() {
           onOpenSaveLoad={() => setPanel('save')}
           onOpenSettings={() => setPanel('settings')}
           onNewGame={resetCity}
-          nextAction={gameState.day <= 1 ? nextAction : undefined}
-          onNextAction={handleNextAction}
+          language={settings.language}
         />
 
         {activeTool === 'TRANSIT_LINE' && (
           <div className="absolute top-20 left-1/2 -translate-x-1/2 z-40 rounded-xl border border-emerald-400/30 bg-[#0f172a]/95 px-4 py-3 text-xs text-white shadow-xl backdrop-blur-md">
-            <div className="font-bold text-emerald-300">Transit Line Planner</div>
-            <div className="text-slate-300">Klik depot/station berurutan · Stop: {transitLineDraft.length} · Enter untuk simpan · Esc untuk batal</div>
+            <div className="font-bold text-emerald-300">{settings.language === 'en' ? 'Transit Line Planner' : 'Perencana Jalur Transit'}</div>
+            <div className="text-slate-300">{settings.language === 'en' ? `Click depots/stations in order · Stops: ${transitLineDraft.length} · Enter to save · Esc to cancel` : `Klik depo/stasiun berurutan · Pemberhentian: ${transitLineDraft.length} · Enter untuk simpan · Esc untuk batal`}</div>
             <button type="button" disabled={transitLineDraft.length < 2} onClick={commitTransitLine} className="mt-2 rounded-lg bg-emerald-500/20 px-3 py-1.5 font-semibold text-emerald-200 disabled:opacity-40">
-              Simpan Line
+              {settings.language === 'en' ? 'Save Line' : 'Simpan Jalur'}
             </button>
           </div>
         )}
@@ -1688,13 +1821,13 @@ export default function App() {
         {previewTiles.length > 0 && (activeTool === TileType.ROAD || activeTool === 'TUNNEL_ROAD' || isZoningTool(activeTool)) && (
           <div className={`absolute bottom-28 left-1/2 z-40 -translate-x-1/2 rounded-xl border px-3 py-2 text-[11px] shadow-xl backdrop-blur-md ${previewColor === 'green' ? 'border-emerald-400/30 bg-emerald-950/90 text-emerald-100' : 'border-red-400/30 bg-red-950/90 text-red-100'}`}>
             <div className="flex items-center gap-3">
-              <span>{previewValidCount}/{previewTiles.length} tile valid</span>
+              <span>{previewValidCount}/{previewTiles.length} petak valid</span>
               <span>Biaya <b>${totalPlacementCost.toLocaleString()}</b></span>
               <span>Kapasitas ±{previewValidCount * (activeTool === TileType.ROAD || activeTool === 'TUNNEL_ROAD' ? 4 : activeTool === 'RESIDENTIAL_HIGH' ? 24 : activeTool === 'RESIDENTIAL_MEDIUM' ? 15 : 10)}</span>
               <span className="font-bold">{previewColor === 'green' ? 'Siap dibangun' : 'Lokasi tidak valid'}</span>
             </div>
             <div className="mt-1 flex items-center gap-2 text-[10px] opacity-85">
-              {previewBlockedCount > 0 && <span>{previewBlockedCount} tile terhalang</span>}
+              {previewBlockedCount > 0 && <span>{previewBlockedCount} petak terhalang</span>}
               {previewReason && <span>{previewReason}</span>}
             </div>
             {previewForecast && (
@@ -1736,20 +1869,26 @@ export default function App() {
         }}
           unlockedUpgrades={gameState.unlockedUpgrades}
           language={settings.language}
+          population={gameState.population}
+          milestoneLevel={gameState.milestoneLevel}
         />
-        <InfoViewsToolbar activeOverlay={activeOverlay} onSelectOverlay={setActiveOverlay} />
         <CameraToolbar
-          viewMode={cameraViewMode}
+          viewMode={rendererMode === '2d' ? '2D' : cameraViewMode}
           zoom={cameraZoom}
           rotation={cameraRotation}
           hasFocus={Boolean(selected)}
-          onViewModeChange={setCameraViewMode}
+          hasCameraFocus={Boolean(cameraFocus)}
+          onViewModeChange={handleViewModeChange}
           onZoomChange={setCameraZoom}
           onRotationChange={setCameraRotation}
           onFocusSelected={() => selected && setCameraFocus([selected.x, selected.y])}
-          onReset={() => { setCameraFocus(null); setCameraViewMode('3D'); setCameraZoom(1.25); setCameraRotation(0); }}
+          onCancelFocus={() => setCameraFocus(null)}
+          onReset={handleResetCamera}
         />
-        <NotificationToast gameState={gameState} />
+        {(gameState.day > 1 || gameState.population > 0) && (
+          <InfoViewsToolbar activeOverlay={activeOverlay} onSelectOverlay={setActiveOverlay} language={settings.language} />
+        )}
+        <NotificationToast gameState={gameState} language={settings.language} />
         <PerformanceOverlay
           state={gameState}
           speed={speed}
@@ -1759,12 +1898,13 @@ export default function App() {
           schedulerTelemetry={schedulerTelemetry}
           adaptiveQuality={settings.adaptiveQuality ?? true}
           onQualityHint={handleQualityHint}
-          enabled={Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) || new URLSearchParams(window.location.search).get('debug') === '1'}
+          enabled={typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === '1'}
         />
         {(gameState.day > 1 || (gameState.causalDiagnostics?.length ?? 0) > 0) && (
           <CityPulse
             day={gameState.day}
             diagnostics={gameState.causalDiagnostics ?? []}
+            citizenStory={gameState.citizenStoryState?.history.at(-1)}
             delta={cityPulseDelta}
             onOpenInfo={() => setPanel('city')}
             onFocusLocation={focusLocation}
@@ -1775,6 +1915,7 @@ export default function App() {
           isOpen={notificationOpen}
           onClose={() => setNotificationOpen(false)}
           notifications={notifications}
+          language={settings.language}
           onMarkAllRead={markAllRead}
           onClearHistory={clearNotifications}
           onSelectLocation={({ x, y }) => {
@@ -1786,10 +1927,20 @@ export default function App() {
 
         {/* Step-by-Step Onboarding Starter Tutorial */}
         <StarterTutorial
+          key={tutorialSessionKey}
           gameState={gameState}
           speed={speed}
+          hasCameraFocus={Boolean(cameraFocus)}
           onSetSpeed={setSpeed}
           onSelectTool={setActiveTool}
+          onFocusTile={setCameraFocus}
+          onHighlightChange={setTutorialHighlight}
+          onEmergencyGrant={handleEmergencyGrant}
+          onResetCamera={() => { setCameraFocus(null); setCameraZoom(1.25); setCameraRotation(0); }}
+          onOpenPolicies={() => setPanel('policies')}
+          tutorialSessionKey={tutorialSessionKey}
+          nextAction={nextAction}
+          onNextAction={handleNextAction}
         />
 
         {/* Bottom Simulation Bar */}
@@ -1814,6 +1965,7 @@ export default function App() {
         {/* Diagnostic Building & Tile Inspector */}
         <BuildingInspector
           tile={selected}
+          language={settings.language}
           onFocus={(x, y) => setCameraFocus([x, y])}
           serviceDepotCondition={selectedDepotCondition}
           maintenanceOrderActive={selectedMaintenanceOrderActive}
@@ -1836,6 +1988,8 @@ export default function App() {
         />
       </div>
 
+      <MilestoneBanner milestone={milestoneCelebration === null ? null : MILESTONES[milestoneCelebration] ?? null} onClose={() => setMilestoneCelebration(null)} />
+      <Suspense fallback={null}>
       <CityInformationPanel {...cityInfoProps} />
       <TreasuryModal 
         isOpen={panel === 'treasury'} 
@@ -1845,27 +1999,31 @@ export default function App() {
         onCreateTradeContract={handleCreateTradeContract}
         experimentalFeatures={settings.experimentalFeatures ?? false}
       />
-      <TechTreeModal 
+      <TechTreeModal
         isOpen={panel === 'tech'} 
         onClose={() => setPanel(null)} 
         money={gameState.money} 
         unlockedUpgrades={gameState.unlockedUpgrades} 
         milestoneLevel={gameState.milestoneLevel} 
-        onUnlockTech={handleUnlockTech} 
+        onUnlockTech={handleUnlockTech}
+        language={settings.language}
       />
-      <PoliciesModal 
+      <PoliciesModal
         isOpen={panel === 'policies'} 
         onClose={() => setPanel(null)} 
         milestoneLevel={gameState.milestoneLevel} 
         activePolicies={gameState.activePolicies} 
         onTogglePolicy={handleTogglePolicy} 
+        language={settings.language}
       />
       <DistrictsModal
         isOpen={panel === 'districts'}
         onClose={() => setPanel(null)}
         districts={gameState.districts ?? []}
+        identities={gameState.neighborhoodIdentityState?.identities ?? []}
         onStartPlacement={handleStartDistrictPlacement}
         onRemoveDistrict={handleRemoveDistrict}
+        language={settings.language}
       />
       <MissionsModal 
         isOpen={panel === 'missions'} 
@@ -1873,12 +2031,14 @@ export default function App() {
         gameState={gameState} 
         onClaimReward={handleClaimMission} 
         onStartScenario={handleStartScenario}
+        language={settings.language}
       />
       <SaveLoadModal 
         isOpen={panel === 'save'} 
         onClose={() => setPanel(null)} 
         gameState={gameState} 
-        onLoadState={(state) => {
+        onLoadState={(state, slotId) => {
+          setTutorialSessionKey(`save:${slotId ?? 'loaded'}`);
           undoStack.current = [];
           redoStack.current = [];
           setGameState({
@@ -1890,6 +2050,7 @@ export default function App() {
           setCityPulseDelta({ population: 0, money: 0, income: 0, expenses: 0, happiness: 0, congestion: 0, commute: 0 });
         }} 
         onNewGame={resetCity} 
+        language={settings.language}
       />
       <SettingsModal 
         isOpen={panel === 'settings'} 
@@ -1898,6 +2059,7 @@ export default function App() {
         onUpdateSettings={setSettings}
         gameState={gameState}
       />
+      </Suspense>
     </main>
   );
 }

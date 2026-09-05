@@ -1,9 +1,11 @@
 import React, { useMemo } from 'react';
 import { CityState, TileType } from '../types';
 import { AlertTriangle, ZapOff, Droplets, Factory, ShieldAlert, HeartPulse } from 'lucide-react';
+import type { SupportedLanguage } from '../localization';
 
 interface NotificationToastProps {
   gameState: CityState;
+  language?: SupportedLanguage;
 }
 
 export interface CityAlert {
@@ -14,17 +16,30 @@ export interface CityAlert {
   icon: React.ReactNode;
 }
 
-export function NotificationToast({ gameState }: NotificationToastProps) {
+export function NotificationToast({ gameState, language = 'id' }: NotificationToastProps) {
   const alerts = useMemo(() => {
     const list: CityAlert[] = [];
+    const copy = language === 'en' ? {
+      powerTitle: 'Power Grid Overloaded', powerMessage: (value: number) => `${value} MW capacity deficit. Build power plants.`,
+      waterTitle: 'Water Supply Shortage', waterMessage: (value: number) => `${value} gal deficit. Construct water pumps.`,
+      pollutionTitle: 'High City Pollution', pollutionMessage: (value: number) => `Average AQI is ${value}. Plant parks to filter toxic zones.`,
+      unemploymentTitle: 'Unemployment Spike', unemploymentMessage: (value: number) => `${value}% of citizens are seeking work. Zone commercial or industrial areas.`,
+      crimeTitle: 'Crime Wave Detected', crimeMessage: (value: number) => `Crime rate at ${value}%. Deploy police stations.`,
+    } : {
+      powerTitle: 'Jaringan Listrik Kelebihan Beban', powerMessage: (value: number) => `Defisit kapasitas ${value} MW. Bangun pembangkit listrik.`,
+      waterTitle: 'Kekurangan Pasokan Air', waterMessage: (value: number) => `Defisit ${value} gal. Bangun pompa air.`,
+      pollutionTitle: 'Polusi Kota Tinggi', pollutionMessage: (value: number) => `Rata-rata AQI ${value}. Tanam taman untuk menyaring zona beracun.`,
+      unemploymentTitle: 'Lonjakan Pengangguran', unemploymentMessage: (value: number) => `${value}% warga mencari pekerjaan. Zonakan area komersial atau industri.`,
+      crimeTitle: 'Gelombang Kejahatan Terdeteksi', crimeMessage: (value: number) => `Tingkat kriminalitas ${value}%. Bangun kantor polisi.`,
+    };
 
     // Check for power shortage
     if (gameState.powerCapacity < gameState.powerDemand && gameState.powerDemand > 0) {
       list.push({
         id: 'power-shortage',
         type: 'error',
-        title: 'Power Grid Overloaded',
-        message: `${gameState.powerDemand - gameState.powerCapacity} MW capacity deficit. Build Power Plants.`,
+        title: copy.powerTitle,
+        message: copy.powerMessage(gameState.powerDemand - gameState.powerCapacity),
         icon: <ZapOff size={16} className="text-amber-400" />,
       });
     }
@@ -34,8 +49,8 @@ export function NotificationToast({ gameState }: NotificationToastProps) {
       list.push({
         id: 'water-shortage',
         type: 'error',
-        title: 'Water Supply Shortage',
-        message: `${gameState.waterDemand - gameState.waterCapacity} gal deficit. Construct Water Pumps.`,
+        title: copy.waterTitle,
+        message: copy.waterMessage(gameState.waterDemand - gameState.waterCapacity),
         icon: <Droplets size={16} className="text-cyan-400" />,
       });
     }
@@ -45,8 +60,8 @@ export function NotificationToast({ gameState }: NotificationToastProps) {
       list.push({
         id: 'high-pollution',
         type: 'warning',
-        title: 'High City Pollution',
-        message: `Average AQI is ${gameState.pollutionAverage}. Plant Parks to filter toxic zones.`,
+        title: copy.pollutionTitle,
+        message: copy.pollutionMessage(gameState.pollutionAverage),
         icon: <Factory size={16} className="text-red-400" />,
       });
     }
@@ -56,8 +71,8 @@ export function NotificationToast({ gameState }: NotificationToastProps) {
       list.push({
         id: 'high-unemployment',
         type: 'warning',
-        title: 'Unemployment Spike',
-        message: `${gameState.unemploymentRate}% citizens seeking work. Zone Commercial or Industrial.`,
+        title: copy.unemploymentTitle,
+        message: copy.unemploymentMessage(gameState.unemploymentRate),
         icon: <AlertTriangle size={16} className="text-yellow-400" />,
       });
     }
@@ -67,14 +82,14 @@ export function NotificationToast({ gameState }: NotificationToastProps) {
       list.push({
         id: 'high-crime',
         type: 'warning',
-        title: 'Crime Wave Detected',
-        message: `Crime rate at ${gameState.crimeRate}%. Deploy Police Stations.`,
+        title: copy.crimeTitle,
+        message: copy.crimeMessage(gameState.crimeRate),
         icon: <ShieldAlert size={16} className="text-purple-400" />,
       });
     }
 
     return list.slice(0, 3); // Show top 3 critical issues
-  }, [gameState]);
+  }, [gameState, language]);
 
   if (alerts.length === 0) return null;
 

@@ -1,5 +1,7 @@
 # Skyline Simulator — Deep Audit
 
+> Historical: audit ini bertanggal 2026-08-22. Untuk status command dan quality gate terbaru, lihat `CURRENT_STATUS_2026-09-05.md`.
+
 Tanggal audit: 2026-08-22
 
 ## Kondisi arsitektur

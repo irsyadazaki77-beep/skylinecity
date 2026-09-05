@@ -380,8 +380,10 @@ export function simulateCityServices(
       : 0;
     const responseFactor = Math.max(0.45, Math.min(1, 1 - averageTraffic / 180 + (facility.responseBonus ?? 0)));
     facility.operationalCapacity = Math.max(1, Math.round(facility.capacity * responseFactor));
-    responseFactorSum += responseFactor;
-    responseFacilityCount += 1;
+    const isEmergencyFacility =
+      facility.type === TileType.FIRE_STATION ||
+      facility.type === TileType.POLICE_STATION ||
+      facility.type === TileType.CLINIC;
     const candidates = new Map<string, { tile: TileData; distance: number }>();
 
     // Find zoned buildings touched by this covered road network. Candidate
@@ -415,6 +417,15 @@ export function simulateCityServices(
           }
         }
       }
+    }
+
+    // Response quality is an emergency-response metric, not a generic service
+    // uptime score. Count only an operational emergency facility that has a
+    // relevant target load in range; schools and waste plants must never make
+    // an otherwise empty emergency network look healthy.
+    if (isEmergencyFacility && candidates.size > 0) {
+      responseFactorSum += responseFactor;
+      responseFacilityCount += 1;
     }
 
     if (capacityService) {
@@ -596,9 +607,11 @@ export function simulateCityServices(
     policeServiceCapacity,
     healthcareCapacity,
     educationCapacity,
+    // Emergency response quality measures active road-connected emergency facilities (fire, police, clinic).
+    // Cities without active emergency facilities report 0 response quality.
     serviceResponseQuality: responseFacilityCount > 0
       ? Math.round((responseFactorSum / responseFacilityCount) * 100)
-      : 100,
+      : 0,
     happiness,
   };
 }

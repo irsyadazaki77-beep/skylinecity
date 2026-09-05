@@ -21,6 +21,26 @@ describe('release readiness foundations', () => {
     expect(bundle.browser.devicePixelRatio).toBeGreaterThan(0);
   });
 
+  it('detects changes across authoritative policy, incident, service, economy, transit, and disaster state', () => {
+    const base = createInitialCityState(createStarterGrid(), 2088);
+    const changes: Array<(state: ReturnType<typeof createInitialCityState>) => void> = [
+      (state) => { state.activePolicies = ['small_biz']; },
+      (state) => { state.incidents = [{ id: 'i-1', type: 'FIRE', x: 1, y: 1, severity: 1, createdDay: 1, remainingDays: 2, roadConnected: true }]; },
+      (state) => { state.serviceResponseQuality = 42; },
+      (state) => { state.happiness = 12; },
+      (state) => { state.income = 999; state.expenses = 333; },
+      (state) => { state.transitRidership = 7; },
+      (state) => { state.disasters = [{ id: 'd-1', type: 'FLOOD', centerX: 2, centerY: 2, radius: 1, severity: 1, createdDay: 1, remainingDays: 3, affectedTiles: 2 }]; },
+      (state) => { state.commandQueue = [{ id: 'cmd-1', type: 'SET_SPEED', issuedDay: 1, payload: { speed: 1 } } as never]; },
+    ];
+
+    for (const change of changes) {
+      const candidate = structuredClone(base);
+      change(candidate);
+      expect(getStateHash(candidate)).not.toBe(getStateHash(base));
+    }
+  });
+
   it('falls back from missing localization keys and supports English catalog', () => {
     const id = createLocalizationCatalog('id');
     const en = createLocalizationCatalog('en');
@@ -29,4 +49,3 @@ describe('release readiness foundations', () => {
     expect(translate(id, 'missing.key')).toBe('missing.key');
   });
 });
-

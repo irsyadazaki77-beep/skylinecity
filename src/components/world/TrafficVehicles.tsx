@@ -3,11 +3,13 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Trip, TransitMode } from '../../citizenSimulation/types';
 import { FreightTrip } from '../../logistics';
-import { CityIncident, ServiceVehicleAgent } from '../../types';
+import { CityIncident, ServiceVehicleAgent, TileData } from '../../types';
 import { TransitVehicleAgent } from '../../transit';
+import { roadHeight } from './visualModel';
 import { gridToWorld } from './types3D';
 
 interface TrafficVehiclesProps {
+  grid: TileData[][];
   trips?: Trip[];
   transitVehicles?: TransitVehicleAgent[];
   freightTrips?: FreightTrip[];
@@ -38,6 +40,7 @@ const VEHICLE_COLORS = [
 ];
 
 export function TrafficVehicles({
+  grid,
   trips = [],
   transitVehicles: lineTransitVehicles = [],
   freightTrips = [],
@@ -204,7 +207,7 @@ export function TrafficVehicles({
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
   useFrame((_, delta) => {
-    if (speed === 0) return;
+
 
     const dt = Math.min(delta, 0.1) * (speed === 1 ? 1 : speed === 2 ? 2 : speed === 3 ? 3.5 : 0);
 
@@ -228,6 +231,7 @@ export function TrafficVehicles({
 
       const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
       const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
+      const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
 
       // Slight lane offset
       const dx = w1x - w0x;
@@ -237,7 +241,7 @@ export function TrafficVehicles({
       const sideX = Math.cos(angle) * 0.12;
       const sideZ = -Math.sin(angle) * 0.12;
 
-      dummy.position.set(curX + sideX, 0.08, curZ + sideZ);
+      dummy.position.set(curX + sideX, curY + 0.08, curZ + sideZ);
       dummy.rotation.set(0, angle, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
@@ -246,7 +250,7 @@ export function TrafficVehicles({
       meshRef.current.setColorAt(i, v.color);
 
       if (headlightMeshRef.current) {
-        dummy.position.set(curX + sideX, 0.09, curZ + sideZ);
+        dummy.position.set(curX + sideX, curY + 0.09, curZ + sideZ);
         dummy.updateMatrix();
         headlightMeshRef.current.setMatrixAt(i, dummy.matrix);
       }
@@ -269,9 +273,10 @@ export function TrafficVehicles({
       const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
       const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
       const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
+      const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
       const angle = Math.atan2(w1x - w0x, w1z - w0z);
 
-      dummy.position.set(curX, 0.13, curZ);
+      dummy.position.set(curX, curY + 0.13, curZ);
       dummy.rotation.set(0, angle, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
@@ -293,8 +298,9 @@ export function TrafficVehicles({
       const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
       const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
       const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
+      const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
       const angle = Math.atan2(w1x - w0x, w1z - w0z);
-      dummy.position.set(curX, 0.14, curZ);
+      dummy.position.set(curX, curY + 0.14, curZ);
       dummy.rotation.set(0, angle, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
@@ -317,8 +323,9 @@ export function TrafficVehicles({
       const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
       const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
       const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
+      const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
       const angle = Math.atan2(w1x - w0x, w1z - w0z);
-      dummy.position.set(curX, 0.16, curZ);
+      dummy.position.set(curX, curY + 0.16, curZ);
       dummy.rotation.set(0, angle, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
@@ -340,8 +347,9 @@ export function TrafficVehicles({
       const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
       const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
       const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
+      const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
       const angle = Math.atan2(w1x - w0x, w1z - w0z);
-      dummy.position.set(curX, 0.2, curZ);
+      dummy.position.set(curX, curY + 0.2, curZ);
       dummy.rotation.set(0, angle, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();

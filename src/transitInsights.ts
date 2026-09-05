@@ -91,14 +91,14 @@ export function calculateTransitLineInsights(context: TransitInsightContext): Tr
     const balance = fareRevenue - operatingCost;
     const recommendations: string[] = [];
 
-    if (!line.active) recommendations.push('Line nonaktif; aktifkan untuk memasukkan kendaraan dan demand ke simulasi.');
-    if (validStops < line.stops.length) recommendations.push(`${line.stops.length - validStops} stop tidak valid: cek listrik, tipe fasilitas, dan koneksi jalan.`);
-    if (validStops >= 2 && catchmentPopulation === 0) recommendations.push('Catchment tidak menjangkau warga; geser stop mendekati kawasan hunian aktif.');
-    if (occupancyPercent >= 85) recommendations.push(`Kepadatan kendaraan ${Math.round(occupancyPercent)}%; tambah kendaraan atau rapatkan headway.`);
-    if (averageWaitMinutes > 10) recommendations.push(`Waktu tunggu ${averageWaitMinutes.toFixed(1)} menit; turunkan frekuensi headway terutama saat peak.`);
-    if (line.active && activeLines.length > 1 && transferStops === 0) recommendations.push('Belum ada transfer stop; bagikan satu stop dengan line lain untuk membentuk jaringan.');
-    if (line.active && balance < 0) recommendations.push(`Line defisit $${Math.abs(balance)}/hari; tingkatkan ridership atau kurangi armada.`);
-    if (recommendations.length === 0) recommendations.push('Line sehat: catchment, headway, dan kapasitas berjalan seimbang.');
+    if (!line.active) recommendations.push('Jalur nonaktif; aktifkan untuk memasukkan kendaraan dan permintaan ke simulasi.');
+    if (validStops < line.stops.length) recommendations.push(`${line.stops.length - validStops} pemberhentian tidak valid: periksa listrik, tipe fasilitas, dan koneksi jalan.`);
+    if (validStops >= 2 && catchmentPopulation === 0) recommendations.push('Cakupan tidak menjangkau warga; geser pemberhentian mendekati kawasan hunian aktif.');
+    if (occupancyPercent >= 85) recommendations.push(`Kepadatan kendaraan ${Math.round(occupancyPercent)}%; tambah kendaraan atau rapatkan interval.`);
+    if (averageWaitMinutes > 10) recommendations.push(`Waktu tunggu ${averageWaitMinutes.toFixed(1)} menit; turunkan frekuensi interval terutama saat jam sibuk.`);
+    if (line.active && activeLines.length > 1 && transferStops === 0) recommendations.push('Belum ada titik transfer; bagikan satu pemberhentian dengan jalur lain untuk membentuk jaringan.');
+    if (line.active && balance < 0) recommendations.push(`Jalur defisit $${Math.abs(balance)}/hari; tingkatkan jumlah penumpang atau kurangi armada.`);
+    if (recommendations.length === 0) recommendations.push('Jalur sehat: cakupan, interval, dan kapasitas berjalan seimbang.');
 
     const status: TransitLineStatus = !line.active
       ? 'OFFLINE'

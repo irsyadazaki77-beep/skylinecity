@@ -2,6 +2,9 @@
 
 Skyline Simulator adalah city-builder 3D berbasis React, TypeScript, Three.js, dan React Three Fiber. Game dimulai dalam keadaan pause agar pemain dapat memahami fondasi kota sebelum simulasi berjalan.
 
+Status gate terbaru dan batasan audit ada di [CURRENT_STATUS_2026-09-05.md](CURRENT_STATUS_2026-09-05.md). Dokumen audit bertanggal sebelumnya bersifat historis.
+Flow browser nyata untuk vertical slice ada di [BROWSER_SMOKE_FLOW.md](BROWSER_SMOKE_FLOW.md); `npm run smoke` tetap merupakan smoke engine deterministik, bukan pengganti verifikasi UI browser.
+
 ## Menjalankan proyek
 
 ```bash
@@ -36,6 +39,7 @@ Gunakan `SKYLINE_BENCHMARK_TICKS=30 npm run benchmark` untuk sampel lebih panjan
 - Hierarki jalan dengan Local Road, Arterial, dan Highway. Kelas jalan memengaruhi biaya, upkeep, kapasitas, kecepatan perjalanan, weighted routing, noise/polusi, traffic overlay, dan bisa di-upgrade langsung lewat drag tool.
 - Road network lanjutan: profil 1/2/3 lajur, simpang otomatis bersinyal pada jalan prioritas, smart-light delay, penalti grade/elevasi, bridge highway di atas air, dan tunnel highway dengan struktur tersimpan.
 - Citizen simulation dengan household, migration, rent, satisfaction, education, job matching, commute, modal split, dan traffic trips.
+- Citizen Stories membentuk feed deterministik dari household/trip nyata—kedatangan keluarga, pekerjaan, commute panjang, penggunaan transit, dan dampak banjir—lengkap dengan sebab, dampak, pilihan, biaya, lokasi, serta outcome ketika kondisi pulih. Feed baru muncul setelah milestone Town agar onboarding tetap sederhana.
 - RCI demand, building evolution level 1–5, city services, land value, pollution, noise, crime, waste, economy, milestones, missions, achievements, policies, events, tech tree, serta save migration.
 - Early-game balance menyediakan municipal baseline sampai 25 warga agar starter town tidak runtuh sebelum layanan pertama dibangun; pertumbuhan pekerjaan komersial/industri dipisahkan dari migrasi warga sehingga taxable activity benar-benar terbentuk.
 - Core-loop advisor menampilkan satu langkah berikutnya yang actionable (build/connect/grow/diagnose/progress) dan langsung mengaktifkan tool atau panel yang relevan.

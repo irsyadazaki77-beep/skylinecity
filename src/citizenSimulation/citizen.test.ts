@@ -275,5 +275,39 @@ describe('Skyline Simulator 2.0 - Citizen and Household Simulation (Phase 1)', (
       expect(emptyTraffic.trafficAverage).toBe(0);
       expect(freightTraffic.trafficAverage).toBeGreaterThan(0);
     });
+
+    it('should record causal reasons when households emigrate due to distress', () => {
+      const grid = createEmptyGrid();
+      grid[1][1].type = TileType.RESIDENTIAL;
+      grid[1][1].powered = false; // unpowered, low satisfaction
+      grid[1][1].watered = false;
+
+      const citizensMap = new Map<string, Citizen>();
+      const householdsMap = new Map<string, Household>();
+      const prng = new SeededRandom(12345);
+
+      const adult = createCitizen('cit-test', 'hh-test', { x: 1, y: 1 }, 30, EducationLevel.HIGH_SCHOOL, prng);
+      citizensMap.set(adult.id, adult);
+      const hh = createHousehold('hh-test', { x: 1, y: 1 }, 50, [adult], -150); // deep debt
+      hh.relocationTimer = 2; // will reach 3 and emigrate
+      householdsMap.set(hh.id, hh);
+
+      const migration = simulateDemographicMigration(
+        grid,
+        citizensMap,
+        householdsMap,
+        15, // low desirability
+        -20, // negative demand
+        9,
+        [],
+        prng,
+        { nextCitizenId: 10, nextHouseholdId: 10 },
+        1
+      );
+
+      expect(migration.emigrants).toBe(1);
+      expect(migration.primaryEmigrationReason).toBe('RENT_BURDEN');
+      expect(migration.emigrationReasons?.RENT_BURDEN).toBe(1);
+    });
   });
 });

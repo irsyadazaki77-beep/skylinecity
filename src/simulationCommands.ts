@@ -9,6 +9,7 @@ import {
   ROAD_BUILD_COSTS,
   createTile,
 } from './types';
+import { PREPARATION_COSTS, PreparationAction, setPreparationAction } from './disasterPreparation';
 
 function stableSerialize(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -288,6 +289,22 @@ function applyTradeContract(state: CityState, command: SimulationCommand): void 
   state.tradeContracts = [...(state.tradeContracts ?? []), contract];
 }
 
+function applyLivingCityDecision(state: CityState, command: SimulationCommand): void {
+  if (command.type === 'SET_CAMPAIGN_STYLE') {
+    const style = (command.payload as { style?: CityState['campaignStyleGoal'] }).style;
+    if (style) state.campaignStyleGoal = style;
+    return;
+  }
+  const payload = command.payload as { action?: PreparationAction; enabled?: boolean };
+  if (!payload.action) return;
+  const enabled = payload.enabled !== false;
+  const alreadyEnabled = state.disasterPreparationState?.actions.includes(payload.action) ?? false;
+  const cost = enabled && !alreadyEnabled ? PREPARATION_COSTS[payload.action] : 0;
+  if (state.money < cost) return;
+  state.money -= cost;
+  state.disasterPreparationState = setPreparationAction(state.disasterPreparationState, payload.action, enabled);
+}
+
 /** Applies queued player/system commands at the beginning of a deterministic tick. */
 export function applySimulationCommands(state: CityState, commands: SimulationCommand[] = []): SimulationCommand[] {
   const applied: SimulationCommand[] = [];
@@ -315,6 +332,8 @@ export function applySimulationCommands(state: CityState, commands: SimulationCo
       case 'UNLOCK_TECH': applyTechUnlock(state, command); break;
       case 'CLAIM_MISSION':
       case 'START_SCENARIO': applyMissionAndScenario(state, command); break;
+      case 'SET_DISASTER_PREPARATION':
+      case 'SET_CAMPAIGN_STYLE': applyLivingCityDecision(state, command); break;
       case 'CREATE_TRADE_CONTRACT': applyTradeContract(state, command); break;
       default: break;
     }

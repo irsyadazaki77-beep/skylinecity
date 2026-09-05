@@ -92,7 +92,10 @@ export function createStarterGrid(): TileData[][] {
     place(grid, x, top + 3, TileType.ROAD);
   }
   for (let y = top + 1; y <= HIGHWAY_Y; y += 1) {
-    place(grid, left, y, TileType.ROAD);
+    // Leave one deliberate gap before the regional highway. This is the
+    // player's first meaningful build: one cheap local-road tile completes a
+    // real network connection instead of asking for decorative extra roads.
+    if (y !== HIGHWAY_Y - 1) place(grid, left, y, TileType.ROAD);
   }
 
   // Re-assert the regional connection after the local connector is carved.

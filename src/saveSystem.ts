@@ -47,7 +47,7 @@ export interface SaveSlotInfo {
 }
 
 const SAVE_KEY_PREFIX = 'skyline_sim_save_';
-export const CURRENT_SAVE_VERSION = 13;
+export const CURRENT_SAVE_VERSION = 16;
 export const CURRENT_GAME_VERSION = RELEASE_GAME_VERSION;
 export const CURRENT_CITY_SCHEMA_VERSION = 1;
 
@@ -132,6 +132,34 @@ export const SAVE_MIGRATIONS: Record<number, SaveMigration> = {
   12: (state) => ({
     ...state,
     signalStates: normalizeSignalStates(state.signalStates),
+  }),
+  // Version 14 adds the bounded Citizen Stories ledger. Existing cities start
+  // with an empty ledger and derive their first story from the next real tick.
+  13: (state) => ({
+    ...state,
+    citizenStoryState: state.citizenStoryState ?? { active: [], history: [], lastEmittedByKey: {} },
+  }),
+  14: (state) => ({
+    ...state,
+    neighborhoodIdentityState: state.neighborhoodIdentityState ?? { identities: [] },
+    disasterPreparationState: state.disasterPreparationState ?? { phase: 'MONITORING', actions: [], preparedness: 0, avoidedDamage: 0, recoveryCost: 0 },
+    policyConsequences: state.policyConsequences ?? [],
+    cityHistoryState: state.cityHistoryState ?? { events: [], snapshot: { population: state.population ?? 0, money: state.money ?? 0, happiness: state.happiness ?? 50, congestion: state.congestionIndex ?? 0, resilience: 0 }, seenKeys: [] },
+    campaignStyleGoal: state.campaignStyleGoal ?? 'BALANCED',
+  }),
+  // Version 16 removes the legacy synthetic policy before/after fields. They
+  // were never counterfactual measurements; policy cards now retain only the
+  // live observed metric plus a qualitative expected direction.
+  15: (state) => ({
+    ...state,
+    policyConsequences: Array.isArray(state.policyConsequences)
+      ? state.policyConsequences.map((raw) => {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+        const item = raw as Record<string, unknown>;
+        const { before: _before, after: _after, ...consequence } = item;
+        return consequence;
+      })
+      : [],
   }),
 };
 
@@ -280,6 +308,12 @@ function expandState(state: CityState | CompactCityState, saveVersion = CURRENT_
     tradeContracts: (state as CityState).tradeContracts ?? [],
     recoveryProjects: (state as CityState).recoveryProjects ?? [],
     causalDiagnostics: (state as CityState).causalDiagnostics ?? [],
+    citizenStoryState: (state as CityState).citizenStoryState ?? { active: [], history: [], lastEmittedByKey: {} },
+    neighborhoodIdentityState: (state as CityState).neighborhoodIdentityState ?? { identities: [] },
+    disasterPreparationState: (state as CityState).disasterPreparationState ?? { phase: 'MONITORING', actions: [], preparedness: 0, avoidedDamage: 0, recoveryCost: 0 },
+    policyConsequences: (state as CityState).policyConsequences ?? [],
+    cityHistoryState: (state as CityState).cityHistoryState ?? { events: [], snapshot: { population: state.population ?? 0, money: state.money ?? 0, happiness: state.happiness ?? 50, congestion: state.congestionIndex ?? 0, resilience: 0 }, seenKeys: [] },
+    campaignStyleGoal: (state as CityState).campaignStyleGoal ?? 'BALANCED',
     municipalDebt: (state as CityState).municipalDebt ?? 0,
     capitalBudget: (state as CityState).capitalBudget ?? Math.max(0, state.money ?? 0),
     operatingBudget: (state as CityState).operatingBudget ?? 0,

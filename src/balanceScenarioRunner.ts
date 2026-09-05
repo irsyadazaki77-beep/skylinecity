@@ -99,7 +99,9 @@ export function runBalanceScenario(
   const warnings: string[] = [];
   if (!finite) warnings.push('non-finite state');
   if (bankruptcyDays > Math.ceil(Math.max(1, ticks) * 0.25)) warnings.push('persistent negative treasury');
-  if (minHappiness < 20) warnings.push('critical happiness');
+  // The 100k fixture is a throughput benchmark rather than a livability
+  // scenario; it intentionally omits the city-service layout.
+  if (scenario !== 'PERFORMANCE_100K' && minHappiness < 20) warnings.push('critical happiness');
   if (scenario === 'SMALL_TOWN' && state.population < 15) warnings.push('starter growth below onboarding target');
   if (scenario !== 'PERFORMANCE_100K' && state.population === 0) warnings.push('no represented population');
 
@@ -128,9 +130,10 @@ export function runBalanceSuite(
   const reports = scenarios.map((scenario) => runBalanceScenario(scenario, ticksByScenario[scenario] ?? DEFAULT_BALANCE_TICKS[scenario], seed));
   const replay = scenarios.map((scenario) => runBalanceScenario(scenario, ticksByScenario[scenario] ?? DEFAULT_BALANCE_TICKS[scenario], seed));
   const deterministic = reports.every((report, index) => report.deterministicHash === replay[index].deterministicHash);
-  // Balance warnings are intentionally advisory: benchmark fixtures represent
-  // different stress states (including an empty industrial city and a flood
-  // recovery crisis). Only deterministic, finite state is a hard gate.
-  const passed = deterministic && reports.every((report) => report.finite);
+  // A two-day smoke trace cannot yet prove the 15-resident onboarding target,
+  // but it must still fail for an unrecoverable financial, population, or
+  // happiness collapse.
+  const blockingWarnings = new Set(['non-finite state', 'persistent negative treasury', 'critical happiness', 'no represented population']);
+  const passed = deterministic && reports.every((report) => report.finite && report.warnings.every((warning) => !blockingWarnings.has(warning)));
   return { reports, deterministic, passed };
 }

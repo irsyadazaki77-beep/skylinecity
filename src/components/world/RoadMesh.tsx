@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { getRoadClass, IntersectionControl, RoadClass, RoadStructure, TileData, TileType } from '../../types';
+import { roadVisual } from './visualModel';
 import { gridToWorld } from './types3D';
 
 interface RoadMeshProps {
   grid: TileData[][];
   nightFactor: number;
+  tutorialHighlight?: boolean;
+  targetHighwayTile?: [number, number] | null;
 }
 
 interface RoadConnection {
@@ -28,7 +31,7 @@ const ROAD_RENDER_COLORS: Record<RoadClass, string> = {
   HIGHWAY: '#536a82',
 };
 
-export function RoadMesh({ grid, nightFactor }: RoadMeshProps) {
+export function RoadMesh({ grid, nightFactor, tutorialHighlight = false, targetHighwayTile = null }: RoadMeshProps) {
   const height = grid.length;
   const width = grid[0]?.length || 0;
   const asphaltRef = useRef<THREE.InstancedMesh>(null);
@@ -78,29 +81,46 @@ export function RoadMesh({ grid, nightFactor }: RoadMeshProps) {
   }, [height, roadTopologySignature, width]);
 
   // Geometries for instancing
-  const asphaltGeo = useMemo(() => new THREE.BoxGeometry(0.96, 0.04, 0.96), []);
+  // Keep the road as a shallow visual skin. The shared surface closes the
+  // inter-tile seam without making each road read as a raised slab.
+  const asphaltGeo = useMemo(() => new THREE.BoxGeometry(1, 0.06, 1), []);
   const sidewalkGeo = useMemo(() => new THREE.BoxGeometry(0.12, 0.06, 0.96), []);
-  const centerLineGeo = useMemo(() => new THREE.PlaneGeometry(0.04, 0.6), []);
+  const railGeo = useMemo(() => new THREE.BoxGeometry(0.035, 0.1, 1), []);
+  const bridgePierGeo = useMemo(() => new THREE.BoxGeometry(0.24, 0.9, 0.36), []);
+  const centerLineGeo = useMemo(() => new THREE.PlaneGeometry(0.035, 0.62), []);
   const laneDividerGeo = useMemo(() => new THREE.PlaneGeometry(0.025, 0.62), []);
+  const solidLineGeo = useMemo(() => new THREE.PlaneGeometry(0.02, 0.96), []);
   const tunnelRoofGeo = useMemo(() => new THREE.BoxGeometry(0.9, 0.08, 0.9), []);
-  const crosswalkStripGeo = useMemo(() => new THREE.PlaneGeometry(0.08, 0.35), []);
+  const crosswalkStripGeo = useMemo(() => new THREE.PlaneGeometry(0.075, 0.36), []);
   const roundaboutGeo = useMemo(() => new THREE.RingGeometry(0.2, 0.28, 16), []);
-  const poleGeo = useMemo(() => new THREE.CylinderGeometry(0.02, 0.02, 0.8), []);
-  const bulbGeo = useMemo(() => new THREE.SphereGeometry(0.05, 8, 8), []);
+  const poleGeo = useMemo(() => new THREE.CylinderGeometry(0.018, 0.022, 0.8), []);
+  const armGeo = useMemo(() => new THREE.CylinderGeometry(0.012, 0.012, 0.22), []);
+  const bulbGeo = useMemo(() => new THREE.SphereGeometry(0.045, 8, 8), []);
 
   // Materials
-  const asphaltMat = useMemo(() => new THREE.MeshBasicMaterial({
-    color: '#657383',
-    vertexColors: true,
+  const asphaltMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#ffffff',
+    roughness: 0.92,
   }), []);
 
   const sidewalkMat = useMemo(() => new THREE.MeshStandardMaterial({
-    color: '#94a3b8',
-    roughness: 0.6,
+    color: '#a8b5c4',
+    roughness: 0.65,
+  }), []);
+
+  const bridgePierMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#8492a6',
+    roughness: 0.85,
+  }), []);
+
+  const guardrailMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#cbd5e1',
+    metalness: 0.65,
+    roughness: 0.28,
   }), []);
 
   const yellowLineMat = useMemo(() => new THREE.MeshBasicMaterial({
-    color: '#f59e0b',
+    color: '#eab308',
     side: THREE.DoubleSide,
   }), []);
 
@@ -138,13 +158,13 @@ export function RoadMesh({ grid, nightFactor }: RoadMeshProps) {
     roadData.forEach((road, index) => {
       const [wx, , wz] = gridToWorld(road.x, road.y, width, height);
       const wy = (grid[road.y][road.x].elevation || 0) * 0.15 + (road.roadStructure === 'BRIDGE' ? 0.22 : road.roadStructure === 'TUNNEL' ? -0.08 : 0);
-      dummy.position.set(wx, wy + 0.02, wz);
+      dummy.position.set(wx, wy - 0.03, wz);
       dummy.rotation.set(0, 0, 0);
-      const widthScale = road.roadClass === 'HIGHWAY' ? 1.12 : road.roadClass === 'ARTERIAL' ? 1.04 : 0.94;
+      const widthScale = roadVisual(road.roadClass).width;
       dummy.scale.set(widthScale, 1, widthScale);
       dummy.updateMatrix();
       asphaltRef.current!.setMatrixAt(index, dummy.matrix);
-      const roadColor = new THREE.Color(ROAD_RENDER_COLORS[road.roadClass]);
+      const roadColor = new THREE.Color(roadVisual(road.roadClass).color);
       roadColor.lerp(new THREE.Color('#1b2638'), Math.min(0.42, nightFactor * 0.42));
       asphaltRef.current!.setColorAt(index, roadColor);
     });
@@ -185,17 +205,30 @@ export function RoadMesh({ grid, nightFactor }: RoadMeshProps) {
           else if (!hasE) rotationY = -Math.PI / 2; // facing West
         }
 
-        const isHorizontalStraight = (count === 2 && hasE && hasW);
-        const isVerticalStraight = (count === 2 && hasN && hasS);
-        const isIntersection = count >= 3 && (roadClass !== 'HIGHWAY' || hasDifferentClassBranch || intersectionControl !== 'AUTO');
+        const isHorizontalStraight = hasE && hasW && (count === 2 || roadClass === 'HIGHWAY');
+        const isVerticalStraight = hasN && hasS && (count === 2 || (roadClass === 'HIGHWAY' && !isHorizontalStraight));
+        const isIntersection = count >= 3;
+        const isTargetHighway = tutorialHighlight && roadClass === 'HIGHWAY' && (
+          !targetHighwayTile || (road.x === targetHighwayTile[0] && road.y === targetHighwayTile[1])
+        );
 
         return (
           <group key={`road-${road.x}-${road.y}`} position={[wx, wy, wz]}>
+            {isTargetHighway && (
+              <mesh position={[0, 0.07, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[1.18, 1.18]} />
+                <meshBasicMaterial color="#facc15" transparent opacity={0.3} depthWrite={false} />
+              </mesh>
+            )}
             {roadStructure === 'TUNNEL' && <mesh geometry={tunnelRoofGeo} material={tunnelRoofMat} position={[0, 0.16, 0]} receiveShadow />}
             {roadStructure === 'BRIDGE' && (
               <>
-                <mesh geometry={poleGeo} material={poleMat} position={[-0.3, -0.25, 0]} scale={[2, 0.9, 2]} />
-                <mesh geometry={poleGeo} material={poleMat} position={[0.3, -0.25, 0]} scale={[2, 0.9, 2]} />
+                <mesh geometry={bridgePierGeo} material={bridgePierMat} position={[-0.3, -0.45, 0]} castShadow />
+                <mesh geometry={bridgePierGeo} material={bridgePierMat} position={[0.3, -0.45, 0]} castShadow />
+                {!hasW && <mesh geometry={railGeo} material={guardrailMat} position={[-0.46, 0.16, 0]} castShadow />}
+                {!hasE && <mesh geometry={railGeo} material={guardrailMat} position={[0.46, 0.16, 0]} castShadow />}
+                {!hasN && <mesh geometry={railGeo} material={guardrailMat} position={[0, 0.16, -0.46]} rotation={[0, Math.PI / 2, 0]} castShadow />}
+                {!hasS && <mesh geometry={railGeo} material={guardrailMat} position={[0, 0.16, 0.46]} rotation={[0, Math.PI / 2, 0]} castShadow />}
               </>
             )}
             {/* Sidewalk Curbs along non-connected edges */}
@@ -221,7 +254,7 @@ export function RoadMesh({ grid, nightFactor }: RoadMeshProps) {
             )}
 
             {/* Lane Markings */}
-            {isVerticalStraight && roadClass !== 'LOCAL' && (
+            {isVerticalStraight && roadClass !== 'HIGHWAY' && (
               <mesh 
                 geometry={centerLineGeo} 
                 material={yellowLineMat} 
@@ -229,7 +262,7 @@ export function RoadMesh({ grid, nightFactor }: RoadMeshProps) {
                 rotation={[-Math.PI / 2, 0, 0]} 
               />
             )}
-            {isHorizontalStraight && roadClass !== 'LOCAL' && (
+            {isHorizontalStraight && roadClass !== 'HIGHWAY' && (
               <mesh 
                 geometry={centerLineGeo} 
                 material={yellowLineMat} 
@@ -239,19 +272,21 @@ export function RoadMesh({ grid, nightFactor }: RoadMeshProps) {
             )}
             {isVerticalStraight && roadClass === 'HIGHWAY' && (
               <>
-                <mesh geometry={laneDividerGeo} material={whiteLineMat} position={[-0.17, 0.045, 0]} rotation={[-Math.PI / 2, 0, 0]} />
-                <mesh geometry={laneDividerGeo} material={whiteLineMat} position={[0.17, 0.045, 0]} rotation={[-Math.PI / 2, 0, 0]} />
+                <mesh geometry={laneDividerGeo} material={yellowLineMat} position={[0, 0.045, 0]} rotation={[-Math.PI / 2, 0, 0]} />
+                <mesh geometry={solidLineGeo} material={whiteLineMat} position={[-0.36, 0.045, 0]} rotation={[-Math.PI / 2, 0, 0]} />
+                <mesh geometry={solidLineGeo} material={whiteLineMat} position={[0.36, 0.045, 0]} rotation={[-Math.PI / 2, 0, 0]} />
               </>
             )}
             {isHorizontalStraight && roadClass === 'HIGHWAY' && (
               <>
-                <mesh geometry={laneDividerGeo} material={whiteLineMat} position={[0, 0.045, -0.17]} rotation={[-Math.PI / 2, 0, Math.PI / 2]} />
-                <mesh geometry={laneDividerGeo} material={whiteLineMat} position={[0, 0.045, 0.17]} rotation={[-Math.PI / 2, 0, Math.PI / 2]} />
+                <mesh geometry={laneDividerGeo} material={yellowLineMat} position={[0, 0.045, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 2]} />
+                <mesh geometry={solidLineGeo} material={whiteLineMat} position={[0, 0.045, -0.36]} rotation={[-Math.PI / 2, 0, Math.PI / 2]} />
+                <mesh geometry={solidLineGeo} material={whiteLineMat} position={[0, 0.045, 0.36]} rotation={[-Math.PI / 2, 0, Math.PI / 2]} />
               </>
             )}
 
             {/* 4-Way or 3-Way Crosswalks */}
-            {isIntersection && (
+            {isIntersection && roadClass !== 'HIGHWAY' && (
               <group position={[0, 0.046, 0]}>
                 {hasN && (
                   <group position={[0, 0, -0.28]} rotation={[-Math.PI / 2, 0, Math.PI / 2]}>
@@ -292,10 +327,8 @@ export function RoadMesh({ grid, nightFactor }: RoadMeshProps) {
             {roadClass !== 'HIGHWAY' && (isIntersection || (road.x + road.y) % 4 === 0) && (
               <group position={[-0.42, 0, -0.42]}>
                 <mesh geometry={poleGeo} material={poleMat} position={[0, 0.4, 0]} castShadow />
-                <mesh geometry={bulbGeo} material={streetlightBulbMat} position={[0.1, 0.78, 0.1]} />
-                {nightFactor > 0.4 && (
-                  <pointLight position={[0.1, 0.75, 0.1]} color="#fef08a" intensity={0.6 * nightFactor} distance={3} />
-                )}
+                <mesh geometry={armGeo} material={poleMat} position={[0.07, 0.76, 0.07]} rotation={[0.3, -Math.PI / 4, -0.3]} />
+                <mesh geometry={bulbGeo} material={streetlightBulbMat} position={[0.13, 0.78, 0.13]} />
               </group>
             )}
           </group>
@@ -304,3 +337,4 @@ export function RoadMesh({ grid, nightFactor }: RoadMeshProps) {
     </group>
   );
 }
+

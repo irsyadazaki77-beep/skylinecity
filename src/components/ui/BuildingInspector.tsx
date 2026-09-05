@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { 
   Home,
   X, 
@@ -28,9 +28,12 @@ import { evaluateBuildingEvolution } from '../../buildingEvolution';
 import type { BuildingEvolutionContext, EvolutionStatus } from '../../buildingEvolution';
 import { evaluateRoadJunction } from '../../trafficInsights';
 import type { RoadJunctionInsight } from '../../trafficInsights';
+import type { SupportedLanguage } from '../../localization';
+import { useModalFocus } from './useModalFocus';
 
 interface BuildingInspectorProps {
   tile: TileData | null;
+  language?: SupportedLanguage;
   onClose: () => void;
   onFocus?: (x: number, y: number) => void;
   onDemolish: (x: number, y: number) => void;
@@ -60,7 +63,85 @@ function evolutionStatusClass(status: EvolutionStatus): string {
   return status === 'READY' ? 'text-emerald-300' : status === 'PROGRESSING' ? 'text-cyan-300' : status === 'MAX_LEVEL' ? 'text-violet-300' : 'text-amber-300';
 }
 
-export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdateRoadControl, serviceDepotCondition, maintenanceOrderActive = false, onOrderMaintenance, recoveryProjectActive = false, onStartRecoveryProject, onUpgradeService, evolutionContext, roadGrid }: BuildingInspectorProps) {
+function tileTypeLabel(type: TileType): string {
+  const labels: Partial<Record<TileType, string>> = {
+    [TileType.EMPTY]: 'Kosong',
+    [TileType.ROAD]: 'Jalan',
+    [TileType.RESIDENTIAL]: 'Hunian',
+    [TileType.COMMERCIAL]: 'Komersial',
+    [TileType.OFFICE]: 'Kantor',
+    [TileType.INDUSTRIAL]: 'Industri',
+    [TileType.POWER_PLANT]: 'Pembangkit Listrik',
+    [TileType.WATER_PUMP]: 'Pompa Air',
+    [TileType.FIRE_STATION]: 'Pos Pemadam',
+    [TileType.POLICE_STATION]: 'Kantor Polisi',
+    [TileType.CLINIC]: 'Klinik',
+    [TileType.SCHOOL]: 'Sekolah',
+    [TileType.WASTE_MANAGEMENT]: 'Pengelolaan Limbah',
+    [TileType.WAREHOUSE]: 'Gudang',
+    [TileType.CARGO_TERMINAL]: 'Terminal Kargo',
+    [TileType.PARK]: 'Taman',
+    [TileType.PARKING]: 'Parkir',
+    [TileType.FLOOD_BARRIER]: 'Tanggul Banjir',
+    [TileType.WATER_RESERVOIR]: 'Waduk Air',
+  };
+  return labels[type] ?? type.replaceAll('_', ' ').toLowerCase();
+}
+
+function mixedUseProgramLabel(program: TileData['mixedUseProgram']): string {
+  return {
+    RETAIL_LIVING: 'Ritel & Hunian',
+    CREATIVE_OFFICE: 'Kantor Kreatif',
+    HOSPITALITY: 'Perhotelan',
+    COMMUNITY_HUB: 'Pusat Komunitas',
+  }[program ?? 'RETAIL_LIVING'];
+}
+
+function parcelStatusLabel(status: TileData['parcelStatus']): string {
+  return { ZONED: 'Terzonasi', DEVELOPING: 'Berkembang', ACTIVE: 'Aktif', ABANDONED: 'Terbengkalai' }[status ?? 'ZONED'];
+}
+
+function parcelOwnershipLabel(ownership: TileData['parcelOwnership']): string {
+  return ownership === 'PRIVATE' ? 'Swasta' : 'Kota';
+}
+
+function signalStageLabel(stage: TileData['signalStage']): string {
+  return { GREEN: 'Hijau', YELLOW: 'Kuning', ALL_RED: 'Semua merah', PEDESTRIAN_CROSSING: 'Penyeberangan', PERMISSIVE: 'Mengalir' }[stage ?? 'PERMISSIVE'];
+}
+
+const SERVICE_UPGRADE_COPY: Record<string, { id: [string, string]; en: [string, string] }> = {
+  fire_engine_bay: { id: ['Teluk Mesin Tambahan', 'Menambah kapasitas respons pemadam.'], en: ['Extra Engine Bay', 'Adds fire response capacity.'] },
+  fire_training: { id: ['Pusat Pelatihan', 'Meningkatkan keandalan dan jangkauan respons pemadam.'], en: ['Training Center', 'Improves fire response reliability and reach.'] },
+  ambulance_wing: { id: ['Sayap Ambulans', 'Menambah kapasitas pasien dan keadaan darurat.'], en: ['Ambulance Wing', 'Adds patient and emergency capacity.'] },
+  clinic_specialist: { id: ['Unit Spesialis', 'Meningkatkan kualitas cakupan layanan kesehatan.'], en: ['Specialist Unit', 'Improves healthcare coverage quality.'] },
+  police_patrol_garage: { id: ['Garasi Patroli', 'Menambah kapasitas patroli polisi.'], en: ['Patrol Garage', 'Adds police patrol capacity.'] },
+  police_traffic_unit: { id: ['Unit Lalu Lintas', 'Meningkatkan respons insiden di jalan padat.'], en: ['Traffic Unit', 'Improves incident response on congested roads.'] },
+  school_classroom_wing: { id: ['Gedung Kelas', 'Menambah kapasitas siswa.'], en: ['Classroom Wing', 'Adds student capacity.'] },
+  school_playground: { id: ['Taman Bermain', 'Meningkatkan pendidikan lokal dan kesejahteraan.'], en: ['Playground', 'Improves local education and wellbeing.'] },
+  waste_recycling_line: { id: ['Lini Daur Ulang', 'Menambah kapasitas pengolahan sampah dan mengurangi tekanan lingkungan.'], en: ['Recycling Line', 'Adds waste processing capacity and reduces environmental pressure.'] },
+};
+
+function serviceUpgradeCopy(id: string, fallback: string, language: SupportedLanguage | undefined, field: 0 | 1): string {
+  const copy = SERVICE_UPGRADE_COPY[id];
+  if (!copy) return fallback;
+  return copy[language === 'en' ? 'en' : 'id'][field];
+}
+
+export function BuildingInspector({ tile, language = 'id', onClose, onFocus, onDemolish, onUpdateRoadControl, serviceDepotCondition, maintenanceOrderActive = false, onOrderMaintenance, recoveryProjectActive = false, onStartRecoveryProject, onUpgradeService, evolutionContext, roadGrid }: BuildingInspectorProps) {
+  const dialogRef = useModalFocus<HTMLElement>(Boolean(tile));
+
+  useEffect(() => {
+    if (!tile) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [tile, onClose]);
+
   if (!tile) return null;
 
   const isZoned = tile.type === TileType.RESIDENTIAL || tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE || tile.type === TileType.INDUSTRIAL;
@@ -106,14 +187,14 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
     if (!tile.powered) {
       reasons.push({
         icon: <Zap size={14} className="text-rose-400" />,
-        text: 'Tidak ada aliran listrik. Hubungkan jalan ke Power Plant terdekat.',
+        text: 'Tidak ada aliran listrik. Hubungkan jalan ke pembangkit listrik terdekat.',
         severity: 'critical',
       });
     }
     if (isZoned && !tile.watered) {
       reasons.push({
         icon: <Droplet size={14} className="text-rose-400" />,
-        text: 'Tidak ada pasokan air. Hubungkan jalan ke Water Pump aktif.',
+        text: 'Tidak ada pasokan air. Hubungkan jalan ke pompa air aktif.',
         severity: 'critical',
       });
     }
@@ -150,7 +231,7 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
     if (isWarehouse && tile.powered) {
       reasons.push({
         icon: <Activity size={14} className="text-orange-300" />,
-        text: 'Warehouse aktif. Buffer inventori dan arus delivery dihitung oleh sistem logistics.',
+        text: 'Gudang aktif. Buffer inventori dan arus pengiriman dihitung oleh sistem logistik.',
         severity: 'good',
       });
     }
@@ -158,7 +239,7 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
     if (isCargoTerminal && tile.powered) {
       reasons.push({
         icon: <Activity size={14} className="text-cyan-300" />,
-        text: 'Cargo Terminal aktif. Throughput gateway dan export surplus dihitung oleh sistem logistics.',
+        text: 'Terminal kargo aktif. Arus gateway dan ekspor surplus dihitung oleh sistem logistik.',
         severity: 'good',
       });
     }
@@ -181,15 +262,21 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
   const fastestServiceResponse = serviceResponseValues.length > 0 ? Math.min(...serviceResponseValues) : null;
 
   return (
-    <aside className="fixed bottom-20 right-5 z-40 max-h-[calc(100vh-6rem)] w-80 overflow-y-auto rounded-2xl border border-white/15 bg-[#0f172a]/95 p-4 text-white shadow-2xl backdrop-blur-xl custom-scrollbar animate-in fade-in slide-in-from-bottom-3 duration-200 select-none">
+    <aside 
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="inspector-tile-title"
+      className="fixed bottom-20 right-3 left-3 sm:left-auto sm:right-5 z-40 max-h-[calc(100vh-6rem)] w-auto sm:w-80 overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[#0d1420]/95 p-4 text-white shadow-2xl backdrop-blur-xl custom-scrollbar animate-in fade-in slide-in-from-bottom-3 duration-200 select-none"
+    >
       {/* Header */}
       <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
         <div>
-          <div className="text-[9px] uppercase tracking-widest text-cyan-400 font-mono">
-            Inspector ({tile.x}, {tile.y})
+          <div className="text-[10px] uppercase tracking-wider text-[var(--accent-cyan)] font-semibold">
+            Inspeksi Petak ({tile.x + 1}, {tile.y + 1})
           </div>
-          <h3 className="text-base font-bold text-white mt-0.5">
-            {tile.type.replaceAll('_', ' ')}
+          <h3 id="inspector-tile-title" className="text-base font-bold text-white mt-0.5 tracking-tight">
+            {tileTypeLabel(tile.type)}
           </h3>
         </div>
         <div className="flex items-center gap-1">
@@ -197,20 +284,20 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
             <button
               type="button"
               onClick={() => onFocus(tile.x, tile.y)}
-              className="rounded-lg p-1 text-cyan-300 transition-colors hover:bg-cyan-400/15 hover:text-cyan-100"
-              aria-label="Fokus ke tile terpilih"
-              title="Fokus ke tile terpilih (F)"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-cyan-300 transition-colors hover:bg-cyan-400/15 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-cyan)]"
+              aria-label="Fokus ke petak terpilih"
+              title="Fokus ke petak terpilih (F)"
             >
-              <Crosshair size={16} />
+              <Crosshair size={18} aria-hidden="true" />
             </button>
           )}
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
-            aria-label="Tutup inspector"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-cyan)]"
+            aria-label="Tutup inspeksi petak"
           >
-            <X size={16} />
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -218,45 +305,45 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
       {isRoad && onUpdateRoadControl && (
         <div className="my-3 rounded-xl border border-sky-400/20 bg-sky-500/10 p-3 space-y-2">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-semibold text-sky-100">Intersection Control</span>
+            <span className="text-xs font-semibold text-sky-100">Pengaturan Simpang</span>
             <select
-              aria-label="Intersection control"
+              aria-label="Pengaturan simpang"
               value={tile.intersectionControl ?? 'AUTO'}
               onChange={(event) => onUpdateRoadControl(tile.x, tile.y, { intersectionControl: event.target.value as IntersectionControl })}
               className="rounded-md border border-white/10 bg-slate-900 px-2 py-1 text-[11px] text-white"
             >
-              <option value="AUTO">Auto</option>
-              <option value="SIGNAL">Signal</option>
-              <option value="STOP">Stop signs</option>
-              <option value="ROUNDABOUT">Roundabout</option>
+              <option value="AUTO">Otomatis</option>
+              <option value="SIGNAL">Sinyal</option>
+              <option value="STOP">Rambu Berhenti</option>
+              <option value="ROUNDABOUT">Bundaran</option>
             </select>
           </div>
-          <div className="text-[10px] leading-tight text-slate-400">Control aktif pada tile yang terdeteksi sebagai simpang 3+ arah.</div>
+          <div className="text-[10px] leading-tight text-slate-400">Kontrol aktif pada petak yang terdeteksi sebagai simpang 3+ arah.</div>
           {(tile.intersectionControl ?? 'AUTO') !== 'STOP' && (tile.intersectionControl ?? 'AUTO') !== 'ROUNDABOUT' && (
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] text-slate-300">Signal timing</span>
+              <span className="text-[10px] text-slate-300">Waktu sinyal</span>
               <select
-                aria-label="Signal timing mode"
+                aria-label="Mode waktu sinyal"
                 value={tile.signalTimingMode ?? 'ADAPTIVE'}
                 onChange={(event) => onUpdateRoadControl(tile.x, tile.y, { signalTimingMode: event.target.value as SignalTimingMode })}
                 className="rounded-md border border-white/10 bg-slate-900 px-2 py-1 text-[11px] text-white"
               >
-                <option value="ADAPTIVE">Adaptive pressure</option>
-                <option value="FIXED_NS">Fixed N-S</option>
-                <option value="FIXED_EW">Fixed E-W</option>
+                <option value="ADAPTIVE">Tekanan adaptif</option>
+                <option value="FIXED_NS">Tetap U-S</option>
+                <option value="FIXED_EW">Tetap T-B</option>
               </select>
             </div>
           )}
           {(tile.intersectionControl ?? 'AUTO') !== 'STOP' && (tile.intersectionControl ?? 'AUTO') !== 'ROUNDABOUT' && (
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] text-slate-300">Phase offset</span>
+              <span className="text-[10px] text-slate-300">Offset fase</span>
               <select
-                aria-label="Signal phase offset"
+                aria-label="Offset fase sinyal"
                 value={tile.signalOffsetHours ?? 0}
                 onChange={(event) => onUpdateRoadControl(tile.x, tile.y, { signalOffsetHours: Number(event.target.value) })}
                 className="rounded-md border border-white/10 bg-slate-900 px-2 py-1 text-[11px] text-white"
               >
-                {[0, 1, 2, 3, 4, 5].map((hour) => <option key={hour} value={hour}>+{hour}h</option>)}
+                {[0, 1, 2, 3, 4, 5].map((hour) => <option key={hour} value={hour}>+{hour} jam</option>)}
               </select>
             </div>
           )}
@@ -287,15 +374,15 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
         <div className="my-3 rounded-xl border border-orange-400/20 bg-orange-500/[0.06] p-3 space-y-2" aria-label="Advisor lalu lintas jalan">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="text-[9px] uppercase tracking-wider text-orange-300 font-mono">Traffic / Junction Advisor</div>
-              <div className="text-xs font-semibold text-slate-100">{roadInsight.isIntersection ? `${roadInsight.approachCount}-way intersection` : 'Corridor segment'}</div>
+              <div className="text-[9px] uppercase tracking-wider text-orange-300 font-mono">Penasihat Lalu Lintas / Simpang</div>
+              <div className="text-xs font-semibold text-slate-100">{roadInsight.isIntersection ? `Simpang ${roadInsight.approachCount} arah` : 'Segmen koridor'}</div>
             </div>
             <span className={`text-[10px] font-semibold ${roadInsight.status === 'CRITICAL' ? 'text-rose-300' : roadInsight.status === 'BUSY' ? 'text-amber-300' : 'text-emerald-300'}`}>{roadInsight.status}</span>
           </div>
           <div className="grid grid-cols-3 gap-1.5 text-[10px]">
-            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Traffic</span><span className="font-mono text-slate-100">{Math.round(roadInsight.trafficPercent)}%</span></div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Queue</span><span className="font-mono text-amber-200">{Math.round(roadInsight.queuePressure)}%</span></div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Lanes</span><span className="font-mono text-slate-100">{Math.round(roadInsight.laneUtilization)}%</span></div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Lalu lintas</span><span className="font-mono text-slate-100">{Math.round(roadInsight.trafficPercent)}%</span></div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Antrean</span><span className="font-mono text-amber-200">{Math.round(roadInsight.queuePressure)}%</span></div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Lajur</span><span className="font-mono text-slate-100">{Math.round(roadInsight.laneUtilization)}%</span></div>
           </div>
           <div className="text-[9px] text-slate-500">Approach: {roadInsight.approaches.length ? roadInsight.approaches.join(' · ') : 'tidak terhubung'} · Kelas: {roadInsight.connectedClasses.join(' / ') || '—'} · Kondisi {Math.round(roadInsight.roadCondition)}%</div>
           <div className="space-y-1 border-t border-white/10 pt-2">
@@ -304,12 +391,12 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
         </div>
       )}
 
-      {/* Level & Capacity Progress */}
+      {/* Tingkat & progres kapasitas */}
       {isZoned && (
         <div className="my-3 p-3 rounded-xl bg-white/5 border border-white/10 space-y-2">
           <div className="flex items-center justify-between text-xs">
             <span className="text-gray-300 font-medium">Tingkat Bangunan</span>
-            <span className="font-mono font-bold text-amber-400">Level {tile.level} / 5</span>
+            <span className="font-mono font-bold text-amber-400">Tingkat {tile.level} / 5</span>
           </div>
           <div className="w-full bg-black/40 h-2 rounded-full overflow-hidden">
             <div
@@ -318,7 +405,7 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
             />
           </div>
           <div className="flex items-center justify-between text-[10px] text-gray-400 font-mono">
-            <span>Progress Evolusi</span>
+            <span>Progres evolusi</span>
             <span>{tile.upgradeProgress ?? 0}%</span>
           </div>
         </div>
@@ -328,17 +415,17 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
         <div className="my-3 rounded-xl border border-cyan-400/20 bg-cyan-500/[0.06] p-3 space-y-2" aria-label="Advisor evolusi bangunan">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="text-[9px] uppercase tracking-wider text-cyan-300 font-mono">Growth Advisor</div>
+              <div className="text-[9px] uppercase tracking-wider text-cyan-300 font-mono">Advisor Pertumbuhan</div>
               <div className="text-xs font-semibold text-slate-100">
-                {evolution.nextLevel ? `Target Level ${evolution.nextLevel}` : `Level ${evolution.currentLevel}`}
+                {evolution.nextLevel ? `Target tingkat ${evolution.nextLevel}` : `Tingkat ${evolution.currentLevel}`}
               </div>
             </div>
             <span className={`text-[10px] font-semibold ${evolutionStatusClass(evolution.status)}`}>{evolutionStatusLabel(evolution.status)}</span>
           </div>
           <div className="grid grid-cols-3 gap-1.5 text-[10px]">
-            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Occupancy</span><span className="font-mono text-slate-100">{Math.round(evolution.occupancyPercent)}% / 75%</span></div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Demand</span><span className={`font-mono ${evolution.demand > 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{evolution.demand > 0 ? '+' : ''}{Math.round(evolution.demand)}</span></div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Capacity</span><span className="font-mono text-slate-100">{evolution.capacity}</span></div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Okupansi</span><span className="font-mono text-slate-100">{Math.round(evolution.occupancyPercent)}% / 75%</span></div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Permintaan</span><span className={`font-mono ${evolution.demand > 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{evolution.demand > 0 ? '+' : ''}{Math.round(evolution.demand)}</span></div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Kapasitas</span><span className="font-mono text-slate-100">{evolution.capacity}</span></div>
           </div>
           {evolution.blockers.length > 0 ? (
             <div className="space-y-1">
@@ -356,37 +443,37 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
 
       {isZoned && tile.parcelId && (
         <div className="my-3 rounded-xl border border-violet-400/20 bg-violet-500/10 p-3 space-y-1.5">
-          <div className="text-[9px] uppercase tracking-wider text-violet-300 font-mono">Persistent Parcel</div>
+          <div className="text-[9px] uppercase tracking-wider text-violet-300 font-mono">Kavling Persisten</div>
           <div className="flex items-center justify-between text-[10px] text-slate-300">
-            <span>Lot ID</span>
+            <span>ID Kavling</span>
             <span className="font-mono text-violet-200">{tile.parcelId.slice(-14)}</span>
           </div>
           <div className="flex items-center justify-between text-[10px] text-slate-300">
             <span>Status</span>
-            <span className="font-mono text-emerald-200">{tile.parcelStatus ?? 'ZONED'}</span>
+            <span className="font-mono text-emerald-200">{parcelStatusLabel(tile.parcelStatus)}</span>
           </div>
           <div className="flex items-center justify-between text-[10px] text-slate-300">
-            <span>Ownership</span>
-            <span className="font-mono text-amber-200">{tile.parcelOwnership ?? 'CITY'}</span>
+            <span>Kepemilikan</span>
+            <span className="font-mono text-amber-200">{parcelOwnershipLabel(tile.parcelOwnership)}</span>
           </div>
           <div className="flex items-center justify-between text-[10px] text-slate-300">
-            <span>Subdivision</span>
-            <span className="font-mono text-cyan-200">{tile.parcelWidth ?? 1}×{tile.parcelHeight ?? 1} · {((tile.parcelWidth ?? 1) * (tile.parcelHeight ?? 1))} tiles</span>
+            <span>Subdivisi</span>
+            <span className="font-mono text-cyan-200">{tile.parcelWidth ?? 1}×{tile.parcelHeight ?? 1} · {((tile.parcelWidth ?? 1) * (tile.parcelHeight ?? 1))} petak</span>
           </div>
         </div>
       )}
 
       {tile.mixedUseProgram && (
         <div className="my-3 rounded-xl border border-fuchsia-400/20 bg-fuchsia-500/10 p-3 space-y-1.5">
-          <div className="text-[9px] uppercase tracking-wider text-fuchsia-300 font-mono">Mixed-use Floor Program</div>
+              <div className="text-[9px] uppercase tracking-wider text-fuchsia-300 font-mono">Program Lantai Campuran</div>
           <div className="flex items-center justify-between text-xs">
             <span className="text-slate-300">Program</span>
-            <span className="font-mono font-bold text-fuchsia-200">{tile.mixedUseProgram.replaceAll('_', ' ')}</span>
+            <span className="font-mono font-bold text-fuchsia-200">{mixedUseProgramLabel(tile.mixedUseProgram)}</span>
           </div>
           <div className="grid grid-cols-3 gap-1 text-[10px] text-slate-300">
-            <span>Retail {tile.mixedUseRetailFloors ?? 1}F</span>
-            <span>Office {tile.mixedUseOfficeFloors ?? 0}F</span>
-            <span>Living {tile.mixedUseResidentialFloors ?? 0}F</span>
+            <span>Ritel {tile.mixedUseRetailFloors ?? 1}L</span>
+            <span>Kantor {tile.mixedUseOfficeFloors ?? 0}L</span>
+            <span>Hunian {tile.mixedUseResidentialFloors ?? 0}L</span>
           </div>
         </div>
       )}
@@ -394,14 +481,14 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
       {isTransit && (
         <div className="my-3 p-3 rounded-xl bg-cyan-500/10 border border-cyan-400/20 space-y-2">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-300 font-medium">Transit Capacity</span>
+            <span className="text-gray-300 font-medium">Kapasitas Transit</span>
             <span className="font-mono font-bold text-cyan-300">
               {tile.type === TileType.BUS_DEPOT ? 80 : 150} penumpang
             </span>
           </div>
           <div className="flex items-center justify-between text-[10px] text-gray-400 font-mono">
-            <span>Road service range</span>
-            <span>{tile.type === TileType.BUS_DEPOT ? 18 : 28} tiles</span>
+            <span>Jangkauan layanan jalan</span>
+            <span>{tile.type === TileType.BUS_DEPOT ? 18 : 28} petak</span>
           </div>
         </div>
       )}
@@ -409,8 +496,8 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
       {isWarehouse && (
         <div className="my-3 p-3 rounded-xl bg-orange-500/10 border border-orange-400/20 space-y-2">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-300 font-medium">Warehouse Buffer</span>
-            <span className="font-mono font-bold text-orange-300">Level {tile.level} · aktif</span>
+            <span className="text-gray-300 font-medium">Buffer Gudang</span>
+            <span className="font-mono font-bold text-orange-300">Tingkat {tile.level} · aktif</span>
           </div>
           <div className="text-[10px] text-gray-400 font-mono">Menyimpan barang lokal dan impor untuk menahan gangguan supply chain.</div>
         </div>
@@ -419,8 +506,8 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
       {isCargoTerminal && (
         <div className="my-3 p-3 rounded-xl bg-cyan-500/10 border border-cyan-400/20 space-y-2">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-300 font-medium">Cargo Throughput</span>
-            <span className="font-mono font-bold text-cyan-300">Level {tile.level} · aktif</span>
+            <span className="text-gray-300 font-medium">Arus Kargo</span>
+            <span className="font-mono font-bold text-cyan-300">Tingkat {tile.level} · aktif</span>
           </div>
           <div className="text-[10px] text-gray-400 font-mono">Gateway import dan export surplus industri melalui akses jalan kota.</div>
         </div>
@@ -429,8 +516,8 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
       {isFloodBarrier && (
         <div className="my-3 p-3 rounded-xl bg-sky-500/10 border border-sky-400/20 space-y-1.5">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-300 font-medium">Flood Barrier</span>
-            <span className="font-mono font-bold text-sky-300">FLOW BLOCK</span>
+            <span className="text-gray-300 font-medium">Tanggul Banjir</span>
+            <span className="font-mono font-bold text-sky-300">BLOKIR ALIRAN</span>
           </div>
           <div className="text-[10px] text-gray-400 font-mono">Menghentikan propagation air pada koridor ini; air masih dapat mencari rute alternatif di sekitar barrier.</div>
         </div>
@@ -439,7 +526,7 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
       {isReservoir && (
         <div className="my-3 p-3 rounded-xl bg-blue-500/10 border border-blue-400/20 space-y-1.5">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-300 font-medium">Reservoir Storage</span>
+            <span className="text-gray-300 font-medium">Penyimpanan Waduk</span>
             <span className="font-mono font-bold text-blue-300">{Math.round((tile.reservoirLevel ?? 0) * 100)}%</span>
           </div>
           <div className="text-[10px] text-gray-400 font-mono">Menahan limpasan di dekat sumber air dan mengurangi penyebaran flood downstream.</div>
@@ -449,7 +536,7 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
       {isFleetDepot && onOrderMaintenance && (
         <div className="my-3 rounded-xl border border-orange-400/20 bg-orange-500/10 p-3 space-y-2">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-300 font-medium">Depot Maintenance</span>
+            <span className="text-gray-300 font-medium">Perawatan Depot</span>
             <span className={`font-mono font-bold ${depotCondition >= 70 ? 'text-emerald-300' : 'text-rose-300'}`}>{depotCondition.toFixed(1)}%</span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-black/30">
@@ -459,9 +546,9 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
             type="button"
             disabled={maintenanceOrderActive || depotCondition >= 99.5}
             onClick={() => onOrderMaintenance(tile.x, tile.y)}
-            className="w-full rounded-lg border border-orange-300/30 bg-orange-400/10 px-2 py-1.5 text-[10px] font-semibold text-orange-200 disabled:cursor-not-allowed disabled:opacity-40"
+            className="min-h-[44px] w-full rounded-lg border border-orange-300/30 bg-orange-400/10 px-2 py-1.5 text-[10px] font-semibold text-orange-200 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {maintenanceOrderActive ? 'Maintenance In Progress (2 ticks)' : depotCondition >= 99.5 ? 'Depot Ready' : `Order Overhaul · $${maintenanceCost}`}
+            {maintenanceOrderActive ? 'Perawatan berjalan (2 tick)' : depotCondition >= 99.5 ? 'Depot siap' : `Pesan perbaikan · $${maintenanceCost}`}
           </button>
         </div>
       )}
@@ -472,13 +559,13 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
           <>
             <StatBox label="Kelas Jalan" value={roadClass} icon={<Route size={14} className="text-sky-300" />} />
             <StatBox label="Lajur" value={`${roadProfile.LANES} lajur`} icon={<Route size={14} className="text-cyan-300" />} />
-            <StatBox label="Peak Lane Load" value={`${Math.round(tile.laneUtilization ?? 0)}%`} icon={<Activity size={14} className="text-orange-300" />} />
-            <StatBox label="Lane Change Pressure" value={`${Math.round(tile.laneChangePressure ?? 0)}%`} icon={<Activity size={14} className="text-fuchsia-300" />} />
-            <StatBox label="Queue Pressure" value={`${Math.round(tile.queuePressure ?? 0)}%`} icon={<Activity size={14} className="text-rose-300" />} />
+            <StatBox label="Beban lajur puncak" value={`${Math.round(tile.laneUtilization ?? 0)}%`} icon={<Activity size={14} className="text-orange-300" />} />
+            <StatBox label="Tekanan pindah lajur" value={`${Math.round(tile.laneChangePressure ?? 0)}%`} icon={<Activity size={14} className="text-fuchsia-300" />} />
+            <StatBox label="Tekanan antrean" value={`${Math.round(tile.queuePressure ?? 0)}%`} icon={<Activity size={14} className="text-rose-300" />} />
             {(tile.signalStage ?? 'PERMISSIVE') !== 'PERMISSIVE' && (
               <StatBox
-                label="Signal Stage"
-                value={`${tile.signalStage}${tile.pedestrianCrossing ? ' · Ped Walk' : ''}`}
+                label="Tahap sinyal"
+                value={`${signalStageLabel(tile.signalStage)}${tile.pedestrianCrossing ? ' · Pejalan melintas' : ''}`}
                 icon={<Activity size={14} className={tile.signalStage === 'GREEN' ? 'text-emerald-300' : tile.signalStage === 'YELLOW' ? 'text-amber-300' : 'text-rose-300'} />}
               />
             )}
@@ -489,7 +576,7 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
         {tile.type === TileType.RESIDENTIAL && (
           <>
             <StatBox label="Penghuni" value={`${tile.population} Jiwa`} icon={<Home size={14} className="text-emerald-400" />} />
-            <StatBox label="Density" value={getDensityLabel(getZoneDensity(tile))} icon={<Home size={14} className="text-teal-300" />} />
+            <StatBox label="Kepadatan" value={getDensityLabel(getZoneDensity(tile))} icon={<Home size={14} className="text-teal-300" />} />
             <StatBox label="Sewa" value={`$${tile.rent ?? 0}/hari`} icon={<DollarSign size={14} className="text-amber-300" />} />
           </>
         )}
@@ -504,25 +591,25 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
             <StatBox label="Sektor" value={tile.companySector?.replaceAll('_', ' ') ?? 'Menunggu tick'} icon={<TrendingUp size={14} className="text-violet-300" />} />
             <StatBox label="Efisiensi" value={`${Math.round((tile.companyEfficiency ?? 0) * 100)}%`} icon={<Activity size={14} className="text-emerald-300" />} />
             <StatBox label="Profit / hari" value={`$${tile.companyProfit ?? 0}`} icon={<DollarSign size={14} className={(tile.companyProfit ?? 0) >= 0 ? 'text-emerald-300' : 'text-rose-300'} />} />
-            {tile.type === TileType.INDUSTRIAL && <StatBox label="Input shortage" value={`${Math.round((tile.inputShortage ?? 0) * 100)}%`} icon={<AlertTriangle size={14} className={(tile.inputShortage ?? 0) > 0.2 ? 'text-rose-300' : 'text-amber-300'} />} />}
+            {tile.type === TileType.INDUSTRIAL && <StatBox label="Kekurangan input" value={`${Math.round((tile.inputShortage ?? 0) * 100)}%`} icon={<AlertTriangle size={14} className={(tile.inputShortage ?? 0) > 0.2 ? 'text-rose-300' : 'text-amber-300'} />} />}
           </>
         )}
         <StatBox label="Nilai Lahan" value={`${tile.landValue ?? 30}/100`} icon={<DollarSign size={14} className="text-amber-400" />} />
         <StatBox label="Polusi" value={`${tile.pollution ?? 0}%`} icon={<AlertTriangle size={14} className={(tile.pollution ?? 0) > 30 ? 'text-rose-400' : 'text-emerald-400'} />} />
         <StatBox label="Lalu Lintas" value={`${Math.round(tile.traffic ?? 0)}%`} icon={<Activity size={14} className="text-purple-400" />} />
         <StatBox label="Kesehatan" value={`${tile.health ?? 50}%`} icon={<HeartPulse size={14} className="text-teal-400" />} />
-        {fastestServiceResponse !== null && <StatBox label="Fastest Response" value={`${fastestServiceResponse.toFixed(1)} min`} icon={<Timer size={14} className={fastestServiceResponse <= 5 ? 'text-emerald-300' : fastestServiceResponse <= 10 ? 'text-amber-300' : 'text-rose-300'} />} />}
+        {fastestServiceResponse !== null && <StatBox label="Respons tercepat" value={`${fastestServiceResponse.toFixed(1)} mnt`} icon={<Timer size={14} className={fastestServiceResponse <= 5 ? 'text-emerald-300' : fastestServiceResponse <= 10 ? 'text-amber-300' : 'text-rose-300'} />} />}
       </div>
 
       {isRoad && (tile.roadCondition ?? 100) < 96 && onStartRecoveryProject && (
         <div className="mb-3 rounded-xl border border-orange-400/20 bg-orange-500/10 p-3">
           <div className="flex items-center justify-between gap-2 text-[11px]">
-            <span className="font-semibold text-orange-200">Staged Road Recovery</span>
+            <span className="font-semibold text-orange-200">Pemulihan Jalan Bertahap</span>
             <span className="font-mono text-orange-300">{Math.round(tile.roadCondition ?? 100)}%</span>
           </div>
           <div className="mt-1 text-[10px] leading-relaxed text-slate-400">Jadwalkan pekerjaan beberapa hari agar kondisi ruas pulih bertahap dan dampak bencana berkurang.</div>
-          <button type="button" disabled={recoveryProjectActive} onClick={() => onStartRecoveryProject(tile.x, tile.y)} className="mt-2 w-full rounded-lg border border-orange-300/30 bg-orange-400/10 px-2 py-1.5 text-[10px] font-semibold text-orange-200 disabled:cursor-not-allowed disabled:opacity-40">
-            {recoveryProjectActive ? 'Recovery In Progress' : 'Start Recovery Project'}
+          <button type="button" disabled={recoveryProjectActive} onClick={() => onStartRecoveryProject(tile.x, tile.y)} className="mt-2 min-h-[44px] w-full rounded-lg border border-orange-300/30 bg-orange-400/10 px-2 py-1.5 text-[10px] font-semibold text-orange-200 disabled:cursor-not-allowed disabled:opacity-40">
+            {recoveryProjectActive ? 'Pemulihan berjalan' : 'Mulai proyek pemulihan'}
           </button>
         </div>
       )}
@@ -530,14 +617,14 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
       {isService && serviceUpgradeOptions.length > 0 && (
         <div className="mb-3 rounded-xl border border-violet-400/20 bg-violet-500/10 p-3">
           <div className="flex items-center justify-between text-[11px] font-semibold text-violet-200">
-            <span>Service Upgrades</span>
-            <span className="font-mono text-violet-300">+{Math.round(((serviceStats?.capacityMultiplier ?? 1) - 1) * 100)}% capacity</span>
+            <span>Peningkatan layanan</span>
+            <span className="font-mono text-violet-300">+{Math.round(((serviceStats?.capacityMultiplier ?? 1) - 1) * 100)}% kapasitas</span>
           </div>
-          <div className="mt-1 text-[10px] text-slate-400">Upgrade menambah kapasitas/jangkauan, tetapi biaya upkeep harian ikut naik.</div>
+          <div className="mt-1 text-[10px] text-slate-400">Peningkatan menambah kapasitas/jangkauan, tetapi biaya perawatan harian ikut naik.</div>
           <div className="mt-2 space-y-1.5">
             {serviceUpgradeOptions.map((upgrade) => {
               const owned = tile.serviceUpgrades?.includes(upgrade.id);
-              return <button key={upgrade.id} type="button" disabled={owned || !onUpgradeService} onClick={() => onUpgradeService?.(tile.x, tile.y, upgrade.id)} className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-black/20 px-2 py-1.5 text-left text-[10px] text-slate-200 disabled:opacity-50"><span><span className="font-semibold">{owned ? '✓ ' : ''}{upgrade.name}</span><span className="block text-slate-500">{upgrade.description}</span></span><span className="ml-2 shrink-0 font-mono text-violet-300">{owned ? 'ACTIVE' : `$${upgrade.buildCost}`}</span></button>;
+              return <button key={upgrade.id} type="button" disabled={owned || !onUpgradeService} onClick={() => onUpgradeService?.(tile.x, tile.y, upgrade.id)} className="min-h-[44px] flex w-full items-center justify-between rounded-lg border border-white/10 bg-black/20 px-2 py-1.5 text-left text-[10px] text-slate-200 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"><span><span className="font-semibold">{owned ? '✓ ' : ''}{serviceUpgradeCopy(upgrade.id, upgrade.name, language, 0)}</span><span className="block text-slate-500">{serviceUpgradeCopy(upgrade.id, upgrade.description, language, 1)}</span></span><span className="ml-2 shrink-0 font-mono text-violet-300">{owned ? 'AKTIF' : `$${upgrade.buildCost}`}</span></button>;
             })}
           </div>
         </div>
@@ -580,11 +667,13 @@ export function BuildingInspector({ tile, onClose, onFocus, onDemolish, onUpdate
       {/* Demolish & Refund Button */}
       {tile.type !== TileType.EMPTY && !tile.water && (
         <button
+          type="button"
           onClick={() => onDemolish(tile.x, tile.y)}
-          className="w-full py-2 px-3 bg-rose-500/20 hover:bg-rose-500/30 active:bg-rose-500/40 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+          aria-label={`Gusur Petak ${tile.x + 1}, ${tile.y + 1} dengan pengembalian ${refundAmount} dolar`}
+          className="w-full min-h-[44px] py-2.5 px-3 bg-rose-500/20 hover:bg-rose-500/30 active:bg-rose-500/40 text-rose-200 border border-rose-500/30 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
         >
-          <Trash2 size={14} />
-          <span>Bulldoze Petak (+${refundAmount} Refund)</span>
+          <Trash2 size={16} aria-hidden="true" />
+          <span>Gusur Petak ({tile.x + 1}, {tile.y + 1}) (+${refundAmount} Pengembalian)</span>
         </button>
       )}
     </aside>

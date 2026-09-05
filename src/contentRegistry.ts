@@ -29,24 +29,27 @@ export interface ModContentPack {
 }
 
 const buildingDefinitions: BuildingDefinition[] = [
-  { id: 'residential', tileType: TileType.RESIDENTIAL, displayName: 'Residential', category: 'ZONE', maxLevel: 5, tags: ['housing'] },
-  { id: 'commercial', tileType: TileType.COMMERCIAL, displayName: 'Commercial', category: 'ZONE', maxLevel: 5, tags: ['retail', 'jobs'] },
-  { id: 'office', tileType: TileType.OFFICE, displayName: 'Office', category: 'ZONE', maxLevel: 5, tags: ['office', 'knowledge', 'jobs'] },
-  { id: 'industrial', tileType: TileType.INDUSTRIAL, displayName: 'Industrial', category: 'ZONE', maxLevel: 5, tags: ['production', 'jobs'] },
-  { id: 'power_plant', tileType: TileType.POWER_PLANT, displayName: 'Power Plant', category: 'UTILITY', maxLevel: 1, tags: ['power'] },
-  { id: 'water_pump', tileType: TileType.WATER_PUMP, displayName: 'Water Pump', category: 'UTILITY', maxLevel: 1, tags: ['water'] },
-  { id: 'bus_depot', tileType: TileType.BUS_DEPOT, displayName: 'Bus Depot', category: 'TRANSIT', maxLevel: 3, tags: ['transit'] },
-  { id: 'tram_station', tileType: TileType.TRAM_STATION, displayName: 'Tram Station', category: 'TRANSIT', maxLevel: 3, tags: ['transit'] },
-  { id: 'bus_stop', tileType: TileType.BUS_STOP, displayName: 'Bus Stop', category: 'TRANSIT', maxLevel: 1, tags: ['transit', 'stop'] },
-  { id: 'tram_stop', tileType: TileType.TRAM_STOP, displayName: 'Tram Stop', category: 'TRANSIT', maxLevel: 1, tags: ['transit', 'stop'] },
-  { id: 'warehouse', tileType: TileType.WAREHOUSE, displayName: 'Warehouse', category: 'LOGISTICS', maxLevel: 5, tags: ['freight', 'storage'] },
-  { id: 'cargo_terminal', tileType: TileType.CARGO_TERMINAL, displayName: 'Cargo Terminal', category: 'LOGISTICS', maxLevel: 5, tags: ['freight', 'gateway'] },
+  { id: 'residential', tileType: TileType.RESIDENTIAL, displayName: 'Hunian', category: 'ZONE', maxLevel: 5, tags: ['perumahan'] },
+  { id: 'commercial', tileType: TileType.COMMERCIAL, displayName: 'Komersial', category: 'ZONE', maxLevel: 5, tags: ['ritel', 'pekerjaan'] },
+  { id: 'office', tileType: TileType.OFFICE, displayName: 'Perkantoran', category: 'ZONE', maxLevel: 5, tags: ['kantor', 'pengetahuan', 'pekerjaan'] },
+  { id: 'industrial', tileType: TileType.INDUSTRIAL, displayName: 'Industri', category: 'ZONE', maxLevel: 5, tags: ['produksi', 'pekerjaan'] },
+  { id: 'power_plant', tileType: TileType.POWER_PLANT, displayName: 'Pembangkit Listrik', category: 'UTILITY', maxLevel: 1, tags: ['listrik'] },
+  { id: 'water_pump', tileType: TileType.WATER_PUMP, displayName: 'Pompa Air', category: 'UTILITY', maxLevel: 1, tags: ['air'] },
+  { id: 'bus_depot', tileType: TileType.BUS_DEPOT, displayName: 'Depo Bus', category: 'TRANSIT', maxLevel: 3, tags: ['transit'] },
+  { id: 'tram_station', tileType: TileType.TRAM_STATION, displayName: 'Stasiun Trem', category: 'TRANSIT', maxLevel: 3, tags: ['transit'] },
+  { id: 'bus_stop', tileType: TileType.BUS_STOP, displayName: 'Halte Bus', category: 'TRANSIT', maxLevel: 1, tags: ['transit', 'pemberhentian'] },
+  { id: 'tram_stop', tileType: TileType.TRAM_STOP, displayName: 'Halte Trem', category: 'TRANSIT', maxLevel: 1, tags: ['transit', 'pemberhentian'] },
+  { id: 'warehouse', tileType: TileType.WAREHOUSE, displayName: 'Gudang', category: 'LOGISTICS', maxLevel: 5, tags: ['angkutan', 'penyimpanan'] },
+  { id: 'cargo_terminal', tileType: TileType.CARGO_TERMINAL, displayName: 'Terminal Kargo', category: 'LOGISTICS', maxLevel: 5, tags: ['angkutan', 'gerbang'] },
 ];
 
 export const SCENARIO_DEFINITIONS: ScenarioDefinition[] = [
-  { id: 'flood-resilience', name: 'Flood Resilience', description: 'Protect a growing river city while maintaining a balanced budget.', seed: 2088, tags: ['flood', 'recovery'], targetDays: 180, objectives: [{ id: 'population', label: 'Reach 250 residents', target: 250 }, { id: 'flood-control', label: 'Build flood control capacity', target: 3 }] },
-  { id: 'industrial-transition', name: 'Industrial Transition', description: 'Move from a resource economy to clean production without collapsing employment.', seed: 4096, tags: ['industry', 'green'], targetDays: 240, objectives: [{ id: 'efficiency', label: 'Maintain 85% production efficiency', target: 85 }, { id: 'pollution', label: 'Keep pollution below 25', target: 25 }] },
-  { id: 'transit-metropolis', name: 'Transit Metropolis', description: 'Create a regional transit network that keeps commute pressure under control.', seed: 8192, tags: ['transit', 'traffic'], targetDays: 300, objectives: [{ id: 'ridership', label: 'Reach 65% transit coverage', target: 65 }, { id: 'congestion', label: 'Keep congestion below 35', target: 35 }] },
+  { id: 'balanced-beginnings', name: 'Kota dari Nol', description: 'Bangun fondasi kota tanpa mengorbankan kebahagiaan.', premise: 'Permukiman tropis baru membutuhkan pekerjaan dan layanan.', seed: 1024, tags: ['seimbang'], targetDays: 120, constraints: ['Kas awal terbatas'], events: ['Gelombang migrasi'], hardChoices: ['Pertumbuhan atau layanan'], objectives: [{ id: 'population', label: 'Capai 100 warga', target: 100 }, { id: 'happiness', label: 'Jaga kebahagiaan di atas 60', target: 60 }] },
+  { id: 'flood-resilience', name: 'Koridor Banjir', description: 'Lindungi kota sungai yang tumbuh sambil menjaga anggaran tetap seimbang.', premise: 'Koridor sungai produktif sekaligus rentan monsun.', seed: 2088, tags: ['banjir', 'pemulihan'], targetDays: 180, constraints: ['Pembangunan tetap di koridor sungai'], events: ['Peringatan hujan lebat'], hardChoices: ['Evakuasi atau aktivitas ekonomi'], objectives: [{ id: 'population', label: 'Capai 250 warga', target: 250 }, { id: 'flood-control', label: 'Bangun 3 tanggul banjir', target: 3 }] },
+  { id: 'transit-metropolis', name: 'Kota Tanpa Macet', description: 'Bangun jaringan transit yang menjaga tekanan komuter tetap terkendali.', premise: 'Pertumbuhan cepat bertumpu pada satu koridor arteri.', seed: 8192, tags: ['transit', 'lalu lintas'], targetDays: 300, constraints: ['Jalan tol baru dibatasi'], events: ['Jam sibuk regional'], hardChoices: ['Tarif murah atau kas sehat'], objectives: [{ id: 'ridership', label: 'Capai cakupan transit 65%', target: 65 }, { id: 'congestion', label: 'Jaga kemacetan di bawah 35', target: 35 }] },
+  { id: 'industrial-transition', name: 'Krisis Industri', description: 'Bersihkan produksi tanpa menjatuhkan lapangan kerja.', premise: 'Pabrik utama menghadapi kekurangan input dan polusi.', seed: 4096, tags: ['industri', 'hijau'], targetDays: 240, constraints: ['Pertahankan pekerjaan'], events: ['Gangguan logistik'], hardChoices: ['Subsidi atau diversifikasi'], objectives: [{ id: 'efficiency', label: 'Pertahankan efisiensi produksi 85%', target: 85 }, { id: 'pollution', label: 'Jaga polusi di bawah 25', target: 25 }, { id: 'jobs', label: 'Pertahankan 100 pekerjaan', target: 100 }] },
+  { id: 'mixed-use-metro', name: 'Metropolitan Baru', description: 'Kembangkan pusat regional campuran yang padat.', premise: 'Kota siap memadat tanpa kehilangan karakter distrik.', seed: 16384, tags: ['campuran', 'metro'], targetDays: 320, constraints: ['Utamakan pengisian kawasan'], events: ['Lonjakan harga lahan'], hardChoices: ['Kepadatan atau keterjangkauan'], objectives: [{ id: 'population', label: 'Capai 300 warga', target: 300 }, { id: 'mixed-use', label: 'Bangun 6 blok campuran', target: 6 }] },
+  { id: 'green-balance', name: 'Kota Seimbang', description: 'Seimbangkan kemakmuran, udara bersih, dan kesejahteraan warga.', premise: 'Kota tropis menolak memilih antara ekonomi dan kualitas hidup.', seed: 32768, tags: ['hijau', 'seimbang'], targetDays: 260, constraints: ['Polusi maksimum 20'], events: ['Tekanan investasi'], hardChoices: ['Industri cepat atau ekonomi bersih'], objectives: [{ id: 'balance', label: 'Capai skor keseimbangan 70', target: 70 }, { id: 'pollution', label: 'Jaga polusi di bawah 20', target: 20 }] },
 ];
 
 export function createContentRegistry(): ContentRegistry {

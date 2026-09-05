@@ -31,5 +31,12 @@ export default defineConfig(() => {
       },
       chunkSizeWarningLimit: 1200,
     },
+    // The deterministic benchmark-style tests each build sizeable simulation
+    // graphs. Running them concurrently causes host CPU contention and false
+    // 5-second timeouts; serial execution keeps the release gate meaningful.
+    test: {
+      maxWorkers: 1,
+      minWorkers: 1,
+    },
   };
 });

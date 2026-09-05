@@ -37,10 +37,10 @@ export interface ServiceDispatchInsightContext {
 }
 
 const AGENCIES: Array<{ agency: DispatchAgency; label: string }> = [
-  { agency: 'FIRE', label: 'Fire & Rescue' },
-  { agency: 'MEDICAL', label: 'Medical Response' },
-  { agency: 'POLICE', label: 'Police Response' },
-  { agency: 'TRAFFIC', label: 'Traffic Control' },
+  { agency: 'FIRE', label: 'Pemadam & Penyelamatan' },
+  { agency: 'MEDICAL', label: 'Respons Medis' },
+  { agency: 'POLICE', label: 'Respons Polisi' },
+  { agency: 'TRAFFIC', label: 'Pengendalian Lalu Lintas' },
 ];
 
 function roleMatchesAgency(role: ServiceVehicleAgent['role'], agency: DispatchAgency): boolean {
@@ -153,10 +153,10 @@ export function calculateServiceDispatchInsights(
 
     if (incidents.length === 0) recommendations.push('Tidak ada panggilan aktif; kapasitas siap untuk kejadian berikutnya.');
     if (queuedUnits > 0) recommendations.push(`${queuedUnits} unit masih antre; tambah kapasitas atau perbaiki fasilitas ${label.toLowerCase()}.`);
-    if (bayQueue > 0) recommendations.push(`Antrean bay ${bayQueue}; kurangi konflik depot dengan menambah station atau armada.`);
-    if (availableUnits <= 0 && incidents.length > 0) recommendations.push('Tidak ada unit siap; jadwalkan maintenance atau bangun depot tambahan.');
+    if (bayQueue > 0) recommendations.push(`Antrean teluk ${bayQueue}; kurangi konflik depo dengan menambah pos layanan atau armada.`);
+    if (availableUnits <= 0 && incidents.length > 0) recommendations.push('Tidak ada unit siap; jadwalkan perawatan atau bangun depo tambahan.');
     if (averageEtaMinutes > 10) recommendations.push(`ETA rata-rata ${averageEtaMinutes.toFixed(1)} menit; periksa koneksi jalan dan kemacetan koridor.`);
-    if (recommendations.length === 0) recommendations.push('Dispatch stabil: kapasitas, armada, dan koneksi jalan mencukupi.');
+    if (recommendations.length === 0) recommendations.push('Respons stabil: kapasitas, armada, dan koneksi jalan mencukupi.');
 
     return {
       agency,

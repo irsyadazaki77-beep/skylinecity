@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 
 interface DayNightSkyProps {
+  shadowSize?: number;
   timeOfDay?: number;
   dayNightCycle?: 'enabled' | 'disabled' | 'locked_day' | 'locked_night';
 }
@@ -19,14 +20,16 @@ export function getNightFactor(timeOfDay: number): number {
   return Math.max(0, Math.min(1, 1 - Math.pow(daylight, 0.72)));
 }
 
-export function DayNightSky({ timeOfDay = 6, dayNightCycle = 'enabled' }: DayNightSkyProps) {
+export function DayNightSky({ shadowSize = 1024, timeOfDay = 6, dayNightCycle = 'enabled' }: DayNightSkyProps) {
   const sunRef = useRef<THREE.DirectionalLight>(null);
   const ambientRef = useRef<THREE.AmbientLight>(null);
   const hemisphereRef = useRef<THREE.HemisphereLight>(null);
   const fogRef = useRef<THREE.Fog>(null);
   const { scene } = useThree();
-  const backgroundColor = useMemo(() => new THREE.Color('#17283f'), []);
-  const nightColor = useMemo(() => new THREE.Color('#07101d'), []);
+  const backgroundColor = useMemo(() => new THREE.Color('#101c2e'), []);
+  const nightColor = useMemo(() => new THREE.Color('#0d1726'), []);
+  const dayColor = useMemo(() => new THREE.Color('#8dc1e8'), []);
+  const duskColor = useMemo(() => new THREE.Color('#e69968'), []);
   const timeRef = useRef<number>(timeOfDay / 24); // Follow the simulation clock without forcing React renders.
 
   useFrame((_, delta) => {
@@ -57,7 +60,8 @@ export function DayNightSky({ timeOfDay = 6, dayNightCycle = 'enabled' }: DayNig
     // Keep the playable map on a stable deep-slate background. Daylight is
     // communicated by the surface and buildings; a bright scene background
     // combined with renderer color management can otherwise wash out the map.
-    backgroundColor.copy(nightColor);
+    backgroundColor.copy(nightColor).lerp(dayColor, daylight);
+    backgroundColor.lerp(duskColor, Math.max(0, 1 - Math.abs(daylight - 0.35) / 0.35) * 0.35);
     scene.background = backgroundColor;
     if (fogRef.current) fogRef.current.color.copy(backgroundColor);
     
@@ -75,14 +79,16 @@ export function DayNightSky({ timeOfDay = 6, dayNightCycle = 'enabled' }: DayNig
       
       // Sun intensity & color gradient
       if (sunY > 0) {
-        // Keep direct light in a conservative range so standard materials do
-        // not clip to white at noon, while dawn/dusk remain visible.
-        sunRef.current.intensity = 0.12 + Math.min(1, sunY / 35) * 0.88;
-        const sunsetBlend = Math.max(0, 1 - sunY / 15);
-        // Blend white sunlight to golden/orange sunset
+        // Keep direct light in a healthy, clear range with warm morning/dusk golden tint.
+        // During early morning (05:00 - 09:00), boost illumination so the initial city is vibrant and readable.
+        const isMorning = hour >= 4.5 && hour <= 9.0;
+        const morningBoost = isMorning ? 0.15 : 0;
+        sunRef.current.intensity = Math.min(2.4, 1.2 + morningBoost + Math.min(1, sunY / 35) * 1.1);
+        const sunsetBlend = Math.max(0, 1 - sunY / 18);
+        // Blend crisp sunlight to warm golden morning / amber dusk
         const r = 1.0;
-        const g = 0.95 - sunsetBlend * 0.4;
-        const b = 0.85 - sunsetBlend * 0.6;
+        const g = 0.98 - sunsetBlend * 0.25;
+        const b = 0.90 - sunsetBlend * 0.35;
         sunRef.current.color.setRGB(r, g, b);
       } else {
         // Moon / Night light
@@ -90,34 +96,37 @@ export function DayNightSky({ timeOfDay = 6, dayNightCycle = 'enabled' }: DayNig
         sunRef.current.color.setHex(0x3b82f6); // Soft blue moonlight
       }
     }
-    if (ambientRef.current) ambientRef.current.intensity = 0.34 + twilight * 0.16;
-    if (hemisphereRef.current) hemisphereRef.current.intensity = 0.34 + twilight * 0.1;
+    // At the default 06:00 start, preserve crisp, readable terrain, roads, water,
+    // and zoning before the player has learned the camera controls.
+    if (ambientRef.current) ambientRef.current.intensity = 0.75 + twilight * 0.35;
+    if (hemisphereRef.current) hemisphereRef.current.intensity = 0.65 + twilight * 0.35;
   });
 
   return (
     <>
-      {/* Directional Sun / Moon Light with Crisp Shadows */}
+      {/* Directional Sun / Moon Light with Crisp Shadows and clean Normal Bias */}
       <directionalLight
         ref={sunRef}
         position={[25, 30, 20]}
         castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
+        shadow-mapSize-width={shadowSize}
+        shadow-mapSize-height={shadowSize}
         shadow-camera-near={1}
-        shadow-camera-far={120}
-        shadow-camera-left={-22}
-        shadow-camera-right={22}
-        shadow-camera-top={18}
-        shadow-camera-bottom={-18}
-        shadow-bias={-0.0005}
+        shadow-camera-far={130}
+        shadow-camera-left={-34}
+        shadow-camera-right={34}
+        shadow-camera-top={34}
+        shadow-camera-bottom={-34}
+        shadow-bias={-0.0003}
+        shadow-normalBias={0.02}
       />
 
       {/* Ambient & Hemisphere lighting for smooth global illumination */}
-      <ambientLight ref={ambientRef} intensity={0.42} color="#e0e7ff" />
-      <hemisphereLight ref={hemisphereRef} args={['#dbeafe', '#1e293b', 0.38]} />
+      <ambientLight ref={ambientRef} intensity={0.48} color="#e0e7ff" />
+      <hemisphereLight ref={hemisphereRef} args={['#e0f2fe', '#3d493a', 0.52]} />
 
       {/* Atmospheric Distance Fog */}
-      <fog ref={fogRef} attach="fog" args={['#17283f', 34, 105]} />
+      <fog ref={fogRef} attach="fog" args={['#101c2e', 52, 155]} />
     </>
   );
 }

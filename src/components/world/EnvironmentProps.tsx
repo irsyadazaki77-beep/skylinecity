@@ -14,6 +14,7 @@ interface EnvPosition {
   z: number;
   scale: number;
   rotation: number;
+  variant: 0 | 1 | 2;
 }
 
 interface RockPosition {
@@ -24,6 +25,7 @@ interface RockPosition {
   rx: number;
   ry: number;
   rz: number;
+  variant: 0 | 1 | 2;
 }
 
 // Quick LCG for stable seeded randomness
@@ -33,6 +35,22 @@ function getSeededRandom(seed: number) {
     s = (s * 1664525 + 1013904223) % 4294967296;
     return s / 4294967296;
   };
+}
+
+function getTreeVariantForTile(elevation: number, resource: string | undefined, rndVal: number): 0 | 1 | 2 {
+  if (elevation >= 4) {
+    // Highland mountain: predominantly conifers / pines
+    return rndVal < 0.78 ? 1 : 2;
+  }
+  if (elevation >= 2) {
+    // Mid hills: mix of pine, broadleaf, and alpine shrubs
+    return rndVal < 0.48 ? 1 : rndVal < 0.84 ? 0 : 2;
+  }
+  // Lowlands
+  if (resource === 'fertile') {
+    return rndVal < 0.7 ? 0 : 2;
+  }
+  return rndVal < 0.58 ? 0 : rndVal < 0.8 ? 1 : 2;
 }
 
 export function EnvironmentProps({ grid, vegetationDensity = 'medium' }: EnvironmentPropsProps) {
@@ -76,6 +94,7 @@ export function EnvironmentProps({ grid, vegetationDensity = 'medium' }: Environ
               z: wz + oz + (rnd() - 0.5) * 0.4,
               scale: 0.65 + rnd() * 0.5,
               rotation: rnd() * Math.PI * 2,
+              variant: Math.floor(rnd() * 3) as 0 | 1 | 2,
             });
           }
         }
@@ -93,6 +112,7 @@ export function EnvironmentProps({ grid, vegetationDensity = 'medium' }: Environ
           const [wx, , wz] = gridToWorld(x, y, width, height);
           const tileY = (tile.elevation || 0) * 0.15;
 
+
           // Place trees on Forest resource or naturally on some tiles
           if (tile.resource === 'forest') {
             // Multiple trees inside a forest plot
@@ -105,6 +125,7 @@ export function EnvironmentProps({ grid, vegetationDensity = 'medium' }: Environ
                 z: wz + (rnd() - 0.5) * 0.5,
                 scale: 0.55 + rnd() * 0.45,
                 rotation: rnd() * Math.PI * 2,
+                variant: getTreeVariantForTile(tile.elevation || 0, tile.resource, rnd()),
               });
             }
           } else if (rnd() < 0.10 * treeProbMult) {
@@ -115,6 +136,7 @@ export function EnvironmentProps({ grid, vegetationDensity = 'medium' }: Environ
               z: wz + (rnd() - 0.5) * 0.4,
               scale: 0.5 + rnd() * 0.4,
               rotation: rnd() * Math.PI * 2,
+              variant: getTreeVariantForTile(tile.elevation || 0, tile.resource, rnd()),
             });
           }
 
@@ -130,18 +152,20 @@ export function EnvironmentProps({ grid, vegetationDensity = 'medium' }: Environ
                 rx: rnd() * Math.PI,
                 ry: rnd() * Math.PI,
                 rz: rnd() * Math.PI,
+                variant: Math.floor(rnd() * 3) as 0 | 1 | 2,
               });
             }
-          } else if ((tile.elevation || 0) >= 5 && rnd() < 0.15) {
-            // Mountain stones
+          } else if ((tile.elevation || 0) >= 3 && rnd() < 0.22) {
+            // Mountain stones & ridges
             rocks.push({
               x: wx + (rnd() - 0.5) * 0.4,
               y: tileY,
               z: wz + (rnd() - 0.5) * 0.4,
-              scale: 0.08 + rnd() * 0.15,
+              scale: 0.09 + rnd() * 0.18,
               rx: rnd() * Math.PI,
               ry: rnd() * Math.PI,
               rz: rnd() * Math.PI,
+              variant: Math.floor(rnd() * 3) as 0 | 1 | 2,
             });
           }
         }
@@ -152,64 +176,98 @@ export function EnvironmentProps({ grid, vegetationDensity = 'medium' }: Environ
   }, [terrainSignature, width, height, vegetationDensity]);
 
   // Geometries and Materials
-  const trunkGeo = useMemo(() => new THREE.CylinderGeometry(0.03, 0.05, 0.2, 5), []);
-  const foliageGeo = useMemo(() => new THREE.ConeGeometry(0.18, 0.45, 5), []);
-  const rockGeo = useMemo(() => new THREE.DodecahedronGeometry(0.8, 1), []);
+  const broadleafGeo = useMemo(() => new THREE.IcosahedronGeometry(0.21, 1), []);
+  const pineGeo = useMemo(() => new THREE.ConeGeometry(0.22, 0.5, 7), []);
+  const shrubGeo = useMemo(() => new THREE.SphereGeometry(0.16, 7, 4), []);
+  const trunkGeo = useMemo(() => new THREE.CylinderGeometry(0.03, 0.05, 0.22, 6), []);
+  const roundedRockGeo = useMemo(() => new THREE.IcosahedronGeometry(0.8, 1), []);
+  const flatRockGeo = useMemo(() => new THREE.SphereGeometry(0.8, 7, 3), []);
+  const angularRockGeo = useMemo(() => new THREE.OctahedronGeometry(0.8, 0), []);
 
-  const trunkMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#78350f', roughness: 0.95 }), []);
-  const foliageMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#166534', roughness: 0.75 }), []);
-  const rockMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#64748b', roughness: 0.9 }), []);
+  const trunkMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#5c4033', roughness: 0.92 }), []);
+  const broadleafMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#3b8457', roughness: 0.78 }), []);
+  const pineMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#1b593b', roughness: 0.84 }), []);
+  const shrubMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#579a61', roughness: 0.82 }), []);
+  const roundedRockMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#7a8581', roughness: 0.88 }), []);
+  const flatRockMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#6d7782', roughness: 0.92 }), []);
+  const angularRockMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#4e5860', roughness: 0.85 }), []);
 
   const trunkRef = useRef<THREE.InstancedMesh>(null);
-  const foliageRef = useRef<THREE.InstancedMesh>(null);
-  const rockRef = useRef<THREE.InstancedMesh>(null);
+  const broadleafRef = useRef<THREE.InstancedMesh>(null);
+  const pineRef = useRef<THREE.InstancedMesh>(null);
+  const shrubRef = useRef<THREE.InstancedMesh>(null);
+  const roundedRockRef = useRef<THREE.InstancedMesh>(null);
+  const flatRockRef = useRef<THREE.InstancedMesh>(null);
+  const angularRockRef = useRef<THREE.InstancedMesh>(null);
+
+  const broadleafPositions = useMemo(() => treePositions.filter((tree) => tree.variant === 0), [treePositions]);
+  const pinePositions = useMemo(() => treePositions.filter((tree) => tree.variant === 1), [treePositions]);
+  const shrubPositions = useMemo(() => treePositions.filter((tree) => tree.variant === 2), [treePositions]);
+  const roundedRockPositions = useMemo(() => rockPositions.filter((rock) => rock.variant === 0), [rockPositions]);
+  const flatRockPositions = useMemo(() => rockPositions.filter((rock) => rock.variant === 1), [rockPositions]);
+  const angularRockPositions = useMemo(() => rockPositions.filter((rock) => rock.variant === 2), [rockPositions]);
 
   useEffect(() => {
-    if (!trunkRef.current || !foliageRef.current || !rockRef.current) return;
+    if (!trunkRef.current || !broadleafRef.current || !pineRef.current || !shrubRef.current || !roundedRockRef.current || !flatRockRef.current || !angularRockRef.current) return;
 
     const tempTrunk = new THREE.Matrix4();
-    const tempFoliage = new THREE.Matrix4();
     const tempRock = new THREE.Matrix4();
+    const tempCanopy = new THREE.Matrix4();
+    const trunkRot = new THREE.Quaternion();
+    const canopyRot = new THREE.Quaternion();
+    const rockRot = new THREE.Quaternion();
 
     // 1. Position Trunks and Foliage
     treePositions.forEach((tree, i) => {
       // Trunk Composition
       const trunkPos = new THREE.Vector3(tree.x, tree.y + 0.1 * tree.scale, tree.z);
       const trunkScale = new THREE.Vector3(tree.scale, tree.scale, tree.scale);
-      const trunkRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), tree.rotation);
+      trunkRot.setFromAxisAngle(new THREE.Vector3(0, 1, 0), tree.rotation);
       tempTrunk.compose(trunkPos, trunkRot, trunkScale);
       trunkRef.current!.setMatrixAt(i, tempTrunk);
-
-      // Foliage Composition (positioned on top of the trunk)
-      const foliagePos = new THREE.Vector3(tree.x, tree.y + 0.35 * tree.scale, tree.z);
-      const foliageScale = new THREE.Vector3(tree.scale, tree.scale, tree.scale);
-      const foliageRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), tree.rotation);
-      tempFoliage.compose(foliagePos, foliageRot, foliageScale);
-      foliageRef.current!.setMatrixAt(i, tempFoliage);
     });
 
     trunkRef.current.count = treePositions.length;
     trunkRef.current.instanceMatrix.needsUpdate = true;
 
-    foliageRef.current.count = treePositions.length;
-    foliageRef.current.instanceMatrix.needsUpdate = true;
+    const setCanopyMatrices = (ref: React.RefObject<THREE.InstancedMesh | null>, positions: EnvPosition[], variant: 0 | 1 | 2) => {
+      positions.forEach((tree, i) => {
+        const canopyY = variant === 0 ? 0.37 : variant === 1 ? 0.35 : 0.18;
+        const canopyScale = variant === 0
+          ? new THREE.Vector3(tree.scale, tree.scale * 0.82, tree.scale)
+          : variant === 1
+            ? new THREE.Vector3(tree.scale, tree.scale, tree.scale)
+            : new THREE.Vector3(tree.scale, tree.scale * 0.72, tree.scale);
+        const canopyPos = new THREE.Vector3(tree.x, tree.y + canopyY * tree.scale, tree.z);
+        canopyRot.setFromAxisAngle(new THREE.Vector3(0, 1, 0), tree.rotation);
+        tempCanopy.compose(canopyPos, canopyRot, canopyScale);
+        ref.current!.setMatrixAt(i, tempCanopy);
+      });
+      ref.current!.count = positions.length;
+      ref.current!.instanceMatrix.needsUpdate = true;
+    };
+
+    setCanopyMatrices(broadleafRef, broadleafPositions, 0);
+    setCanopyMatrices(pineRef, pinePositions, 1);
+    setCanopyMatrices(shrubRef, shrubPositions, 2);
 
     // 2. Position Rocks
-    rockPositions.forEach((rock, i) => {
+    const setRockMatrices = (ref: React.RefObject<THREE.InstancedMesh | null>, positions: RockPosition[], yScale: number) => positions.forEach((rock, i) => {
       const rockPos = new THREE.Vector3(rock.x, rock.y + 0.04, rock.z);
-      const rockScale = new THREE.Vector3(rock.scale, rock.scale, rock.scale);
-      const rockRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(rock.rx, rock.ry, rock.rz));
+      const rockScale = new THREE.Vector3(rock.scale, rock.scale * yScale, rock.scale);
+      rockRot.setFromEuler(new THREE.Euler(rock.rx, rock.ry, rock.rz));
       tempRock.compose(rockPos, rockRot, rockScale);
-      rockRef.current!.setMatrixAt(i, tempRock);
+      ref.current!.setMatrixAt(i, tempRock);
     });
 
-    rockRef.current.count = rockPositions.length;
-    rockRef.current.instanceMatrix.needsUpdate = true;
-  }, [treePositions, rockPositions]);
+    setRockMatrices(roundedRockRef, roundedRockPositions, 0.82);
+    setRockMatrices(flatRockRef, flatRockPositions, 0.42);
+    setRockMatrices(angularRockRef, angularRockPositions, 1.0);
+  }, [treePositions, rockPositions, broadleafPositions, pinePositions, shrubPositions, roundedRockPositions, flatRockPositions, angularRockPositions]);
 
   return (
     <group name="EnvironmentProps">
-      {/* High-Performance Instanced Meshes for Vegetation and Prop items */}
+      {/* Fixed draw-call budget: one instanced mesh per silhouette family. */}
       <instancedMesh
         ref={trunkRef}
         args={[trunkGeo, trunkMat, treePositions.length || 1]}
@@ -217,13 +275,35 @@ export function EnvironmentProps({ grid, vegetationDensity = 'medium' }: Environ
         receiveShadow
       />
       <instancedMesh
-        ref={foliageRef}
-        args={[foliageGeo, foliageMat, treePositions.length || 1]}
+        ref={broadleafRef}
+        args={[broadleafGeo, broadleafMat, broadleafPositions.length || 1]}
         castShadow
       />
       <instancedMesh
-        ref={rockRef}
-        args={[rockGeo, rockMat, rockPositions.length || 1]}
+        ref={pineRef}
+        args={[pineGeo, pineMat, pinePositions.length || 1]}
+        castShadow
+      />
+      <instancedMesh
+        ref={shrubRef}
+        args={[shrubGeo, shrubMat, shrubPositions.length || 1]}
+        castShadow
+      />
+      <instancedMesh
+        ref={roundedRockRef}
+        args={[roundedRockGeo, roundedRockMat, roundedRockPositions.length || 1]}
+        castShadow
+        receiveShadow
+      />
+      <instancedMesh
+        ref={flatRockRef}
+        args={[flatRockGeo, flatRockMat, flatRockPositions.length || 1]}
+        castShadow
+        receiveShadow
+      />
+      <instancedMesh
+        ref={angularRockRef}
+        args={[angularRockGeo, angularRockMat, angularRockPositions.length || 1]}
         castShadow
         receiveShadow
       />

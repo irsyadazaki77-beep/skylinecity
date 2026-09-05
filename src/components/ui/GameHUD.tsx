@@ -1,16 +1,14 @@
 import React from 'react';
-import { Play, Pause, FastForward, Bell, Smile, Target, Calendar, ArrowRight, Activity } from 'lucide-react';
+import { Bell, Smile, Target, Calendar } from 'lucide-react';
 import { MILESTONES } from '../../progression';
 import { GameMenu } from './GameMenu';
-import { CoreLoopAdvice } from '../../coreLoopAdvisor';
+import type { SupportedLanguage } from '../../localization';
 
 interface GameHUDProps {
   population: number;
   money: number;
   income: number;
   expenses: number;
-  speed: number;
-  setSpeed: (s: number) => void;
   day: number;
   timeOfDay?: number;
   milestoneLevel: number;
@@ -26,8 +24,7 @@ interface GameHUDProps {
   onOpenSaveLoad: () => void;
   onOpenSettings: () => void;
   onNewGame: () => void;
-  nextAction?: CoreLoopAdvice;
-  onNextAction?: (advice: CoreLoopAdvice) => void;
+  language?: SupportedLanguage;
 }
 
 export function GameHUD({
@@ -35,8 +32,6 @@ export function GameHUD({
   money,
   income,
   expenses,
-  speed,
-  setSpeed,
   day,
   timeOfDay = 6,
   milestoneLevel,
@@ -52,126 +47,124 @@ export function GameHUD({
   onOpenSaveLoad,
   onOpenSettings,
   onNewGame,
-  nextAction,
-  onNextAction,
+  language,
 }: GameHUDProps) {
   const safePopulation = Math.max(0, isNaN(population) || !isFinite(population) ? 0 : population);
   const safeMoney = isNaN(money) || !isFinite(money) ? 0 : money;
   const netIncome = income - expenses;
   const safeNetIncome = isNaN(netIncome) || !isFinite(netIncome) ? 0 : netIncome;
   const currentMilestone = MILESTONES[milestoneLevel] || MILESTONES[0];
+  const milestoneLabel = milestoneLevel === 0 ? 'Desa' : currentMilestone.name;
 
   return (
-    <div className="game-hud absolute top-0 left-0 right-0 z-40 pointer-events-none p-4 flex justify-between items-start select-none">
+    <header className="game-hud absolute top-0 left-0 right-0 z-30 pointer-events-none p-3 md:p-4 flex justify-between items-start select-none">
       
-      {/* TOP LEFT: City Name & Milestone */}
-      <div className="game-hud-left pointer-events-auto flex flex-col gap-1">
-        <h1 className="text-white font-bold text-xl drop-shadow-md">Skyline Simulator</h1>
-        <div className="flex items-center gap-1.5 bg-black/40 backdrop-blur-md border border-white/10 px-2 py-1 rounded text-white text-xs shadow-sm w-max">
-          <Target size={14} className="text-blue-400" />
-          <span className="font-semibold">{currentMilestone.name}</span>
-        </div>
-        {nextAction && onNextAction && (
-          <div className={`next-action-card next-action-${nextAction.tone} mt-1 w-[min(19rem,calc(100vw-9rem))] rounded-xl border bg-black/55 px-3 py-2.5 backdrop-blur-md shadow-lg`} role="status" aria-live="polite">
-            <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-300">
-              <Activity size={12} />
-              <span>Langkah berikutnya · {nextAction.phase}</span>
-            </div>
-            <div className="mt-1 text-xs font-bold text-white">{nextAction.title}</div>
-            <div className="mt-0.5 text-[10px] leading-relaxed text-slate-300">{nextAction.description}</div>
-            <button type="button" onClick={() => onNextAction(nextAction)} className="mt-2 inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/10 px-2 py-1 text-[10px] font-bold text-white hover:bg-white/20">
-              <span>{nextAction.actionLabel}</span><ArrowRight size={12} />
-            </button>
+      {/* TOP LEFT: City Designation & Milestone */}
+      <div className="game-hud-left pointer-events-auto flex flex-col gap-2">
+        <div className="flex flex-col">
+          <h1 className="text-white font-bold text-base md:text-lg tracking-tight drop-shadow-sm">
+            Skyline Simulator
+          </h1>
+          <div className="flex items-center gap-1.5 text-xs text-slate-300">
+            <span className="inline-flex items-center gap-1 rounded-md bg-cyan-950/70 border border-cyan-500/30 px-2 py-0.5 text-[11px] font-semibold text-cyan-200">
+              <Target size={12} className="text-cyan-400" />
+              <span>{milestoneLabel}</span>
+            </span>
           </div>
-        )}
+        </div>
       </div>
 
-      {/* TOP CENTER: Core Stats */}
-      <div className="game-hud-center pointer-events-auto flex items-center bg-black/50 backdrop-blur-md border border-white/10 rounded-full px-6 py-2 gap-8 shadow-md">
+      {/* TOP CENTER: Exactly 3 Primary Metrics */}
+      <div className="game-hud-center pointer-events-auto flex items-center bg-[#0c1424]/92 backdrop-blur-xl border border-white/10 rounded-xl px-4 py-2 gap-4 md:gap-8 shadow-xl">
+        {/* Metric 1: Population */}
         <div className="flex flex-col items-center">
-          <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Population</span>
-          <span className="text-white font-bold text-sm">{safePopulation.toLocaleString()}</span>
+          <span className="text-[10px] md:text-[11px] text-slate-400 font-medium tracking-wide">
+            Populasi
+          </span>
+          <span className="text-white font-bold font-mono text-sm md:text-base tabular-nums">
+            {safePopulation.toLocaleString()}
+          </span>
         </div>
         
-        <div className="w-[1px] h-6 bg-white/10"></div>
+        <div className="w-px h-7 bg-white/10" />
         
-        <button type="button" aria-label="Buka ekonomi dan treasury" className="flex flex-col items-center cursor-pointer hover:bg-white/5 px-2 rounded transition-colors" onClick={onOpenEconomy}>
-          <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Treasury</span>
-          <div className="flex items-center gap-1">
-            <span className="text-white font-bold text-sm">${safeMoney.toLocaleString()}</span>
-            <span className={`text-[10px] font-bold ${safeNetIncome >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+        {/* Metric 2: City Treasury & Daily Net Flow */}
+        <button
+          type="button"
+          aria-label="Buka kas kota dan treasury"
+          className="flex flex-col items-center cursor-pointer hover:bg-white/5 px-2.5 py-1 rounded-lg transition-colors min-h-[38px] justify-center"
+          onClick={onOpenEconomy}
+          title="Klik untuk membuka laporan kas dan pajak"
+        >
+          <span className="text-[10px] md:text-[11px] text-slate-400 font-medium tracking-wide">
+            Kas Kota
+          </span>
+          <div className="flex items-center gap-1.5 font-mono text-sm md:text-base font-bold tabular-nums">
+            <span className="text-amber-300">${safeMoney.toLocaleString()}</span>
+            <span className={`text-[11px] font-bold ${safeNetIncome >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
               {safeNetIncome >= 0 ? '+' : ''}${safeNetIncome.toLocaleString()}
             </span>
           </div>
         </button>
 
-        <div className="w-[1px] h-6 bg-white/10"></div>
+        <div className="w-px h-7 bg-white/10" />
         
+        {/* Metric 3: Citizen Happiness */}
         <div className="flex flex-col items-center">
-          <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Happiness</span>
-          <div className="flex items-center gap-1">
-            <Smile size={14} className={happiness >= 70 ? 'text-emerald-400' : happiness >= 40 ? 'text-yellow-400' : 'text-red-400'} />
-            <span className="text-white font-bold text-sm">{happiness}%</span>
+          <span className="text-[10px] md:text-[11px] text-slate-400 font-medium tracking-wide">
+            Kebahagiaan
+          </span>
+          <div className="flex items-center gap-1.5 font-mono text-sm md:text-base font-bold tabular-nums">
+            <Smile
+              size={15}
+              className={happiness >= 70 ? 'text-emerald-400' : happiness >= 40 ? 'text-amber-400' : 'text-rose-400'}
+            />
+            <span className="text-white">{happiness}%</span>
           </div>
         </div>
       </div>
 
-      {/* TOP RIGHT: Controls & Time */}
-      <div className="game-hud-right pointer-events-auto flex flex-col gap-2 items-end">
-        <div className="flex items-center bg-black/50 backdrop-blur-md border border-white/10 rounded-full px-3 py-1.5 gap-2 shadow-md">
-          <div className="flex items-center gap-2 text-white font-mono text-xs font-semibold mr-2">
-            <Calendar size={14} className="text-gray-400" />
-            <span>Day {day} · {String(Math.floor(timeOfDay)).padStart(2, '0')}:00</span>
-          </div>
-          <div className="w-[1px] h-4 bg-white/10 mx-1"></div>
-          <div className="flex items-center gap-1">
-            <button type="button" aria-label="Pause simulasi" title="Pause (Space / 1)" onClick={() => setSpeed(0)} className={`p-1.5 rounded-full transition-colors ${speed === 0 ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>
-              <Pause size={14} />
-            </button>
-            <button type="button" aria-label="Kecepatan normal" title="Normal Speed (Space / 2)" onClick={() => setSpeed(1)} className={`p-1.5 rounded-full transition-colors ${speed === 1 ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>
-              <Play size={14} />
-            </button>
-            <button type="button" aria-label="Kecepatan cepat" title="Fast Speed (3)" onClick={() => setSpeed(2)} className={`p-1.5 rounded-full transition-colors ${speed === 2 ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>
-              <FastForward size={14} />
-            </button>
-            <button type="button" aria-label="Kecepatan ultra" title="Ultra Fast (4)" onClick={() => setSpeed(3)} className={`p-1.5 rounded-full transition-colors ${speed === 3 ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}>
-              <FastForward size={14} strokeWidth={3} />
-            </button>
-          </div>
+      {/* TOP RIGHT: Simulation Calendar, Notifications, Menu */}
+      <div className="game-hud-right pointer-events-auto flex items-center gap-2">
+        {/* Calendar Badge */}
+        <div className="flex items-center gap-1.5 bg-[#0c1424]/92 backdrop-blur-xl border border-white/10 rounded-xl px-3 py-2 text-xs font-semibold text-slate-200 shadow-md">
+          <Calendar size={14} className="text-cyan-400" />
+          <span className="font-mono tabular-nums">Hari {day} · {String(Math.floor(timeOfDay)).padStart(2, '0')}:00</span>
         </div>
 
-        <div className="flex gap-2 mt-1">
-          <button
-            type="button"
-            onClick={onToggleNotifications}
-            aria-label={`Notifikasi${unreadNotificationsCount > 0 ? ` (${unreadNotificationsCount} belum dibaca)` : ''}`}
-            title="Buka notifikasi"
-            className={`p-2 bg-black/50 backdrop-blur-md border border-white/10 rounded-full text-gray-400 hover:text-white transition-all relative ${
-              unreadNotificationsCount > 0 ? 'text-blue-400' : ''
-            }`}
-          >
-            <Bell size={16} className={unreadNotificationsCount > 0 ? 'animate-bounce text-blue-400' : ''} />
-            {unreadNotificationsCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-[8px] font-mono font-bold w-4 h-4 rounded-full flex items-center justify-center border border-[#0f172a]">
-                {unreadNotificationsCount}
-              </span>
-            )}
-          </button>
-          
-          <GameMenu
-            onOpenCityInfo={onOpenCityInfo}
-            onOpenEconomy={onOpenEconomy}
-            onOpenTech={onOpenTech}
-            onOpenPolicies={onOpenPolicies}
-            onOpenDistricts={onOpenDistricts}
-            onOpenObjectives={onOpenObjectives}
-            onOpenSaveLoad={onOpenSaveLoad}
-            onOpenSettings={onOpenSettings}
-            onNewGame={onNewGame}
-          />
-        </div>
+        {/* Notifications Button (Min 44x44px Touch Target) */}
+        <button
+          type="button"
+          onClick={onToggleNotifications}
+          aria-label={`Notifikasi kota${unreadNotificationsCount > 0 ? ` (${unreadNotificationsCount} belum dibaca)` : ''}`}
+          title="Buka notifikasi kota"
+          className={`min-w-[44px] min-h-[44px] flex items-center justify-center bg-[#0c1424]/92 backdrop-blur-xl border border-white/10 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition-all relative shadow-md ${
+            unreadNotificationsCount > 0 ? 'text-cyan-300 border-cyan-500/40' : ''
+          }`}
+        >
+          <Bell size={18} className={unreadNotificationsCount > 0 ? 'animate-bounce text-cyan-400' : ''} />
+          {unreadNotificationsCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-cyan-500 text-slate-950 text-[10px] font-mono font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center border-2 border-[#070b14]">
+              {unreadNotificationsCount}
+            </span>
+          )}
+        </button>
+        
+        {/* Game Management Menu */}
+        <GameMenu
+          onOpenCityInfo={onOpenCityInfo}
+          onOpenEconomy={onOpenEconomy}
+          onOpenTech={onOpenTech}
+          onOpenPolicies={onOpenPolicies}
+          onOpenDistricts={onOpenDistricts}
+          onOpenObjectives={onOpenObjectives}
+          onOpenSaveLoad={onOpenSaveLoad}
+          onOpenSettings={onOpenSettings}
+          onNewGame={onNewGame}
+          language={language}
+        />
       </div>
 
-    </div>
+    </header>
   );
 }

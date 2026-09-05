@@ -38,5 +38,5 @@ export function getZoneRentMultiplier(tile: Pick<TileData, 'type' | 'zoneDensity
 }
 
 export function getDensityLabel(density: ZoneDensity): string {
-  return density === 'LOW' ? 'Low Density' : density === 'MEDIUM' ? 'Medium Density' : 'High Density';
+  return density === 'LOW' ? 'Kepadatan Rendah' : density === 'MEDIUM' ? 'Kepadatan Sedang' : 'Kepadatan Tinggi';
 }

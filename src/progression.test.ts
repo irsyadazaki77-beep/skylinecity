@@ -20,4 +20,17 @@ describe('progression mission chain', () => {
     expect(MISSIONS.find((mission) => mission.id === 'positive_budget')?.check(state)).toBe(true);
     expect(MISSIONS.find((mission) => mission.id === 'mobility_network')?.check(state)).toBe(true);
   });
+
+  it('completes the living-city mission from three distinct real story types', () => {
+    const state = createInitialCityState(createEmptyGrid(3, 3), 12);
+    state.citizenStoryState = {
+      active: [], lastEmittedByKey: {},
+      history: ['MOVED_IN', 'FOUND_WORK', 'USED_TRANSIT'].map((type, index) => ({
+        id: `story-${index}`, key: `${type}:${index}`, type: type as 'MOVED_IN' | 'FOUND_WORK' | 'USED_TRANSIT', status: 'OBSERVED' as const,
+        day: index + 1, subjectId: `citizen-${index}`, householdId: `household-${index}`, title: type, summary: type,
+        cause: 'state', impact: 'state', choice: 'act', estimatedCost: 0, projectedOutcome: 'change', location: { x: 1, y: 1 },
+      })),
+    };
+    expect(MISSIONS.find((mission) => mission.id === 'living_city')?.check(state)).toBe(true);
+  });
 });

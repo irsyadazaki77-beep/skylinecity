@@ -21,11 +21,11 @@ export interface DistrictPolicyDefinition {
 }
 
 export const DISTRICT_POLICIES: DistrictPolicyDefinition[] = [
-  { id: 'GREEN', name: 'Green Quarter', description: 'Reduces pollution and noise while increasing land value around planted streets.', color: '#34d399' },
-  { id: 'TRANSIT_ORIENTED', name: 'Transit-Oriented', description: 'Raises development suitability and nudges residents toward public transit.', color: '#22d3ee' },
-  { id: 'MIXED_USE', name: 'Mixed-Use Core', description: 'Unlocks spatial mixed-use blocks and adds commercial demand inside the district.', color: '#a78bfa' },
-  { id: 'INDUSTRIAL_LOGISTICS', name: 'Logistics Hub', description: 'Improves industrial demand and freight access for production parcels.', color: '#f59e0b' },
-  { id: 'COMMUNITY_SERVICES', name: 'Community Services', description: 'Improves local service reach and residential desirability.', color: '#60a5fa' },
+  { id: 'GREEN', name: 'Kawasan Hijau', description: 'Mengurangi polusi dan kebisingan sekaligus meningkatkan nilai lahan di sekitar jalan yang ditanami.', color: '#34d399' },
+  { id: 'TRANSIT_ORIENTED', name: 'Berorientasi Transit', description: 'Meningkatkan kesesuaian pembangunan dan mendorong warga memakai transit publik.', color: '#22d3ee' },
+  { id: 'MIXED_USE', name: 'Inti Kawasan Campuran', description: 'Membuka blok campuran dan menambah permintaan komersial di dalam distrik.', color: '#a78bfa' },
+  { id: 'INDUSTRIAL_LOGISTICS', name: 'Pusat Logistik', description: 'Meningkatkan permintaan industri dan akses angkutan untuk persil produksi.', color: '#f59e0b' },
+  { id: 'COMMUNITY_SERVICES', name: 'Layanan Komunitas', description: 'Meningkatkan jangkauan layanan lokal dan daya tarik hunian.', color: '#60a5fa' },
 ];
 
 export function districtPolicyDefinition(policy: DistrictPolicy): DistrictPolicyDefinition {

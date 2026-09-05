@@ -120,6 +120,8 @@ export interface MigrationSummary {
   emigrants: number;
   relocations: number;
   netMigration: number;
+  emigrationReasons?: Record<string, number>;
+  primaryEmigrationReason?: string;
 }
 
 export interface WorkforceMetrics {

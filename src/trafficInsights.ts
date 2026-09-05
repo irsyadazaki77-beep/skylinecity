@@ -1,4 +1,8 @@
 import { getRoadClass, RoadClass, TileData, TileType } from './types';
+import { TransitMode, Trip, TripPurpose } from './citizenSimulation/types';
+import type { FreightTrip } from './logistics';
+import type { TransitVehicleAgent } from './transit';
+import type { ServiceVehicleAgent } from './types';
 
 export interface RoadJunctionInsight {
   isIntersection: boolean;
@@ -69,4 +73,167 @@ export function evaluateRoadJunction(tile: TileData, grid: TileData[][]): RoadJu
     status,
     recommendations,
   };
+}
+
+export interface TrafficBottleneckInsight {
+  x: number;
+  y: number;
+  roadClass: RoadClass;
+  trafficPercent: number;
+  queuePressure: number;
+  originDesc: string;
+  destinationDesc: string;
+  purpose: TripPurpose;
+  mode: TransitMode;
+  tripCount: number;
+  sampleSize: number;
+  sharePercent: number;
+  confidence: 'LOW' | 'MEDIUM' | 'HIGH';
+  route: [number, number][];
+  cohortCounts: {
+    privateCars: number;
+    freight: number;
+    emergency: number;
+    transit: number;
+  };
+  cause: string;
+  recommendation: string;
+  estimatedCost: number;
+  projectedImpact: string;
+}
+
+export interface TrafficActorContext {
+  trips?: Trip[];
+  freightTrips?: FreightTrip[];
+  serviceVehicles?: ServiceVehicleAgent[];
+  transitVehicles?: TransitVehicleAgent[];
+}
+
+export interface TrafficBeforeAfter {
+  day: number;
+  intervention: string;
+  before: { congestion: number; commute: number; queue: number; carTrips: number };
+  after: { congestion: number; commute: number; queue: number; carTrips: number };
+}
+
+function placeDescription(grid: TileData[][], location: { x: number; y: number }): string {
+  const tile = grid[location.y]?.[location.x];
+  const label = tile?.type === TileType.RESIDENTIAL
+    ? 'Hunian'
+    : tile?.type === TileType.COMMERCIAL
+      ? 'Komersial'
+      : tile?.type === TileType.OFFICE
+        ? 'Perkantoran'
+        : tile?.type === TileType.INDUSTRIAL
+          ? 'Industri'
+          : tile?.type === TileType.SCHOOL
+            ? 'Sekolah'
+            : tile?.type === TileType.CLINIC
+              ? 'Klinik'
+              : 'Aktivitas kota';
+  return `${label} (${location.x}, ${location.y})`;
+}
+
+function purposeDescription(purpose: TripPurpose): string {
+  if (purpose === TripPurpose.COMMUTE_WORK) return 'perjalanan kerja';
+  if (purpose === TripPurpose.COMMUTE_SCHOOL) return 'perjalanan sekolah';
+  if (purpose === TripPurpose.SHOPPING) return 'perjalanan belanja';
+  if (purpose === TripPurpose.HEALTHCARE) return 'perjalanan layanan kesehatan';
+  return 'perjalanan rekreasi';
+}
+
+/**
+ * Finds top congested bottlenecks with human-readable origin and destination attribution.
+ */
+export function findTrafficBottlenecks(grid: TileData[][], actors: TrafficActorContext = {}, limit = 5): TrafficBottleneckInsight[] {
+  const height = grid.length;
+  const width = grid[0]?.length ?? 0;
+  const bottlenecks: TrafficBottleneckInsight[] = [];
+
+  const roadTiles: TileData[] = [];
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const tile = grid[y][x];
+      if (tile.type === TileType.ROAD && ((tile.traffic ?? 0) >= 50 || (tile.queuePressure ?? 0) >= 35)) {
+        roadTiles.push(tile);
+      }
+    }
+  }
+
+  roadTiles.sort((a, b) => ((b.traffic ?? 0) + (b.queuePressure ?? 0)) - ((a.traffic ?? 0) + (a.queuePressure ?? 0)));
+
+  for (const tile of roadTiles) {
+    const observedTrips = (actors.trips ?? []).filter((trip) =>
+      trip.mode === TransitMode.CAR && trip.path.some(([x, y]) => x === tile.x && y === tile.y),
+    );
+    if (observedTrips.length === 0) continue;
+
+    const roadClass = getRoadClass(tile);
+    const trafficPercent = Math.round(tile.traffic ?? 0);
+    const queuePressure = Math.round(tile.queuePressure ?? 0);
+
+    const groups = new Map<string, { trips: Trip[]; firstIndex: number }>();
+    observedTrips.forEach((trip, index) => {
+      const key = `${trip.origin.x},${trip.origin.y}>${trip.destination.x},${trip.destination.y}:${trip.purpose}:${trip.mode}`;
+      const group = groups.get(key);
+      if (group) group.trips.push(trip);
+      else groups.set(key, { trips: [trip], firstIndex: index });
+    });
+    const dominant = [...groups.values()].sort((a, b) => b.trips.length - a.trips.length || a.firstIndex - b.firstIndex)[0];
+    const representative = dominant.trips[0];
+    const tripCount = dominant.trips.length;
+    const sampleSize = observedTrips.length;
+    const sharePercent = Math.round((tripCount / sampleSize) * 100);
+    const confidence = sampleSize >= 10 ? 'HIGH' : sampleSize >= 4 ? 'MEDIUM' : 'LOW';
+    const originDesc = placeDescription(grid, representative.origin);
+    const destinationDesc = placeDescription(grid, representative.destination);
+    const crossesTile = (path: [number, number][]) => path.some(([x, y]) => x === tile.x && y === tile.y);
+    const cohortCounts = {
+      privateCars: observedTrips.length,
+      freight: (actors.freightTrips ?? []).filter((trip) => crossesTile(trip.path)).length,
+      emergency: (actors.serviceVehicles ?? []).filter((vehicle) => crossesTile(vehicle.path)).length,
+      transit: (actors.transitVehicles ?? []).filter((vehicle) => crossesTile(vehicle.path)).length,
+    };
+    const observedCause = `${sharePercent}% dari ${sampleSize} perjalanan mobil yang teramati di ruas ini adalah ${purposeDescription(representative.purpose)} dari ${originDesc} menuju ${destinationDesc}.`;
+
+    const cause = roadClass === 'LOCAL'
+      ? `${observedCause} Arus tersebut melewati jalan lokal dengan kapasitas sempit.`
+      : queuePressure >= 50
+        ? `${observedCause} Antrean simpang dan manuver belok tinggi memperlambat aliran di titik (${tile.x}, ${tile.y}).`
+        : `${observedCause} Volume perjalanan teramati menekan kapasitas koridor ${roadClass}.`;
+
+    const recommendation = roadClass === 'LOCAL'
+      ? `Upgrade ruas jalan (${tile.x}, ${tile.y}) ke Arterial 4-jalur atau sediakan rute Bus/Tram langsung.`
+      : queuePressure >= 50
+        ? `Atur lampu sinyal (Signal Timing) atau bangun bundaran (Roundabout) untuk memperlancar arus simpang.`
+        : `Bangun jalan arteri alternatif atau perpanjang koridor angkutan umum.`;
+
+    const estimatedCost = roadClass === 'LOCAL' ? 120 : 250;
+    const projectedImpact = 'Berpotensi mengurangi waktu tempuh kelompok perjalanan dominan; hasil aktual diukur setelah intervensi.';
+
+    bottlenecks.push({
+      x: tile.x,
+      y: tile.y,
+      roadClass,
+      trafficPercent,
+      queuePressure,
+      originDesc,
+      destinationDesc,
+      purpose: representative.purpose,
+      mode: representative.mode,
+      tripCount,
+      sampleSize,
+      sharePercent,
+      confidence,
+      route: representative.path,
+      cohortCounts,
+      cause,
+      recommendation,
+      estimatedCost,
+      projectedImpact,
+    });
+    if (bottlenecks.length >= limit) break;
+  }
+
+  return bottlenecks;
 }

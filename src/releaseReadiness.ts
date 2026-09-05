@@ -119,11 +119,39 @@ function stableHash(value: unknown): string {
 }
 
 export function getStateHash(state: CityState): string {
+  // This is a diagnostic authoritative-state snapshot, not a compact replay
+  // checksum. Keep simulation inputs, derived state used by later ticks, and
+  // command queues explicit so regressions in policy, services, incidents,
+  // economy, transit, or disasters cannot be hidden by an unchanged grid.
   return stableHash({
     seed: state.seed,
     day: state.day,
     money: state.money,
+    income: state.income,
+    expenses: state.expenses,
+    operatingBudget: state.operatingBudget,
+    municipalDebt: state.municipalDebt,
     population: state.population,
+    happiness: state.happiness,
+    healthIndex: state.healthIndex,
+    congestionIndex: state.congestionIndex,
+    averageCommuteTime: state.averageCommuteTime,
+    activePolicies: state.activePolicies,
+    incidents: state.incidents,
+    disasters: state.disasters,
+    serviceResponseQuality: state.serviceResponseQuality,
+    healthcareCoverage: state.healthcareCoverage,
+    educationCoverage: state.educationCoverage,
+    fireSafety: state.fireSafety,
+    crimeRate: state.crimeRate,
+    wasteCoverage: state.wasteCoverage,
+    transitLines: state.transitLines,
+    transitVehicles: state.transitVehicles,
+    activeTrips: state.activeTrips,
+    transitActiveLines: state.transitActiveLines,
+    transitActiveVehicles: state.transitActiveVehicles,
+    transitRidership: state.transitRidership,
+    transitCoverage: state.transitCoverage,
     grid: state.grid,
     commandQueue: state.commandQueue,
     tradeContracts: state.tradeContracts,

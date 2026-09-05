@@ -89,6 +89,8 @@ export type SimulationCommandType =
   | 'UNLOCK_TECH'
   | 'CLAIM_MISSION'
   | 'START_SCENARIO'
+  | 'SET_DISASTER_PREPARATION'
+  | 'SET_CAMPAIGN_STYLE'
   | 'CREATE_TRADE_CONTRACT';
 
 export interface SimulationCommand<TPayload = Record<string, unknown>> {
@@ -177,6 +179,10 @@ export interface ScenarioDefinition {
   tags: string[];
   targetDays?: number;
   objectives: { id: string; label: string; target: number }[];
+  premise?: string;
+  constraints?: string[];
+  events?: string[];
+  hardChoices?: string[];
 }
 
 export interface ModManifest {
@@ -199,6 +205,9 @@ export interface CausalDiagnostic {
   threshold?: number;
   location?: { x: number; y: number };
   recommendation?: string;
+  cause?: string;
+  estimatedCost?: number;
+  projectedImpact?: string;
   day: number;
 }
 
@@ -606,10 +615,18 @@ export interface CityState {
   tradeExportRevenue?: number;
   recoveryProjects?: RecoveryProject[];
   causalDiagnostics?: CausalDiagnostic[];
+  citizenStoryState?: import('./citizenStories').CitizenStoryState;
+  neighborhoodIdentityState?: import('./neighborhoodIdentity').NeighborhoodIdentityState;
+  disasterPreparationState?: import('./disasterPreparation').DisasterPreparationState;
+  policyConsequences?: import('./policyConsequences').PolicyConsequence[];
+  cityHistoryState?: import('./cityHistory').CityHistoryState;
+  campaignEvaluation?: import('./campaigns').CampaignEvaluation;
+  campaignStyleGoal?: import('./campaigns').CityStyleGoal;
+  primaryEmigrationReason?: string;
   municipalDebt?: number;
   capitalBudget?: number;
   operatingBudget?: number;
-  specialization?: 'BALANCED' | 'TOURISM' | 'EDUCATION' | 'TECHNOLOGY' | 'LOGISTICS' | 'GREEN_INDUSTRY';
+  specialization?: 'BALANCED' | 'TOURISM' | 'EDUCATION' | 'TECHNOLOGY' | 'LOGISTICS' | 'GREEN_INDUSTRY' | 'TRANSIT_METROPOLIS' | 'RESILIENT' | 'MIXED_USE';
   activeScenarioId?: string;
   scenarioCompleted?: boolean;
   scenarioObjectiveValues?: Record<string, number>;

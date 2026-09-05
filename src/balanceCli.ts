@@ -10,7 +10,11 @@ const report = runBalanceSuite({
 });
 
 for (const item of report.reports) {
-  console.log(`${item.scenario}: day ${item.samples.at(-1)?.day ?? 0} · pop ${item.finalPopulation.toLocaleString()} · min treasury $${item.minMoney.toLocaleString()} · debt $${item.maxDebt.toLocaleString()} · happiness ${item.minHappiness.toFixed(1)} · bankruptcy ${item.bankruptcyDays}d${item.warnings.length ? ` · WARN ${item.warnings.join(', ')}` : ''}`);
+  const isStressBenchmark = item.scenario === 'PERFORMANCE_100K';
+  const tag = isStressBenchmark
+    ? ' [Stress benchmark: high-density load fixture without civic services; low happiness expected]'
+    : '';
+  console.log(`${item.scenario}${tag}: day ${item.samples.at(-1)?.day ?? 0} · pop ${item.finalPopulation.toLocaleString()} · min treasury $${item.minMoney.toLocaleString()} · debt $${item.maxDebt.toLocaleString()} · happiness ${item.minHappiness.toFixed(1)} · bankruptcy ${item.bankruptcyDays}d${item.warnings.length ? ` · WARN ${item.warnings.join(', ')}` : ''}`);
 }
 if (!report.passed) {
   console.error('Balance integrity gate failed.');

@@ -1,6 +1,9 @@
 import React, { useMemo, useRef } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import * as THREE from 'three';
 import { ActiveTool, CityIncident, ServiceVehicleAgent, TileData, TileType, OverlayMode, GameSettings, RoadClass } from '../../types';
+import { focusFrame, terrainHeight } from './visualModel';
+import { LandscapeContext } from './LandscapeContext';
 import { TerrainGrid } from './TerrainGrid';
 import { RoadMesh } from './RoadMesh';
 import { BuildingMesh } from './BuildingMesh';
@@ -15,9 +18,8 @@ import { isTileInUnlockedRegion } from '../../mapGenerator';
 import { BuildingFootprint, deriveBuildingFootprints, getBuildingFrontageRotation } from '../../urbanForm';
 import { CityDistrict, getDistrictTileSet } from '../../districts';
 import { gridToWorld } from './types3D';
-import { WebGLFallback } from '../ReleaseBoundary';
-import { hasWebGLSupport } from '../../releaseReadiness';
 import { NetworkOverlays } from './NetworkOverlays';
+import { computeRoadRecommendations } from '../../tutorialPathfinder';
 
 interface City3DCanvasProps {
   grid: TileData[][];
@@ -49,12 +51,48 @@ interface City3DCanvasProps {
   onCancelInteraction?: () => void;
   onUnlockRegion?: (rx: number, ry: number) => void;
   nightFactor: number;
+  selectedTile?: { x: number; y: number } | null;
   focusTile?: [number, number] | null;
   qualityTier?: 'balanced' | 'reduced';
   viewMode?: '2D' | '3D';
   cameraZoom?: number;
   cameraRotation?: number;
   onCameraRotationChange?: (rotation: number) => void;
+  tutorialHighlight?: 'highway' | 'zoning' | 'utilities' | 'mission' | null;
+  onRendererReady?: () => void;
+}
+
+function BuildingLodController({ qualityTier, children }: { qualityTier: 'balanced' | 'reduced'; children: React.ReactNode }) {
+  const rootRef = useRef<THREE.Group>(null);
+  const elapsedRef = useRef(0);
+  const worldPosition = useRef(new THREE.Vector3());
+  const { camera } = useThree();
+
+  useFrame((_, delta) => {
+    elapsedRef.current += delta;
+    // A low-frequency traversal keeps LOD responsive to camera movement while
+    // avoiding a React update or a per-building frame callback.
+    if (elapsedRef.current < 0.12 || !rootRef.current) return;
+    elapsedRef.current = 0;
+    const nearDistance = qualityTier === 'reduced' ? 14 : 22;
+    const farDistance = qualityTier === 'reduced' ? 38 : 58;
+    const nearDistanceSq = nearDistance * nearDistance;
+    const farDistanceSq = farDistance * farDistance;
+
+    rootRef.current.traverse((object) => {
+      if (object.name !== 'BuildingRenderRoot') return;
+      object.getWorldPosition(worldPosition.current);
+      const distanceSq = worldPosition.current.distanceToSquared(camera.position);
+      const detail = object.getObjectByName('BuildingDetail');
+      const nearDetail = object.getObjectByName('BuildingNearDetail');
+      const far = object.getObjectByName('BuildingFar');
+      if (detail) detail.visible = distanceSq <= farDistanceSq;
+      if (nearDetail) nearDetail.visible = distanceSq <= nearDistanceSq;
+      if (far) far.visible = distanceSq > farDistanceSq;
+    });
+  });
+
+  return <group ref={rootRef} name="BuildingLodController">{children}</group>;
 }
 
 export function City3DCanvas({
@@ -87,12 +125,15 @@ export function City3DCanvas({
   onCancelInteraction,
   onUnlockRegion,
   nightFactor,
+  selectedTile = null,
   focusTile = null,
   qualityTier = 'balanced',
   viewMode = '3D',
   cameraZoom = 1.25,
   cameraRotation = 0,
   onCameraRotationChange,
+  tutorialHighlight = null,
+  onRendererReady,
 }: City3DCanvasProps) {
   const height = grid.length;
   const width = grid[0]?.length ?? 0;
@@ -108,7 +149,9 @@ export function City3DCanvas({
     if (developed.length > 0) {
       const avgX = developed.reduce((sum, tile) => sum + tile.x, 0) / developed.length;
       const avgY = developed.reduce((sum, tile) => sum + tile.y, 0) / developed.length;
-      initialFocus.current = gridToWorld(avgX, avgY, width, height);
+      const avgElevation = developed.reduce((sum, tile) => sum + (tile.elevation || 0), 0) / developed.length;
+      const [wx, , wz] = gridToWorld(avgX, avgY, width, height);
+      initialFocus.current = [wx, terrainHeight(avgElevation), wz];
     } else {
       initialFocus.current = [0, 0, 0];
     }
@@ -117,10 +160,10 @@ export function City3DCanvas({
   // Footprints only depend on topology, not population/traffic telemetry. Keep
   // the expensive urban-form pass out of the per-tick render path.
   const topologySignature = useMemo(() => grid.flat().map((tile) => (
-    `${tile.x},${tile.y}:${tile.type}:${tile.level}:${tile.abandoned ? 1 : 0}:${tile.elevation}:${tile.parcelId ?? ''}:${tile.mixedUseProgram ?? ''}:${tile.mixedUseFloorCount ?? 0}`
+    `${tile.x},${tile.y}:${tile.type}:${tile.level}:${tile.zoneDensity}:${tile.parcelSeed}:${tile.abandoned ? 1 : 0}:${tile.elevation}:${tile.parcelId ?? ''}:${tile.mixedUseProgram ?? ''}:${tile.mixedUseFloorCount ?? 0}`
   )).join('|'), [grid]);
   const buildingRenderSignature = useMemo(() => grid.flat().map((tile) => (
-    `${tile.x},${tile.y}:${tile.type}:${tile.level}:${tile.abandoned ? 1 : 0}:${tile.powered ? 1 : 0}:${tile.watered ? 1 : 0}:${tile.disasterImpact ?? 0}:${tile.elevation}:${tile.parcelId ?? ''}:${tile.mixedUseProgram ?? ''}:${tile.mixedUseFloorCount ?? 0}`
+    `${tile.x},${tile.y}:${tile.type}:${tile.level}:${tile.zoneDensity}:${tile.parcelSeed}:${tile.abandoned ? 1 : 0}:${tile.powered ? 1 : 0}:${tile.watered ? 1 : 0}:${tile.disasterImpact ?? 0}:${tile.elevation}:${tile.parcelId ?? ''}:${tile.mixedUseProgram ?? ''}:${tile.mixedUseFloorCount ?? 0}`
   )).join('|'), [grid]);
   const globalMixedUse = unlockedUpgrades.includes('mixed_use') || activePolicies.includes('mixed_use');
   const districtSignature = districts.map((district) => `${district.id}:${district.policy}:${district.center[0]}:${district.center[1]}:${district.radius}`).join('|');
@@ -150,9 +193,13 @@ export function City3DCanvas({
   }, [buildingRenderSignature, height, width, unlockedRegions, activeRegionKeys, footprints]);
 
   const renderScale = settings?.renderScale ?? 100;
-  const cameraTarget = focusTile
+  const focusTarget = focusTile
     ? gridToWorld(focusTile[0], focusTile[1], width, height)
     : (initialFocus.current ?? [0, 0, 0]);
+  focusTarget[1] = focusTile ? terrainHeight(grid[focusTile[1]]?.[focusTile[0]]?.elevation) : focusTarget[1];
+  const framing = focusFrame(focusTarget, initialFocus.current ?? [0, 0, 0], Boolean(focusTile && tutorialHighlight));
+  const cameraTarget = framing.target;
+  const terrainCeiling = useMemo(() => Math.max(0, ...grid.flat().map(t => terrainHeight(t.elevation))), [topologySignature]);
   const adaptiveMultiplier = settings?.adaptiveQuality === false
     ? 1
     : qualityTier === 'reduced'
@@ -170,29 +217,45 @@ export function City3DCanvas({
   const effectiveTrafficDensity = qualityTier === 'reduced' ? 'low' : (settings?.trafficDensity ?? 'medium');
   const effectiveVegetationDensity = qualityTier === 'reduced' ? 'low' : (settings?.vegetationDensity ?? 'medium');
 
-  if (!hasWebGLSupport()) return <WebGLFallback />;
+  const targetHighwayTile = useMemo(() => {
+    if (tutorialHighlight !== 'highway') return null;
+    return computeRoadRecommendations(grid, unlockedRegions).targetHighwayTile;
+  }, [grid, unlockedRegions, tutorialHighlight]);
 
   return (
     <Canvas
-      fallback={<WebGLFallback />}
       dpr={[dprMin, dprMax]}
       shadows={effectiveShadowMode}
-      camera={{ position: [0, 30, 28], fov: 48, near: 0.1, far: 220 }}
+      camera={{ position: [0, 24, 22], fov: 44, near: 0.1, far: 220 }}
       gl={{ antialias, powerPreference: 'high-performance' }}
-      onCreated={({ gl }) => gl.setClearColor('#070b14')}
+      onCreated={({ gl }) => {
+        gl.setClearColor('#070b14');
+        onRendererReady?.();
+      }}
     >
-      <DayNightSky
-        timeOfDay={timeOfDay}
-        dayNightCycle={settings?.dayNightCycle ?? 'enabled'}
+      <CameraController
+        reducedMotion={settings?.reducedMotion}
+        terrainCeiling={terrainCeiling}
+        focusDistance={focusTile && tutorialHighlight ? framing.distance : undefined}
+        viewMode={viewMode}
+        zoom={cameraZoom}
+        pitch={viewMode === '2D' ? 90 : 50}
+        rotation={cameraRotation}
+        gridWidth={width}
+        gridHeight={height}
+        target={cameraTarget}
+        onRotationChange={onCameraRotationChange}
       />
-      <CameraController viewMode={viewMode} zoom={cameraZoom} pitch={52} rotation={cameraRotation} gridWidth={width} gridHeight={height} target={cameraTarget} onRotationChange={onCameraRotationChange} />
+      <DayNightSky shadowSize={effectiveShadowMode === 'soft' ? 1024 : 512} timeOfDay={timeOfDay} dayNightCycle={settings?.dayNightCycle} />
+      <LandscapeContext grid={grid} unlockedRegions={unlockedRegions} />
       <TerrainGrid
+        selectedTile={selectedTile}
+        districts={districts}
         grid={grid}
         activeTool={activeTool}
-        money={money}
         activeRoadClass={activeRoadClass}
+        money={money}
         activeOverlay={activeOverlay}
-        districts={districts}
         unlockedRegions={unlockedRegions}
         mapExpansionMode={mapExpansionMode}
         brushSize={brushSize}
@@ -203,9 +266,11 @@ export function City3DCanvas({
         onTilePointerLeave={onTilePointerLeave}
         onCancelInteraction={onCancelInteraction}
         onUnlockRegion={onUnlockRegion}
+        tutorialHighlight={tutorialHighlight}
       />
-      <RoadMesh grid={grid} nightFactor={nightFactor} />
+      <RoadMesh grid={grid} nightFactor={nightFactor} tutorialHighlight={tutorialHighlight === 'highway'} targetHighwayTile={targetHighwayTile} />
       <TrafficVehicles
+        grid={grid}
         trips={activeTrips}
         transitVehicles={transitVehicles}
         freightTrips={activeFreightTrips}
@@ -226,22 +291,25 @@ export function City3DCanvas({
         incidents={incidents}
         serviceVehicles={serviceVehicles}
       />
-      {Object.entries(visibleBuildingsByChunk).map(([chunkKey, chunkBuildings]) => (
-        <group key={`chunk-${chunkKey}`} name={`BuildingChunk-${chunkKey}`}>
-          {chunkBuildings.map(({ tile, footprint, frontageRotation }) => (
-            <BuildingMesh
-              key={`building-${tile.x}-${tile.y}`}
-              tile={tile}
-              footprint={footprint}
-              frontageRotation={frontageRotation}
-              nightFactor={nightFactor}
-              gridWidth={width}
-              gridHeight={height}
-            />
-          ))}
-        </group>
-      ))}
+      <BuildingLodController qualityTier={qualityTier}>
+        {Object.entries(visibleBuildingsByChunk).map(([chunkKey, chunkBuildings]) => (
+          <group key={`chunk-${chunkKey}`} name={`BuildingChunk-${chunkKey}`}>
+            {chunkBuildings.map(({ tile, footprint, frontageRotation }) => (
+              <BuildingMesh
+                key={`building-${tile.x}-${tile.y}`}
+                tile={tile}
+                footprint={footprint}
+                frontageRotation={frontageRotation}
+                nightFactor={nightFactor}
+                gridWidth={width}
+                gridHeight={height}
+              />
+            ))}
+          </group>
+        ))}
+      </BuildingLodController>
       <EnvironmentProps grid={grid} vegetationDensity={effectiveVegetationDensity} />
     </Canvas>
   );
 }
+

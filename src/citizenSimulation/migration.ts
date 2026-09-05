@@ -144,11 +144,12 @@ export function simulateDemographicMigration(
   let immigrants = 0;
   let emigrants = 0;
   let relocations = 0;
+  const emigrationReasons: Record<string, number> = {};
 
   // 1. Process Out-Migration (Emigration)
   const householdEntries = Array.from(households.entries());
   for (const [hId, household] of householdEntries) {
-    const { satisfaction } = evaluateHouseholdSatisfaction(household, citizens, grid);
+    const { satisfaction, factors } = evaluateHouseholdSatisfaction(household, citizens, grid);
     household.satisfaction = satisfaction;
 
     // Check financial distress / rent payment
@@ -164,6 +165,21 @@ export function simulateDemographicMigration(
 
     // Emigrate if unsatisfied for 3 consecutive days
     if (household.relocationTimer >= 3) {
+      // Record causal reason for leaving
+      let reason = 'GENERAL_DISSATISFACTION';
+      if (household.savings < -100 || (factors && factors.rentAffordability < 35)) {
+        reason = 'RENT_BURDEN';
+      } else if (factors && factors.commute < 35) {
+        reason = 'COMMUTE_TOO_LONG';
+      } else if (factors && factors.employment < 35) {
+        reason = 'UNEMPLOYED';
+      } else if (factors && (factors.crime < 35 || factors.pollution < 35)) {
+        reason = 'ENVIRONMENT';
+      } else if (factors && (factors.schoolAccess < 35 || factors.healthAccess < 35)) {
+        reason = 'LACK_OF_SERVICES';
+      }
+      emigrationReasons[reason] = (emigrationReasons[reason] ?? 0) + household.citizenIds.length;
+
       // Remove members from tile and simulation
       const tile = grid[household.residence.y]?.[household.residence.x];
       if (tile && tile.type === TileType.RESIDENTIAL) {
@@ -308,10 +324,18 @@ export function simulateDemographicMigration(
     }
   }
 
-  return {
-    immigrants,
-    emigrants,
-    relocations,
-    netMigration: immigrants - emigrants,
-  };
-}
+    let primaryEmigrationReason: string | undefined;
+    const sortedReasons = Object.entries(emigrationReasons).sort(([, a], [, b]) => b - a);
+    if (sortedReasons.length > 0) {
+      primaryEmigrationReason = sortedReasons[0][0];
+    }
+
+    return {
+      immigrants,
+      emigrants,
+      relocations,
+      netMigration: immigrants - emigrants,
+      emigrationReasons,
+      primaryEmigrationReason,
+    };
+  }

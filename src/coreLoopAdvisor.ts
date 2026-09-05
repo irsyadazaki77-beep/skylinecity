@@ -1,5 +1,6 @@
 import { GAME_CONFIG } from './config';
 import { ActiveTool, CityState, TileType } from './types';
+import { hasActivePower, hasActiveWater, hasLocalHighwayConnection } from './tutorialFlow';
 
 export type CoreLoopAction =
   | { kind: 'SPEED'; speed: 1 | 2 }
@@ -38,19 +39,17 @@ export function getCoreLoopAdvice(state: CityState, speed: number): CoreLoopAdvi
     };
   }
 
-  if (speed === 0 && state.day <= 1) {
+  // Only the authored starter map has a regional highway target. Generic
+  // sandbox/test maps retain the normal build/speed ordering.
+  const hasRegionalHighway = state.grid.flat().some((tile) => tile.type === TileType.ROAD && tile.roadClass === 'HIGHWAY');
+  if (!hasRegionalHighway && speed === 0 && state.day <= 1) {
     return {
-      id: 'start-simulation',
-      phase: 'GROW',
-      title: 'Jalankan simulasi',
-      description: 'Kota sedang pause. Jalankan satu tick untuk melihat jaringan dan demand bekerja.',
-      actionLabel: 'Mulai waktu (1×)',
-      action: { kind: 'SPEED', speed: 1 },
-      tone: 'cyan',
+      id: 'start-simulation', phase: 'GROW', title: 'Jalankan simulasi',
+      description: 'Kota sedang jeda. Jalankan satu siklus untuk melihat jaringan dan permintaan bekerja.',
+      actionLabel: 'Mulai waktu (1×)', action: { kind: 'SPEED', speed: 1 }, tone: 'cyan',
     };
   }
-
-  if (tileCount(state, TileType.ROAD) < 8) {
+  if (hasRegionalHighway && !hasLocalHighwayConnection(state.grid)) {
     return {
       id: 'connect-road',
       phase: 'BUILD',
@@ -62,25 +61,52 @@ export function getCoreLoopAdvice(state: CityState, speed: number): CoreLoopAdvi
     };
   }
 
-  if (state.powerCapacity <= 0) {
+  const powerActive = hasActivePower(state);
+  const waterActive = hasActiveWater(state);
+  const hasPowerPlant = state.grid.flat().some((tile) => tile.type === TileType.POWER_PLANT);
+  const hasWaterPump = state.grid.flat().some((tile) => tile.type === TileType.WATER_PUMP);
+
+  if (!powerActive) {
+    if (hasPowerPlant) {
+      return {
+        id: 'connect-power',
+        phase: 'CONNECT',
+        title: 'Sambungkan listrik ke jalan',
+        description: 'Pembangkit listrik sudah ada namun belum terhubung ke jalan. Hubungkan jalan ke sisi pembangkit listrik.',
+        actionLabel: 'Pilih jalan',
+        action: { kind: 'TOOL', tool: TileType.ROAD },
+        tone: 'cyan',
+      };
+    }
     return {
       id: 'connect-power',
       phase: 'CONNECT',
       title: 'Sediakan listrik',
       description: 'Bangunan yang tidak mendapat daya tidak akan berkembang.',
-      actionLabel: 'Pilih power plant',
+      actionLabel: 'Pilih pembangkit listrik',
       action: { kind: 'TOOL', tool: TileType.POWER_PLANT },
       tone: 'cyan',
     };
   }
 
-  if (state.waterCapacity <= 0) {
+  if (!waterActive) {
+    if (hasWaterPump) {
+      return {
+        id: 'connect-water',
+        phase: 'CONNECT',
+        title: 'Sambungkan pompa air',
+        description: 'Pompa air harus menyentuh tepi air dan terhubung ke jalan agar air bersih mengalir.',
+        actionLabel: 'Pilih jalan',
+        action: { kind: 'TOOL', tool: TileType.ROAD },
+        tone: 'cyan',
+      };
+    }
     return {
       id: 'connect-water',
       phase: 'CONNECT',
       title: 'Sediakan air bersih',
-      description: 'Pompa air harus terhubung ke jaringan jalan agar coverage aktif.',
-      actionLabel: 'Pilih water pump',
+      description: 'Pompa air harus terhubung ke jaringan jalan agar cakupan aktif.',
+      actionLabel: 'Pilih pompa air',
       action: { kind: 'TOOL', tool: TileType.WATER_PUMP },
       tone: 'cyan',
     };
@@ -91,8 +117,8 @@ export function getCoreLoopAdvice(state: CityState, speed: number): CoreLoopAdvi
       id: 'zone-residential',
       phase: 'BUILD',
       title: 'Buat rumah untuk warga',
-      description: 'Mulai dengan beberapa lot Low Residential di sisi jalan yang sudah tersambung.',
-      actionLabel: 'Pilih residential',
+      description: 'Mulai dengan beberapa zona hunian rendah di sisi jalan yang sudah tersambung.',
+      actionLabel: 'Pilih hunian',
       action: { kind: 'TOOL', tool: TileType.RESIDENTIAL },
       tone: 'emerald',
     };
@@ -103,10 +129,22 @@ export function getCoreLoopAdvice(state: CityState, speed: number): CoreLoopAdvi
       id: 'zone-jobs',
       phase: 'BUILD',
       title: 'Buat lapangan kerja',
-      description: 'Tambahkan commercial atau industrial agar warga punya pekerjaan dan kota punya pemasukan.',
-      actionLabel: 'Pilih commercial',
+      description: 'Tambahkan zona komersial atau industri agar warga punya pekerjaan dan kota punya pemasukan.',
+      actionLabel: 'Pilih komersial',
       action: { kind: 'TOOL', tool: TileType.COMMERCIAL },
       tone: 'amber',
+    };
+  }
+
+  if (speed === 0 && state.day <= 1) {
+    return {
+      id: 'start-simulation',
+      phase: 'GROW',
+      title: 'Jalankan simulasi',
+      description: 'Kota sedang jeda. Jalankan satu siklus untuk melihat jaringan dan permintaan bekerja.',
+      actionLabel: 'Mulai waktu (1×)',
+      action: { kind: 'SPEED', speed: 1 },
+      tone: 'cyan',
     };
   }
 
@@ -116,7 +154,7 @@ export function getCoreLoopAdvice(state: CityState, speed: number): CoreLoopAdvi
       phase: 'GROW',
       title: 'Tumbuhkan kota ke 25 warga',
       description: 'Biarkan beberapa hari berjalan, lalu gunakan inspector jika ada bangunan yang mandek.',
-      actionLabel: speed === 0 ? 'Mulai waktu (1×)' : 'Buka City Info',
+      actionLabel: speed === 0 ? 'Mulai waktu (1×)' : 'Buka Info Kota',
       action: speed === 0 ? { kind: 'SPEED', speed: 1 } : { kind: 'CITY_INFO' },
       tone: 'emerald',
     };
@@ -127,8 +165,8 @@ export function getCoreLoopAdvice(state: CityState, speed: number): CoreLoopAdvi
       id: 'stabilize-budget',
       phase: 'DIAGNOSE',
       title: 'Stabilkan anggaran kota',
-      description: 'Cash flow sedang tertekan. Periksa biaya upkeep, pajak, dan utilization sebelum ekspansi.',
-      actionLabel: 'Buka treasury',
+      description: 'Arus kas sedang tertekan. Periksa biaya perawatan, pajak, dan pemanfaatan sebelum ekspansi.',
+      actionLabel: 'Buka kas kota',
       action: { kind: 'TREASURY' },
       tone: 'rose',
     };
@@ -138,8 +176,8 @@ export function getCoreLoopAdvice(state: CityState, speed: number): CoreLoopAdvi
     id: 'next-milestone',
     phase: 'PROGRESS',
     title: 'Siapkan milestone berikutnya',
-    description: 'Periksa objective dan pilih investasi yang paling memperkuat spesialisasi kota.',
-    actionLabel: 'Buka objectives',
+    description: 'Periksa tujuan dan pilih investasi yang paling memperkuat spesialisasi kota.',
+    actionLabel: 'Buka tujuan',
     action: { kind: 'OBJECTIVES' },
     tone: 'cyan',
   };

@@ -35,6 +35,7 @@ import { getOfficeCapacity, getResidentialCapacity } from './zoning';
 import { calculateTileRent } from './citizenSimulation/satisfaction';
 import { simulateClimate } from './climate';
 import { serviceUpgradeStats } from './serviceUpgrades';
+import { createStarterGrid } from './starterCity';
 
 export function createEmptyGrid(width = 60, height = 60): TileData[][] {
   return Array.from({ length: height }, (_, y) =>
@@ -547,7 +548,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     state.disasters ?? [],
     state.day,
     state.seed ?? 2088,
-    state.serviceResponseQuality ?? 100,
+    state.serviceResponseQuality ?? 0,
   );
   state.disasters = disasterResult.disasters;
   state.activeDisasters = disasterResult.activeDisasters;
@@ -895,7 +896,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     state.grid,
     roadGraph,
     state.day,
-    state.serviceResponseQuality ?? 100,
+    state.serviceResponseQuality ?? 0,
     state.serviceDepotCondition ?? {},
   );
   state.serviceVehicles = serviceFleet.agents;
@@ -1008,7 +1009,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     industrialDemand: state.industrialDemand,
     congestionIndex: state.congestionIndex,
     averageCommuteTime: state.averageCommuteTime,
-    serviceResponseQuality: state.serviceResponseQuality ?? 100,
+    serviceResponseQuality: state.serviceResponseQuality ?? 0,
     transitCoverage: state.transitCoverage ?? 0,
   }].slice(-60);
 
@@ -1016,8 +1017,18 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   state.regions = calculateRegionTelemetry(state, activeRegionKeys);
   const regionalState = advanceBackgroundRegions(state, activeRegionKeys);
   state.regions = regionalState.regions;
-  state.activeRegionKeys = activeRegionKeys;
+  const previousDiagnostics = state.causalDiagnostics ?? [];
   state.causalDiagnostics = calculateCausalDiagnostics(state);
+  const resolvedDiagnosticEvents = previousDiagnostics
+    .filter((prev) => !state.causalDiagnostics!.some((cur) => cur.title === prev.title))
+    .map((resolved) => ({
+      id: `diag-resolved-${state.day}-${resolved.id}`,
+      type: 'DIAGNOSTIC_RESOLVED' as const,
+      day: state.day,
+      phase: 'HISTORY' as const,
+      payload: { title: resolved.title, category: resolved.category },
+    }));
+
   if (state.activeScenarioId) {
     const scenario = SCENARIO_DEFINITIONS.find((candidate) => candidate.id === state.activeScenarioId);
     if (scenario) {
@@ -1029,6 +1040,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   state.recentSimulationEvents = [
     ...(state.recentSimulationEvents ?? []),
     ...commandEvents,
+    ...resolvedDiagnosticEvents,
     {
       id: `tick-${state.day}`,
       type: 'SIMULATION_TICK_COMPLETED',
@@ -1047,7 +1059,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   return state;
 }
 
-export function createInitialCityState(grid: TileData[][], seed = 2088, difficulty: 'easy' | 'normal' | 'hard' = 'normal'): CityState {
+export function createInitialCityState(grid: TileData[][] = createStarterGrid(), seed = 2088, difficulty: 'easy' | 'normal' | 'hard' = 'normal'): CityState {
   const startingMoney = difficulty === 'easy' 
     ? Math.round(GAME_CONFIG.STARTING_MONEY * 1.5) 
     : difficulty === 'hard' 
@@ -1055,6 +1067,7 @@ export function createInitialCityState(grid: TileData[][], seed = 2088, difficul
     : GAME_CONFIG.STARTING_MONEY;
 
   const initialCitizenSim = createInitialCitizenSimulationState(seed);
+  const initialUtilities = simulateUtilityNetworks(grid, [], 1.0, 1.0);
 
   return {
     schemaVersion: 1,
@@ -1072,10 +1085,10 @@ export function createInitialCityState(grid: TileData[][], seed = 2088, difficul
     climateWaterMultiplier: 1,
     climateTrafficMultiplier: 1,
     climateFireRisk: 1,
-    powerCapacity: 0,
-    powerDemand: 0,
-    waterCapacity: 0,
-    waterDemand: 0,
+    powerCapacity: initialUtilities.powerCapacity,
+    powerDemand: initialUtilities.powerDemand,
+    waterCapacity: initialUtilities.waterCapacity,
+    waterDemand: initialUtilities.waterDemand,
     transitCapacity: 0,
     transitRidership: 0,
     transitCoverage: 0,
@@ -1175,7 +1188,7 @@ export function createInitialCityState(grid: TileData[][], seed = 2088, difficul
     policeServiceCapacity: 0,
     healthcareCapacity: 0,
     educationCapacity: 0,
-    serviceResponseQuality: 100,
+    serviceResponseQuality: 0,
     incidents: [],
     activeIncidents: 0,
     incidentResponseLoad: 0,
