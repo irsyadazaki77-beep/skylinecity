@@ -31,12 +31,28 @@ export function hasNearbyParking(grid: TileData[][], x: number, y: number, radiu
  * between curb/parking space, parks, transit, and higher land efficiency.
  */
 export function simulateParking(grid: TileData[][]): ParkingMetrics {
-  const lots = grid.flat().filter((tile) => tile.type === TileType.PARKING);
+  const lots: TileData[] = [];
+  const demandTiles: Array<{ tile: TileData; demand: number }> = [];
+  let totalDemand = 0;
+
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const tile = row[x];
+      if (tile.type === TileType.PARKING) {
+        lots.push(tile);
+      } else {
+        const d = parkingDemandFor(tile);
+        if (d > 0) {
+          demandTiles.push({ tile, demand: d });
+          totalDemand += d;
+        }
+      }
+    }
+  }
+
   const supply = lots.length * PARKING_SPACES_PER_LOT;
-  const demandTiles = grid.flat()
-    .map((tile) => ({ tile, demand: parkingDemandFor(tile) }))
-    .filter(({ demand }) => demand > 0);
-  const demand = demandTiles.reduce((sum, entry) => sum + entry.demand, 0);
+  const demand = totalDemand;
   const remaining = new Map(lots.map((lot) => [`${lot.x},${lot.y}`, PARKING_SPACES_PER_LOT]));
   let covered = 0;
 

@@ -57,7 +57,7 @@ export function GameHUD({
   const milestoneLabel = milestoneLevel === 0 ? 'Desa' : currentMilestone.name;
 
   return (
-    <header className="game-hud absolute top-0 left-0 right-0 z-30 pointer-events-none p-3 md:p-4 flex justify-between items-start select-none">
+    <header className="game-hud absolute top-0 left-0 right-0 z-40 pointer-events-none p-3 md:p-4 flex justify-between items-start select-none">
       
       {/* TOP LEFT: City Designation & Milestone */}
       <div className="game-hud-left pointer-events-auto flex flex-col gap-2">

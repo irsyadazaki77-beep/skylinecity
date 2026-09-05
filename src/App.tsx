@@ -203,6 +203,8 @@ export default function App() {
     setTutorialHighlight,
     handleEmergencyGrant,
   } = useTutorialFlow({
+
+
     setGameState,
     setNotifications,
     playSound,
@@ -230,6 +232,7 @@ export default function App() {
     settings,
     setGameState,
     pendingSimulationCommit,
+    gameState,
   });
 
   const [webglAvailable] = useState(() => hasWebGLSupport());

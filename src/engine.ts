@@ -59,17 +59,40 @@ export function getLastSimulationPhaseTimings(): Record<string, number> {
 }
 
 function countTiles(grid: TileData[][], type: TileType): number {
-  return grid.flat().filter((tile) => tile.type === type).length;
+  let count = 0;
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      if (row[x].type === type) count++;
+    }
+  }
+  return count;
 }
 
 function activePopulation(grid: TileData[][]): number {
-  return grid.flat().reduce((sum, tile) => sum + (tile.type === TileType.RESIDENTIAL ? (tile.population || 0) : 0), 0);
+  let sum = 0;
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const tile = row[x];
+      if (tile.type === TileType.RESIDENTIAL) sum += (tile.population || 0);
+    }
+  }
+  return sum;
 }
 
 function activeJobs(grid: TileData[][]): number {
-  return grid.flat().reduce((sum, tile) => sum + (
-    tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE || tile.type === TileType.INDUSTRIAL ? (tile.jobs || 0) : 0
-  ), 0);
+  let sum = 0;
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const tile = row[x];
+      if (tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE || tile.type === TileType.INDUSTRIAL) {
+        sum += (tile.jobs || 0);
+      }
+    }
+  }
+  return sum;
 }
 
 function hasRoadAccess(tile: TileData, grid: TileData[][]): boolean {
@@ -97,11 +120,21 @@ export function calculateDemandsAndDesirability(
   waterCapacity: number,
   waterDemand: number,
 ) {
-  const allTiles = grid.flat();
-  const buildings = allTiles.filter((tile) => tile.type === TileType.RESIDENTIAL || tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE || tile.type === TileType.INDUSTRIAL);
-  const utilityReliability = buildings.length
-    ? buildings.filter((tile) => tile.powered && tile.watered).length / buildings.length
-    : 1;
+  let buildingsCount = 0;
+  let reliableCount = 0;
+  let officeJobs = 0;
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const tile = row[x];
+      if (tile.type === TileType.RESIDENTIAL || tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE || tile.type === TileType.INDUSTRIAL) {
+        buildingsCount++;
+        if (tile.powered && tile.watered) reliableCount++;
+        if (tile.type === TileType.OFFICE) officeJobs += (tile.jobs || 0);
+      }
+    }
+  }
+  const utilityReliability = buildingsCount ? reliableCount / buildingsCount : 1;
   const serviceScore = (
     state.healthcareCoverage + state.educationCoverage + state.fireSafety + (100 - state.crimeRate) + state.wasteCoverage
   ) / 5;
@@ -132,7 +165,7 @@ export function calculateDemandsAndDesirability(
   ));
   const universityWorkforce = state.demographics?.educationDistribution?.university ?? Math.round(state.workers * 0.2);
   const officeDemand = Math.round(clamp(
-    (desirability - 42) * 1.15 + Math.max(0, universityWorkforce - (allTiles.filter((tile) => tile.type === TileType.OFFICE).reduce((sum, tile) => sum + (tile.jobs || 0), 0) * 0.7)) * 0.25 - taxFriction(state.commercialTaxRate),
+    (desirability - 42) * 1.15 + Math.max(0, universityWorkforce - (officeJobs * 0.7)) * 0.25 - taxFriction(state.commercialTaxRate),
     GAME_CONFIG.DEMAND_MIN,
     GAME_CONFIG.DEMAND_MAX,
   ));
@@ -308,8 +341,10 @@ export function calculateEconomy(
   let officeJobs = 0;
   let industrialJobs = 0;
 
-  const allTiles = grid.flat();
-  for (const tile of allTiles) {
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const tile = row[x];
     if (tile.type === TileType.RESIDENTIAL) resRevenue += (tile.population || 0) * GAME_CONFIG.BASE_RES_TAX_COEFF * (residentialTaxRate / 9);
     if (tile.type === TileType.COMMERCIAL) {
       commercialJobs += tile.jobs || 0;
@@ -335,6 +370,7 @@ export function calculateEconomy(
       if (tile.serviceUpgrades?.length) maintenance += serviceUpgradeStats(tile.type, tile.serviceUpgrades).dailyUpkeep * costMultiplier;
     }
   }
+}
 
   if (has('prop_tax_hike')) resRevenue *= 1.2;
   if (has('wealth_tax')) resRevenue *= 1.15;
@@ -498,9 +534,6 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     causalDiagnostics: input.causalDiagnostics ? input.causalDiagnostics.map((diagnostic) => ({ ...diagnostic, location: diagnostic.location ? { ...diagnostic.location } : undefined })) : [],
     signalStates: Object.fromEntries(Object.entries(input.signalStates ?? {}).map(([key, signal]) => [key, { ...signal }])),
   };
-  // The cloned tile objects are mutated throughout this tick. Keeping one
-  // flattened view avoids repeated allocations for aggregate UI metrics.
-  const allTiles = grid.flat();
 
   markPhase('INPUT');
   state.simulationPhase = 'INPUT';
@@ -636,11 +669,26 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   state.mixedUseBlocks = initialMixedUse.mixedUseBlocks;
   state.mixedUseFloorArea = initialMixedUse.mixedUseFloorArea;
   state.mixedUseJobs = initialMixedUse.mixedUseJobs;
-  const environmentTiles = allTiles.filter((tile) => tile.type !== TileType.EMPTY && !tile.water);
-  if (environmentTiles.length > 0) {
-    state.landValueAverage = Math.round(environmentTiles.reduce((sum, tile) => sum + tile.landValue, 0) / environmentTiles.length);
-    state.pollutionAverage = Math.round(environmentTiles.reduce((sum, tile) => sum + tile.pollution, 0) / environmentTiles.length * 10) / 10;
-    state.noiseAverage = Math.round(environmentTiles.reduce((sum, tile) => sum + tile.noise, 0) / environmentTiles.length * 10) / 10;
+  let envTilesCount = 0;
+  let envLandValueSum = 0;
+  let envPollutionSum = 0;
+  let envNoiseSum = 0;
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const tile = row[x];
+      if (tile.type !== TileType.EMPTY && !tile.water) {
+        envTilesCount++;
+        envLandValueSum += tile.landValue;
+        envPollutionSum += tile.pollution;
+        envNoiseSum += tile.noise;
+      }
+    }
+  }
+  if (envTilesCount > 0) {
+    state.landValueAverage = Math.round(envLandValueSum / envTilesCount);
+    state.pollutionAverage = Math.round((envPollutionSum / envTilesCount) * 10) / 10;
+    state.noiseAverage = Math.round((envNoiseSum / envTilesCount) * 10) / 10;
   }
 
   const initialParking = simulateParking(state.grid);
@@ -713,12 +761,17 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     Math.round(state.industrialDemand * logisticsGrowthFactor),
     state.unlockedUpgrades,
   );
-  for (const tile of allTiles) {
-    if (tile.type !== TileType.RESIDENTIAL) continue;
-    tile.rent = calculateTileRent(tile, state.residentialTaxRate);
-    const estimatedHouseholds = Math.max(1, (tile.population || 0) / 2.2);
-    tile.rentPressure = Math.round(Math.min(3, (tile.rent / Math.max(1, estimatedHouseholds * 22))) * 100) / 100;
-    tile.affordability = Math.round(clamp(100 - (tile.rentPressure - 1) * 45, 0, 100));
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const tile = row[x];
+      if (tile.type === TileType.RESIDENTIAL) {
+        tile.rent = calculateTileRent(tile, state.residentialTaxRate);
+        const estimatedHouseholds = Math.max(1, (tile.population || 0) / 2.2);
+        tile.rentPressure = Math.round(Math.min(3, (tile.rent / Math.max(1, estimatedHouseholds * 22))) * 100) / 100;
+        tile.affordability = Math.round(clamp(100 - (tile.rentPressure - 1) * 45, 0, 100));
+      }
+    }
   }
   roadGraph = buildRoadGraph(state.grid, state.unlockedUpgrades, state.timeOfDay, state.signalStates);
 
@@ -782,8 +835,14 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   state.congestionIndex = citizenResults.congestionIndex;
   state.averageQueuePressure = citizenResults.averageQueuePressure;
   if (climate.trafficMultiplier !== 1) {
-    for (const tile of allTiles) {
-      if (tile.type === TileType.ROAD) tile.traffic = Math.min(100, Math.round((tile.traffic || 0) * climate.trafficMultiplier * 10) / 10);
+    for (let y = 0; y < grid.length; y++) {
+      const row = grid[y];
+      for (let x = 0; x < row.length; x++) {
+        const tile = row[x];
+        if (tile.type === TileType.ROAD) {
+          tile.traffic = Math.min(100, Math.round((tile.traffic || 0) * climate.trafficMultiplier * 10) / 10);
+        }
+      }
     }
     state.trafficAverage = Math.min(100, Math.round(state.trafficAverage * climate.trafficMultiplier * 10) / 10);
     state.congestionIndex = Math.min(100, Math.round(state.congestionIndex * climate.trafficMultiplier * 10) / 10);
@@ -980,12 +1039,16 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     commercial: [0, 0, 0, 0, 0],
     industrial: [0, 0, 0, 0, 0],
   };
-  for (const tile of allTiles) {
-    if (tile.abandoned) continue;
-    const levelIndex = Math.max(0, Math.min(4, Math.round(tile.level ?? 1) - 1));
-    if (tile.type === TileType.RESIDENTIAL) buildingLevelCounts.residential[levelIndex] += 1;
-    else if (tile.type === TileType.COMMERCIAL) buildingLevelCounts.commercial[levelIndex] += 1;
-    else if (tile.type === TileType.INDUSTRIAL) buildingLevelCounts.industrial[levelIndex] += 1;
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const tile = row[x];
+      if (tile.abandoned) continue;
+      const levelIndex = Math.max(0, Math.min(4, Math.round(tile.level ?? 1) - 1));
+      if (tile.type === TileType.RESIDENTIAL) buildingLevelCounts.residential[levelIndex] += 1;
+      else if (tile.type === TileType.COMMERCIAL) buildingLevelCounts.commercial[levelIndex] += 1;
+      else if (tile.type === TileType.INDUSTRIAL) buildingLevelCounts.industrial[levelIndex] += 1;
+    }
   }
   state.buildingLevelCounts = buildingLevelCounts;
   state.completedMissions = [...state.completedMissions];

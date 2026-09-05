@@ -62,6 +62,53 @@ interface City3DCanvasProps {
   onRendererReady?: () => void;
 }
 
+function computeBuildingTopologyHash(grid: TileData[][]): number {
+  let h = 0x811c9dc5;
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const tile = row[x];
+      if (tile.type === TileType.EMPTY && !tile.elevation && !tile.water) continue;
+      h = Math.imul(h ^ tile.x, 16777619);
+      h = Math.imul(h ^ (tile.y << 6), 16777619);
+      h = Math.imul(h ^ (tile.level || 0), 16777619);
+      h = Math.imul(h ^ (tile.abandoned ? 1 : 0), 16777619);
+      h = Math.imul(h ^ Math.round((tile.elevation || 0) * 10), 16777619);
+      h = Math.imul(h ^ (tile.mixedUseFloorCount || 0), 16777619);
+      const s = (tile.type || '') + (tile.parcelId || '') + (tile.mixedUseProgram || '');
+      for (let i = 0; i < s.length; i++) {
+        h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+      }
+    }
+  }
+  return h >>> 0;
+}
+
+function computeBuildingRenderHash(grid: TileData[][]): number {
+  let h = 0x811c9dc5;
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const tile = row[x];
+      if (tile.type === TileType.EMPTY && !tile.elevation && !tile.water) continue;
+      h = Math.imul(h ^ tile.x, 16777619);
+      h = Math.imul(h ^ (tile.y << 6), 16777619);
+      h = Math.imul(h ^ (tile.level || 0), 16777619);
+      h = Math.imul(h ^ (tile.abandoned ? 1 : 0), 16777619);
+      h = Math.imul(h ^ (tile.powered ? 2 : 0), 16777619);
+      h = Math.imul(h ^ (tile.watered ? 4 : 0), 16777619);
+      h = Math.imul(h ^ (tile.disasterImpact || 0), 16777619);
+      h = Math.imul(h ^ Math.round((tile.elevation || 0) * 10), 16777619);
+      h = Math.imul(h ^ (tile.mixedUseFloorCount || 0), 16777619);
+      const s = (tile.type || '') + (tile.parcelId || '') + (tile.mixedUseProgram || '');
+      for (let i = 0; i < s.length; i++) {
+        h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+      }
+    }
+  }
+  return h >>> 0;
+}
+
 function BuildingLodController({ qualityTier, children }: { qualityTier: 'balanced' | 'reduced'; children: React.ReactNode }) {
   const rootRef = useRef<THREE.Group>(null);
   const elapsedRef = useRef(0);
@@ -70,26 +117,31 @@ function BuildingLodController({ qualityTier, children }: { qualityTier: 'balanc
 
   useFrame((_, delta) => {
     elapsedRef.current += delta;
-    // A low-frequency traversal keeps LOD responsive to camera movement while
+    // A low-frequency check keeps LOD responsive to camera movement while
     // avoiding a React update or a per-building frame callback.
     if (elapsedRef.current < 0.12 || !rootRef.current) return;
     elapsedRef.current = 0;
-    const nearDistance = qualityTier === 'reduced' ? 14 : 22;
     const farDistance = qualityTier === 'reduced' ? 38 : 58;
-    const nearDistanceSq = nearDistance * nearDistance;
     const farDistanceSq = farDistance * farDistance;
+    const camPos = camera.position;
 
-    rootRef.current.traverse((object) => {
-      if (object.name !== 'BuildingRenderRoot') return;
-      object.getWorldPosition(worldPosition.current);
-      const distanceSq = worldPosition.current.distanceToSquared(camera.position);
-      const detail = object.getObjectByName('BuildingDetail');
-      const nearDetail = object.getObjectByName('BuildingNearDetail');
-      const far = object.getObjectByName('BuildingFar');
-      if (detail) detail.visible = distanceSq <= farDistanceSq;
-      if (nearDetail) nearDetail.visible = distanceSq <= nearDistanceSq;
-      if (far) far.visible = distanceSq > farDistanceSq;
-    });
+    // Fast 2-tier iteration over chunk groups avoiding full scene-graph recursive traversal
+    const chunkGroups = rootRef.current.children;
+    for (let i = 0; i < chunkGroups.length; i++) {
+      const chunk = chunkGroups[i];
+      const buildings = chunk.children;
+      for (let j = 0; j < buildings.length; j++) {
+        const b = buildings[j];
+        if (b.name === 'BuildingRenderRoot') {
+          b.getWorldPosition(worldPosition.current);
+          const distanceSq = worldPosition.current.distanceToSquared(camPos);
+          const detail = b.children[0]?.name === 'BuildingDetail' ? b.children[0] : b.getObjectByName('BuildingDetail');
+          if (detail) {
+            detail.visible = distanceSq <= farDistanceSq;
+          }
+        }
+      }
+    }
   });
 
   return <group ref={rootRef} name="BuildingLodController">{children}</group>;
@@ -143,13 +195,23 @@ export function City3DCanvas({
   // normal simulation updates do not yank the player's camera around.
   const initialFocus = useRef<[number, number, number] | null>(null);
   if (initialFocus.current === null) {
-    const developed = grid.flat().filter((tile) => (
-      tile.type !== TileType.EMPTY && tile.type !== TileType.ROAD && !tile.water
-    ));
-    if (developed.length > 0) {
-      const avgX = developed.reduce((sum, tile) => sum + tile.x, 0) / developed.length;
-      const avgY = developed.reduce((sum, tile) => sum + tile.y, 0) / developed.length;
-      const avgElevation = developed.reduce((sum, tile) => sum + (tile.elevation || 0), 0) / developed.length;
+    let sumX = 0, sumY = 0, sumElev = 0, count = 0;
+    for (let y = 0; y < height; y++) {
+      const row = grid[y];
+      for (let x = 0; x < width; x++) {
+        const tile = row[x];
+        if (tile.type !== TileType.EMPTY && tile.type !== TileType.ROAD && !tile.water) {
+          sumX += tile.x;
+          sumY += tile.y;
+          sumElev += (tile.elevation || 0);
+          count++;
+        }
+      }
+    }
+    if (count > 0) {
+      const avgX = sumX / count;
+      const avgY = sumY / count;
+      const avgElevation = sumElev / count;
       const [wx, , wz] = gridToWorld(avgX, avgY, width, height);
       initialFocus.current = [wx, terrainHeight(avgElevation), wz];
     } else {
@@ -159,17 +221,13 @@ export function City3DCanvas({
 
   // Footprints only depend on topology, not population/traffic telemetry. Keep
   // the expensive urban-form pass out of the per-tick render path.
-  const topologySignature = useMemo(() => grid.flat().map((tile) => (
-    `${tile.x},${tile.y}:${tile.type}:${tile.level}:${tile.zoneDensity}:${tile.parcelSeed}:${tile.abandoned ? 1 : 0}:${tile.elevation}:${tile.parcelId ?? ''}:${tile.mixedUseProgram ?? ''}:${tile.mixedUseFloorCount ?? 0}`
-  )).join('|'), [grid]);
-  const buildingRenderSignature = useMemo(() => grid.flat().map((tile) => (
-    `${tile.x},${tile.y}:${tile.type}:${tile.level}:${tile.zoneDensity}:${tile.parcelSeed}:${tile.abandoned ? 1 : 0}:${tile.powered ? 1 : 0}:${tile.watered ? 1 : 0}:${tile.disasterImpact ?? 0}:${tile.elevation}:${tile.parcelId ?? ''}:${tile.mixedUseProgram ?? ''}:${tile.mixedUseFloorCount ?? 0}`
-  )).join('|'), [grid]);
+  const topologyHash = useMemo(() => computeBuildingTopologyHash(grid), [grid]);
+  const buildingRenderHash = useMemo(() => computeBuildingRenderHash(grid), [grid]);
   const globalMixedUse = unlockedUpgrades.includes('mixed_use') || activePolicies.includes('mixed_use');
   const districtSignature = districts.map((district) => `${district.id}:${district.policy}:${district.center[0]}:${district.center[1]}:${district.radius}`).join('|');
   const mixedUseTiles = useMemo(() => globalMixedUse ? undefined : getDistrictTileSet(districts, 'MIXED_USE'), [districtSignature, globalMixedUse]);
   const allowMixedUse = globalMixedUse || mixedUseTiles.size > 0;
-  const footprints = useMemo(() => deriveBuildingFootprints(grid, { allowMixedUse, mixedUseTiles }), [allowMixedUse, mixedUseTiles, topologySignature]);
+  const footprints = useMemo(() => deriveBuildingFootprints(grid, { allowMixedUse, mixedUseTiles }), [allowMixedUse, mixedUseTiles, topologyHash]);
 
   // Chunk-based building visibility: only render buildings in unlocked regions
   const visibleBuildingsByChunk = useMemo(() => {
@@ -190,7 +248,7 @@ export function City3DCanvas({
       }
     }
     return chunks;
-  }, [buildingRenderSignature, height, width, unlockedRegions, activeRegionKeys, footprints]);
+  }, [buildingRenderHash, height, width, unlockedRegions, activeRegionKeys, footprints]);
 
   const renderScale = settings?.renderScale ?? 100;
   const focusTarget = focusTile
@@ -199,7 +257,17 @@ export function City3DCanvas({
   focusTarget[1] = focusTile ? terrainHeight(grid[focusTile[1]]?.[focusTile[0]]?.elevation) : focusTarget[1];
   const framing = focusFrame(focusTarget, initialFocus.current ?? [0, 0, 0], Boolean(focusTile && tutorialHighlight));
   const cameraTarget = framing.target;
-  const terrainCeiling = useMemo(() => Math.max(0, ...grid.flat().map(t => terrainHeight(t.elevation))), [topologySignature]);
+  const terrainCeiling = useMemo(() => {
+    let max = 0;
+    for (let y = 0; y < height; y++) {
+      const row = grid[y];
+      for (let x = 0; x < width; x++) {
+        const th = terrainHeight(row[x].elevation);
+        if (th > max) max = th;
+      }
+    }
+    return max;
+  }, [topologyHash, height, width]);
   const adaptiveMultiplier = settings?.adaptiveQuality === false
     ? 1
     : qualityTier === 'reduced'

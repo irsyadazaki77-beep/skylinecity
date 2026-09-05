@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { BUILD_COSTS, getRoadClass, OverlayMode, ROAD_BUILD_COSTS, ROAD_REPAIR_COST, RoadClass, TERRAFORM_COST, TileData, TileType, TUNNEL_BUILD_COST } from '../../types';
 import { TileMarker } from './TileMarker';
@@ -427,9 +427,26 @@ export function TerrainGrid({
 
   const isRecommendedMissionTile = (x: number, y: number, tile: TileData): boolean => tutorialHighlight === 'mission' && (tile.type !== TileType.EMPTY && !tile.water);
 
-  const terrainSignature = useMemo(() => grid.flat().map((tile) => (
-    `${tile.x},${tile.y}:${tile.type}:${tile.resource}:${tile.water ? 1 : 0}:${tile.elevation}`
-  )).join('|'), [grid]);
+function computeTerrainHash(grid: TileData[][]): number {
+  let h = 0x811c9dc5;
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const tile = row[x];
+      h = Math.imul(h ^ tile.x, 16777619);
+      h = Math.imul(h ^ (tile.y << 6), 16777619);
+      h = Math.imul(h ^ (tile.water ? 1 : 0), 16777619);
+      h = Math.imul(h ^ Math.round((tile.elevation || 0) * 10), 16777619);
+      const s = (tile.type || '') + (tile.resource || '');
+      for (let i = 0; i < s.length; i++) {
+        h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+      }
+    }
+  }
+  return h >>> 0;
+}
+
+  const terrainHash = useMemo(() => computeTerrainHash(grid), [grid]);
   const unlockedSignature = unlockedRegions.join('|');
 
   // Ground plane geometry (base level underneath the grid)
@@ -455,7 +472,7 @@ export function TerrainGrid({
 
   const terrainSurfaceGeo = useMemo(() => (
     createTerrainSurfaceGeometry(grid, unlockedRegions, mapExpansionMode)
-  ), [terrainSignature, unlockedSignature, mapExpansionMode]);
+  ), [terrainHash, unlockedSignature, mapExpansionMode]);
   const terrainSurfaceMat = useMemo(() => new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.94,
@@ -463,10 +480,10 @@ export function TerrainGrid({
   }), []);
   const waterSurfaceGeo = useMemo(() => (
     createWaterSurfaceGeometry(grid, unlockedRegions, mapExpansionMode)
-  ), [terrainSignature, unlockedSignature, mapExpansionMode]);
+  ), [terrainHash, unlockedSignature, mapExpansionMode]);
   const shorelineGeo = useMemo(() => (
     createShorelineGeometry(grid, unlockedRegions, mapExpansionMode)
-  ), [terrainSignature, unlockedSignature, mapExpansionMode]);
+  ), [terrainHash, unlockedSignature, mapExpansionMode]);
   const shorelineMat = useMemo(() => new THREE.MeshStandardMaterial({
     color: '#bbf2f6',
     roughness: 0.35,
@@ -629,6 +646,45 @@ export function TerrainGrid({
     });
   }, []);
 
+  const roadBestPathSet = useMemo(() => new Set((roadRec?.bestPath || []).map(([x, y]) => `${x},${y}`)), [roadRec]);
+  const roadValidSet = useMemo(() => new Set((roadRec?.validTiles || []).map(([x, y]) => `${x},${y}`)), [roadRec]);
+  const roadBlockedSet = useMemo(() => new Set((roadRec?.blockedTiles || []).map(([x, y]) => `${x},${y}`)), [roadRec]);
+  const roadSuboptimalSet = useMemo(() => new Set((roadRec?.suboptimalTiles || []).map(([x, y]) => `${x},${y}`)), [roadRec]);
+  const zoningRecSet = useMemo(() => new Set((zoningRec?.recommendedTiles || []).map(([x, y]) => `${x},${y}`)), [zoningRec]);
+  const zoningValidSet = useMemo(() => new Set((zoningRec?.validTiles || []).map(([x, y]) => `${x},${y}`)), [zoningRec]);
+  const utilityValidSet = useMemo(() => new Set((utilityRec?.validCandidates || []).map(([x, y]) => `${x},${y}`)), [utilityRec]);
+
+  const overlayGeo = useMemo(() => new THREE.PlaneGeometry(0.96, 0.96), []);
+  const roadBestPathGeo = useMemo(() => new THREE.PlaneGeometry(0.92, 0.92), []);
+  const roadValidGeo = useMemo(() => new THREE.PlaneGeometry(0.74, 0.74), []);
+  const roadBlockedGeo = useMemo(() => new THREE.PlaneGeometry(0.62, 0.62), []);
+  const roadSuboptimalGeo = useMemo(() => new THREE.PlaneGeometry(0.55, 0.55), []);
+  const zoningRecGeo = useMemo(() => new THREE.PlaneGeometry(0.85, 0.85), []);
+  const zoningValidGeo = useMemo(() => new THREE.PlaneGeometry(0.68, 0.68), []);
+  const utilityTargetGeo = useMemo(() => new THREE.PlaneGeometry(0.88, 0.88), []);
+  const utilityValidGeo = useMemo(() => new THREE.PlaneGeometry(0.72, 0.72), []);
+  const missionTileGeo = useMemo(() => new THREE.PlaneGeometry(0.78, 0.78), []);
+
+  const roadBestPathMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#38bdf8', transparent: true, opacity: 0.72, side: THREE.DoubleSide }), []);
+  const roadValidMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#22c55e', transparent: true, opacity: 0.38, side: THREE.DoubleSide }), []);
+  const roadBlockedMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#f43f5e', transparent: true, opacity: 0.42, side: THREE.DoubleSide }), []);
+  const roadSuboptimalMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#64748b', transparent: true, opacity: 0.22, side: THREE.DoubleSide }), []);
+  const zoningRecMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#38bdf8', transparent: true, opacity: 0.52, side: THREE.DoubleSide }), []);
+  const zoningValidMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#60a5fa', transparent: true, opacity: 0.3, side: THREE.DoubleSide }), []);
+  const utilityTargetMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#facc15', transparent: true, opacity: 0.65, side: THREE.DoubleSide }), []);
+  const utilityValidMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#fde047', transparent: true, opacity: 0.32, side: THREE.DoubleSide }), []);
+  const missionTileMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#e879f9', transparent: true, opacity: 0.42, side: THREE.DoubleSide }), []);
+
+  const overlayMatCache = useRef<Map<string, THREE.MeshBasicMaterial>>(new Map());
+  const getOverlayMat = (color: string) => {
+    let mat = overlayMatCache.current.get(color);
+    if (!mat) {
+      mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide });
+      overlayMatCache.current.set(color, mat);
+    }
+    return mat;
+  };
+
   return (
     <group name="TerrainGrid">
       {/* Absolute base floor under the world */}
@@ -671,16 +727,17 @@ export function TerrainGrid({
           const [wx, , wz] = gridToWorld(x, y, width, height);
           const tileY = (tile.elevation || 0) * 0.15;
           const overlayColor = getOverlayColor(tile, activeOverlay, districts);
-          const isBestRoadPath = Boolean(roadRec?.bestPath.some(([px, py]) => px === x && py === y));
-          const isValidRoadTile = Boolean(roadRec?.validTiles.some(([px, py]) => px === x && py === y));
-          const isBlockedRoadTile = Boolean(roadRec?.blockedTiles.some(([px, py]) => px === x && py === y));
-          const isSuboptimalRoadTile = Boolean(roadRec?.suboptimalTiles.some(([px, py]) => px === x && py === y));
+          const coordKey = `${x},${y}`;
+          const isBestRoadPath = roadBestPathSet.has(coordKey);
+          const isValidRoadTile = roadValidSet.has(coordKey);
+          const isBlockedRoadTile = roadBlockedSet.has(coordKey);
+          const isSuboptimalRoadTile = roadSuboptimalSet.has(coordKey);
 
-          const isRecommendedZoningTile = Boolean(zoningRec?.recommendedTiles.some(([px, py]) => px === x && py === y));
-          const isValidZoningTile = Boolean(zoningRec?.validTiles.some(([px, py]) => px === x && py === y));
+          const isRecommendedZoningTile = zoningRecSet.has(coordKey);
+          const isValidZoningTile = zoningValidSet.has(coordKey);
 
           const isTargetUtilityTile = Boolean((utilityRec?.powerTile?.[0] === x && utilityRec?.powerTile?.[1] === y) || (utilityRec?.pumpTile?.[0] === x && utilityRec?.pumpTile?.[1] === y));
-          const isValidUtilityTile = Boolean(utilityRec?.validCandidates.some(([px, py]) => px === x && py === y));
+          const isValidUtilityTile = utilityValidSet.has(coordKey);
           const tutorialMissionTile = isRecommendedMissionTile(x, y, tile);
 
           return (
@@ -711,73 +768,45 @@ export function TerrainGrid({
               {/* Dynamic Overlay Color Grid */}
               {overlayColor && (
                 <mesh
+                  geometry={overlayGeo}
+                  material={getOverlayMat(overlayColor)}
                   position={[wx, roadHeight(tile) + 0.09, wz]}
                   rotation={[-Math.PI / 2, 0, 0]}
-                >
-                  <planeGeometry args={[0.96, 0.96]} />
-                  <meshBasicMaterial color={overlayColor} transparent opacity={0.28} depthWrite={false} side={THREE.DoubleSide} />
-                </mesh>
+                />
               )}
 
               {/* Tutorial Differentiated Road Corridor Highlights */}
               {isBestRoadPath && (
-                <mesh position={[wx, tileY + 0.06, wz]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <planeGeometry args={[0.92, 0.92]} />
-                  <meshBasicMaterial color="#38bdf8" transparent opacity={0.72} side={THREE.DoubleSide} />
-                </mesh>
+                <mesh geometry={roadBestPathGeo} material={roadBestPathMat} position={[wx, tileY + 0.06, wz]} rotation={[-Math.PI / 2, 0, 0]} />
               )}
               {isValidRoadTile && !isBestRoadPath && (
-                <mesh position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <planeGeometry args={[0.74, 0.74]} />
-                  <meshBasicMaterial color="#22c55e" transparent opacity={0.38} side={THREE.DoubleSide} />
-                </mesh>
+                <mesh geometry={roadValidGeo} material={roadValidMat} position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]} />
               )}
               {isBlockedRoadTile && (
-                <mesh position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <planeGeometry args={[0.62, 0.62]} />
-                  <meshBasicMaterial color="#f43f5e" transparent opacity={0.42} side={THREE.DoubleSide} />
-                </mesh>
+                <mesh geometry={roadBlockedGeo} material={roadBlockedMat} position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]} />
               )}
               {isSuboptimalRoadTile && (
-                <mesh position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <planeGeometry args={[0.55, 0.55]} />
-                  <meshBasicMaterial color="#64748b" transparent opacity={0.22} side={THREE.DoubleSide} />
-                </mesh>
+                <mesh geometry={roadSuboptimalGeo} material={roadSuboptimalMat} position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]} />
               )}
 
               {/* Tutorial Differentiated Zoning Highlights */}
               {isRecommendedZoningTile && (
-                <mesh position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <planeGeometry args={[0.85, 0.85]} />
-                  <meshBasicMaterial color="#38bdf8" transparent opacity={0.52} side={THREE.DoubleSide} />
-                </mesh>
+                <mesh geometry={zoningRecGeo} material={zoningRecMat} position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]} />
               )}
               {isValidZoningTile && !isRecommendedZoningTile && (
-                <mesh position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <planeGeometry args={[0.68, 0.68]} />
-                  <meshBasicMaterial color="#60a5fa" transparent opacity={0.3} side={THREE.DoubleSide} />
-                </mesh>
+                <mesh geometry={zoningValidGeo} material={zoningValidMat} position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]} />
               )}
 
               {/* Tutorial Utility Highlights */}
               {isTargetUtilityTile && (
-                <mesh position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <planeGeometry args={[0.88, 0.88]} />
-                  <meshBasicMaterial color="#facc15" transparent opacity={0.65} side={THREE.DoubleSide} />
-                </mesh>
+                <mesh geometry={utilityTargetGeo} material={utilityTargetMat} position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]} />
               )}
               {isValidUtilityTile && !isTargetUtilityTile && (
-                <mesh position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <planeGeometry args={[0.72, 0.72]} />
-                  <meshBasicMaterial color="#fde047" transparent opacity={0.32} side={THREE.DoubleSide} />
-                </mesh>
+                <mesh geometry={utilityValidGeo} material={utilityValidMat} position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]} />
               )}
 
               {tutorialMissionTile && (
-                <mesh position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <planeGeometry args={[0.78, 0.78]} />
-                  <meshBasicMaterial color="#e879f9" transparent opacity={0.42} side={THREE.DoubleSide} />
-                </mesh>
+                <mesh geometry={missionTileGeo} material={missionTileMat} position={[wx, tileY + 0.055, wz]} rotation={[-Math.PI / 2, 0, 0]} />
               )}
             </React.Fragment>
           );

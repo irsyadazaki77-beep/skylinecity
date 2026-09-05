@@ -105,7 +105,9 @@ describe('starter city layout', () => {
     expect(checkpoints.get(5)!.population).toBeGreaterThanOrEqual(5);
     expect(checkpoints.get(10)!.population).toBeGreaterThanOrEqual(15);
     expect(checkpoints.get(15)!.population).toBeGreaterThanOrEqual(15);
+    expect(checkpoints.get(30)!.population).toBeGreaterThanOrEqual(20);
     expect(checkpoints.get(30)!.money).toBeGreaterThan(6000);
+    expect(checkpoints.get(90)!.population).toBeGreaterThanOrEqual(20);
     expect(checkpoints.get(90)!.money).toBeGreaterThan(3000);
   }, 15000);
 });

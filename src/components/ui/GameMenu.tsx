@@ -72,9 +72,9 @@ export function GameMenu({
       {isOpen && (
         <>
           {/* Backdrop overlay to close when clicking outside */}
-          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="fixed inset-0 z-50" onClick={() => setIsOpen(false)} />
           
-          <div role="menu" className="absolute right-0 mt-2 w-56 bg-[#0f172a]/95 backdrop-blur-md border border-white/10 rounded-xl shadow-2xl p-1.5 z-50 flex flex-col gap-0.5 animate-in fade-in slide-in-from-top-2 duration-150 text-gray-200">
+          <div role="menu" className="absolute right-0 mt-2 w-56 bg-[#0f172a]/95 backdrop-blur-md border border-white/10 rounded-xl shadow-2xl p-1.5 z-[60] flex flex-col gap-0.5 animate-in fade-in slide-in-from-top-2 duration-150 text-gray-200">
             <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-white/5 mb-1 bg-black/15 rounded-t-lg">
               {translate(catalog, 'menu.title')}
             </div>

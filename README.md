@@ -2,8 +2,8 @@
 
 Skyline Simulator adalah city-builder 3D berbasis React, TypeScript, Three.js, dan React Three Fiber. Game dimulai dalam keadaan pause agar pemain dapat memahami fondasi kota sebelum simulasi berjalan.
 
-Status gate terbaru dan batasan audit ada di [CURRENT_STATUS_2026-09-05.md](CURRENT_STATUS_2026-09-05.md). Dokumen audit bertanggal sebelumnya bersifat historis.
-Flow browser nyata untuk vertical slice ada di [BROWSER_SMOKE_FLOW.md](BROWSER_SMOKE_FLOW.md); `npm run smoke` tetap merupakan smoke engine deterministik, bukan pengganti verifikasi UI browser.
+Status gate terbaru dan batasan audit ada di [docs/audits/CURRENT_STATUS_2026-09-05.md](docs/audits/CURRENT_STATUS_2026-09-05.md). Dokumen audit bertanggal sebelumnya tersimpan di `docs/audits/` dan rencana kerja tersimpan di `docs/plans/`.
+Flow browser nyata untuk vertical slice ada di [docs/plans/BROWSER_SMOKE_FLOW.md](docs/plans/BROWSER_SMOKE_FLOW.md); suite E2E browser nyata Playwright dijalankan dengan `npx playwright test`.
 
 ## Menjalankan proyek
 
@@ -15,13 +15,14 @@ npm run dev
 Perintah lain yang tersedia:
 
 ```bash
-npm run build   # production build
-npm run lint    # TypeScript check
-npm test        # Vitest regression suite
-npm run benchmark # official deterministic performance/integrity suite
-npm run balance   # deterministic economy/progression health trace
-npm run smoke     # release smoke: build command, simulate, save preview, replay
-npm run release-check # lint + full tests + production build + smoke gate
+npm run build         # production build
+npm run lint          # ESLint static analysis + TypeScript type check
+npm test              # Vitest regression suite
+npm run benchmark     # official deterministic performance/integrity suite
+npm run balance       # deterministic economy/progression health trace
+npm run smoke         # release smoke: build command, simulate, save preview, replay
+npx playwright test   # Playwright real browser E2E test suite (desktop & mobile)
+npm run release-check # full release validation (lint + tests + build + smoke + balance + benchmark + E2E)
 ```
 
 `npm run benchmark` menjalankan `SMALL_TOWN`, `CONGESTED_CORRIDOR`,

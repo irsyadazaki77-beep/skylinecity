@@ -38,7 +38,7 @@ export function CameraToolbar({
 }: CameraToolbarProps) {
   return (
     <div 
-      className="camera-toolbar absolute right-3 top-[4.5rem] z-50 flex items-center gap-1.5 rounded-2xl border border-[var(--border-subtle)] bg-[#0d1420]/95 p-1 text-white shadow-2xl backdrop-blur-xl" 
+      className="camera-toolbar absolute right-3 top-[4.5rem] z-20 flex items-center gap-1.5 rounded-2xl border border-[var(--border-subtle)] bg-[#0d1420]/95 p-1 text-white shadow-2xl backdrop-blur-xl" 
       role="toolbar" 
       aria-label="Kontrol kamera"
     >

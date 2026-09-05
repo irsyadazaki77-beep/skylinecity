@@ -106,9 +106,12 @@ export function simulateCityDepthAndEnvironment(
         else if (tile.level === 4) { pollSource = 12; noiseSource = 10; }
         else if (tile.level === 5) { pollSource = 5; noiseSource = 5; }
       } else if (tile.type === TileType.ROAD && tile.traffic > 5) {
-        const roadImpact = getRoadClass(tile) === 'HIGHWAY' ? 1.45 : getRoadClass(tile) === 'ARTERIAL' ? 1.15 : 1;
-        pollSource = Math.min(35, Math.round(tile.traffic * 0.8 * roadImpact));
-        noiseSource = Math.min(48, Math.round(tile.traffic * 1.2 * roadImpact));
+        const rClass = getRoadClass(tile);
+        const roadImpact = rClass === 'HIGHWAY' ? 1.45 : rClass === 'ARTERIAL' ? 1.15 : 0.45;
+        const maxPoll = rClass === 'HIGHWAY' ? 35 : rClass === 'ARTERIAL' ? 22 : 8;
+        const maxNoise = rClass === 'HIGHWAY' ? 48 : rClass === 'ARTERIAL' ? 32 : 16;
+        pollSource = Math.min(maxPoll, Math.round(tile.traffic * 0.6 * roadImpact));
+        noiseSource = Math.min(maxNoise, Math.round(tile.traffic * 0.9 * roadImpact));
       } else if (tile.type === TileType.WASTE_MANAGEMENT) {
         pollSource = 15;
         noiseSource = 10;

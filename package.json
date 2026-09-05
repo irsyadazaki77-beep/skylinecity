@@ -4,16 +4,17 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --configLoader runner --port=3000 --host=0.0.0.0",
+    "dev": "vite --configLoader runner --port=3002 --host=0.0.0.0",
     "build": "vite build --configLoader runner",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit",
+    "lint": "eslint src && tsc --noEmit",
     "test": "vitest run --configLoader runner",
+    "e2e": "playwright test",
     "benchmark": "tsx src/benchmarkCli.ts",
     "balance": "tsx src/balanceCli.ts",
     "smoke": "tsx src/releaseSmoke.ts",
-    "release-check": "npm run lint && npm test -- --run && npm run build && npm run smoke"
+    "release-check": "npm run lint && npm test -- --run && npm run build && npm run smoke && npm run balance && npm run benchmark && npx playwright test"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",
@@ -29,14 +30,18 @@
     "vite": "^6.2.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
+    "eslint": "^10.10.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
+    "typescript-eslint": "^8.69.0",
     "vite": "^6.2.3",
     "vitest": "^4.1.11"
   }

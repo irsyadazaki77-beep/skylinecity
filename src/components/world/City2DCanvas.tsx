@@ -117,9 +117,74 @@ export function isRecommended2DZoningTile(grid: TileData[][], tile: TileData): b
   return tile.type === TileType.EMPTY && !tile.water && [[0, 1], [1, 0], [0, -1], [-1, 0]].some(([dx, dy]) => grid[tile.y + dy]?.[tile.x + dx]?.type === TileType.ROAD);
 }
 
+export function get2DTileColor(tile: TileData): string {
+  if (tile.type === TileType.ROAD) {
+    if (tile.roadStructure === 'BRIDGE' || tile.water) return '#0284c7';
+    if (tile.roadClass === 'HIGHWAY') return '#b45309';
+    if (tile.roadClass === 'ARTERIAL') return '#d97706';
+    return '#475569';
+  }
+  if (tile.water) return '#0891b2';
+  if (tile.type === TileType.RESIDENTIAL) return '#15803d';
+  if (tile.type === TileType.COMMERCIAL) return '#1d4ed8';
+  if (tile.type === TileType.OFFICE) return '#0369a1';
+  if (tile.type === TileType.INDUSTRIAL) return '#a16207';
+  if (tile.type === TileType.POWER_PLANT) return '#0284c7';
+  if (tile.type === TileType.WATER_PUMP) return '#0891b2';
+  if (tile.type === TileType.CLINIC || tile.type === TileType.FIRE_STATION || tile.type === TileType.POLICE_STATION || tile.type === TileType.SCHOOL) return '#b91c1c';
+  if (tile.type === TileType.PARK) return '#047857';
+  if (tile.type === TileType.PARKING) return '#334155';
+  if (tile.type === TileType.FLOOD_BARRIER) return '#0369a1';
+  if (tile.type === TileType.WATER_RESERVOIR) return '#075985';
+  return tile.type === TileType.EMPTY ? '#4a6854' : '#be123c';
+}
+
+export function get2DOverlayColor(tile: TileData, overlay: OverlayMode | 'NATURAL_RESOURCES' | undefined): string | null {
+  if (!overlay || overlay === 'NONE') return null;
+  if (overlay === 'TRAFFIC' && tile.type === TileType.ROAD) {
+    const tr = tile.traffic ?? 0;
+    return tr > 70 ? 'rgba(239, 68, 68, 0.6)' : tr > 30 ? 'rgba(251, 191, 36, 0.5)' : 'rgba(52, 211, 153, 0.4)';
+  }
+  if (overlay === 'ROAD_CONDITION' && tile.type === TileType.ROAD) {
+    const condition = tile.roadCondition ?? 100;
+    return condition < 40 ? 'rgba(239, 68, 68, 0.6)' : condition < 70 ? 'rgba(251, 191, 36, 0.5)' : 'rgba(52, 211, 153, 0.35)';
+  }
+  if (overlay === 'POWER' && tile.type !== TileType.EMPTY && tile.type !== TileType.ROAD && !tile.water) {
+    return tile.powered ? 'rgba(52, 211, 153, 0.35)' : 'rgba(244, 63, 94, 0.6)';
+  }
+  if (overlay === 'WATER' && tile.type !== TileType.EMPTY && tile.type !== TileType.ROAD && !tile.water) {
+    return tile.watered ? 'rgba(34, 211, 238, 0.35)' : 'rgba(244, 63, 94, 0.6)';
+  }
+  if (overlay === 'INCIDENTS' && (tile.incidentSeverity ?? 0) > 0) {
+    return (tile.incidentSeverity ?? 0) >= 3 ? 'rgba(239, 68, 68, 0.7)' : 'rgba(251, 146, 60, 0.55)';
+  }
+  if (overlay === 'DISASTERS' && (tile.disasterSeverity ?? 0) > 0) {
+    return (tile.disasterSeverity ?? 0) >= 3 ? 'rgba(192, 38, 211, 0.7)' : 'rgba(139, 92, 246, 0.5)';
+  }
+  if (overlay === 'POLLUTION') {
+    const pol = tile.pollution ?? 0;
+    return pol > 50 ? 'rgba(147, 51, 234, 0.5)' : pol > 20 ? 'rgba(217, 119, 6, 0.4)' : null;
+  }
+  if (overlay === 'LAND_VALUE') {
+    const lv = tile.landValue ?? 0;
+    return lv > 60 ? 'rgba(16, 185, 129, 0.5)' : lv > 30 ? 'rgba(6, 182, 212, 0.4)' : null;
+  }
+  if (overlay === 'POLICE') {
+    const cr = tile.crime ?? 0;
+    return cr > 40 ? 'rgba(225, 29, 72, 0.5)' : null;
+  }
+  if (overlay === 'NATURAL_RESOURCES' && !tile.water) {
+    if (tile.resource === 'fertile') return 'rgba(132, 204, 22, 0.4)';
+    if (tile.resource === 'forest') return 'rgba(21, 128, 61, 0.4)';
+    if (tile.resource === 'ore') return 'rgba(180, 83, 9, 0.4)';
+    if (tile.resource === 'oil') return 'rgba(30, 27, 75, 0.5)';
+  }
+  return null;
+}
+
 /**
- * Enhanced 2D canvas with full building, zoning, utility status indicators,
- * traffic load indicators, color legend, and detailed tile inspection HUD.
+ * Enhanced 2D canvas with scalable HTML5 canvas rendering, full status indicators,
+ * and a roving-tabindex accessibility cursor preserving screen reader & keyboard navigation.
  */
 export function City2DCanvas({
   grid,
@@ -132,11 +197,16 @@ export function City2DCanvas({
   onTilePointerEnter,
   onTilePointerLeave,
 }: City2DCanvasProps) {
-  const focusRef = useRef<HTMLButtonElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const focusBtnRef = useRef<HTMLButtonElement | null>(null);
   const [inspectedTile, setInspectedTile] = useState<TileData | null>(null);
   const [showLegend, setShowLegend] = useState(true);
   const [isRoadDragging, setIsRoadDragging] = useState(false);
-  const cells = useMemo(() => grid.flat(), [grid]);
+  const [cursorPos, setCursorPos] = useState<[number, number]>(focusTile ?? [0, 0]);
+
+  const height = grid.length;
+  const width = grid[0]?.length ?? 1;
+  const tileSize = 24;
   const isRoadTool = activeTool === TileType.ROAD || activeTool === 'TUNNEL_ROAD';
 
   const roadRec = useMemo(() => {
@@ -154,9 +224,156 @@ export function City2DCanvas({
     return computeZoningRecommendations(grid, unlockedRegions);
   }, [grid, unlockedRegions, tutorialHighlight]);
 
+  const roadBestPathSet = useMemo(() => new Set((roadRec?.bestPath || []).map(([x, y]) => `${x},${y}`)), [roadRec]);
+  const roadValidSet = useMemo(() => new Set((roadRec?.validTiles || []).map(([x, y]) => `${x},${y}`)), [roadRec]);
+  const roadBlockedSet = useMemo(() => new Set((roadRec?.blockedTiles || []).map(([x, y]) => `${x},${y}`)), [roadRec]);
+  const zoningRecSet = useMemo(() => new Set((zoningRec?.recommendedTiles || []).map(([x, y]) => `${x},${y}`)), [zoningRec]);
+  const utilityTargetSet = useMemo(() => {
+    const s = new Set<string>();
+    if (utilityRec?.powerTile) s.add(`${utilityRec.powerTile[0]},${utilityRec.powerTile[1]}`);
+    if (utilityRec?.pumpTile) s.add(`${utilityRec.pumpTile[0]},${utilityRec.pumpTile[1]}`);
+    return s;
+  }, [utilityRec]);
+
   useEffect(() => {
-    focusRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    if (focusTile) {
+      setCursorPos(focusTile);
+      focusBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }
   }, [focusTile]);
+
+  // Redraw canvas whenever grid, overlay, or highlights change
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, width * tileSize, height * tileSize);
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const tile = grid[y][x];
+        const px = x * tileSize;
+        const py = y * tileSize;
+
+        // Base tile
+        ctx.fillStyle = get2DTileColor(tile);
+        ctx.fillRect(px, py, tileSize, tileSize);
+
+        // Tile border
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+        ctx.strokeRect(px + 0.5, py + 0.5, tileSize - 1, tileSize - 1);
+
+        // Overlay
+        const overlayColor = get2DOverlayColor(tile, activeOverlay);
+        if (overlayColor) {
+          ctx.fillStyle = overlayColor;
+          ctx.fillRect(px, py, tileSize, tileSize);
+        }
+
+        const coordKey = `${x},${y}`;
+        const isBestRoadPath = roadBestPathSet.has(coordKey);
+        const isValidRoadTile = roadValidSet.has(coordKey);
+        const isBlockedRoadTile = roadBlockedSet.has(coordKey);
+        const isRecZoning = zoningRecSet.has(coordKey);
+        const isTargetUtil = utilityTargetSet.has(coordKey);
+
+        const isHighwayHighlight = tutorialHighlight === 'highway' && (isBestRoadPath || isValidRoadTile || (tile.type === TileType.ROAD && tile.roadClass === 'HIGHWAY'));
+        const isZoningHighlight = tutorialHighlight === 'zoning' && isRecZoning;
+        const isUtilityHighlight = tutorialHighlight === 'utilities' && isTargetUtil;
+        const isMissionHighlight = tutorialHighlight === 'mission' && tile.type !== TileType.EMPTY && !tile.water;
+
+        if (isBestRoadPath) {
+          ctx.strokeStyle = '#67e8f9';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(px + 1, py + 1, tileSize - 2, tileSize - 2);
+        } else if (isHighwayHighlight) {
+          ctx.strokeStyle = '#38bdf8';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(px + 1, py + 1, tileSize - 2, tileSize - 2);
+        } else if (isZoningHighlight) {
+          ctx.strokeStyle = '#6ee7b7';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(px + 1, py + 1, tileSize - 2, tileSize - 2);
+        } else if (isUtilityHighlight) {
+          ctx.strokeStyle = '#fcd34d';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(px + 1, py + 1, tileSize - 2, tileSize - 2);
+        } else if (isMissionHighlight) {
+          ctx.strokeStyle = '#e879f9';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(px + 1, py + 1, tileSize - 2, tileSize - 2);
+        } else if (isBlockedRoadTile) {
+          ctx.fillStyle = 'rgba(69, 10, 10, 0.7)';
+          ctx.fillRect(px, py, tileSize, tileSize);
+        }
+
+        // Utility badges
+        const needsUtilities = tile.type === TileType.RESIDENTIAL || tile.type === TileType.COMMERCIAL || tile.type === TileType.INDUSTRIAL || tile.type === TileType.OFFICE;
+        if (needsUtilities && !tile.powered) {
+          ctx.font = 'bold 10px sans-serif';
+          ctx.fillStyle = '#fde047';
+          ctx.fillText('⚡', px + 6, py + 16);
+        } else if (needsUtilities && !tile.watered) {
+          ctx.font = 'bold 9px sans-serif';
+          ctx.fillStyle = '#93c5fd';
+          ctx.fillText('💧', px + 7, py + 16);
+        }
+
+        // Traffic indicator
+        if (tile.type === TileType.ROAD && (tile.traffic ?? 0) > 40) {
+          ctx.beginPath();
+          ctx.arc(px + 12, py + 12, 3, 0, Math.PI * 2);
+          ctx.fillStyle = '#f43f5e';
+          ctx.fill();
+        }
+      }
+    }
+  }, [grid, activeOverlay, tutorialHighlight, roadBestPathSet, roadValidSet, roadBlockedSet, zoningRecSet, utilityTargetSet, width, height]);
+
+  const getTileFromEvent = (e: React.PointerEvent<HTMLCanvasElement>): [number, number] | null => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const x = Math.floor((e.clientX - rect.left) / tileSize);
+    const y = Math.floor((e.clientY - rect.top) / tileSize);
+    if (x >= 0 && x < width && y >= 0 && y < height) {
+      return [x, y];
+    }
+    return null;
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const coords = getTileFromEvent(e);
+    if (!coords) return;
+    const [x, y] = coords;
+    setCursorPos([x, y]);
+    focusBtnRef.current?.focus();
+    if (isRoadTool && e.button === 0) {
+      setIsRoadDragging(true);
+    }
+    onTileClick(x, y);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const coords = getTileFromEvent(e);
+    if (!coords) return;
+    const [x, y] = coords;
+    const tile = grid[y]?.[x];
+    if (tile && (!inspectedTile || inspectedTile.x !== x || inspectedTile.y !== y)) {
+      setInspectedTile(tile);
+      onTilePointerEnter(x, y);
+      if (isRoadDragging && isRoadTool) {
+        onTileClick(x, y);
+      }
+    }
+  };
+
+  const handlePointerUp = () => {
+    setIsRoadDragging(false);
+  };
+
+  const currentCursorTile = grid[cursorPos[1]]?.[cursorPos[0]] ?? grid[0]?.[0];
 
   return (
     <section className="city-2d-canvas relative flex flex-col h-full w-full overflow-hidden bg-slate-950 select-none" aria-label="Peta kota mode 2D" onPointerLeave={onTilePointerLeave}>
@@ -204,59 +421,38 @@ export function City2DCanvas({
         </div>
       )}
 
-      {/* Grid Container */}
+      {/* Grid Canvas Container */}
       <div className="flex-1 overflow-auto p-4 flex items-center justify-center">
         <div
-          className="city-2d-grid border border-white/10 rounded-lg bg-slate-900/50 shadow-inner"
-          style={{ gridTemplateColumns: `repeat(${grid[0]?.length ?? 1}, 24px)` }}
+          className="city-2d-grid relative border border-white/10 rounded-lg bg-slate-900/50 shadow-inner"
+          style={{ width: width * tileSize, height: height * tileSize }}
         >
-          {cells.map((tile) => {
-            const isFocus = focusTile?.[0] === tile.x && focusTile?.[1] === tile.y;
-            const overlayBg = get2DOverlayStyle(tile, activeOverlay);
-
-            // Pathfinding tutorial highlights
-            const isBestRoadPath = Boolean(roadRec?.bestPath.some(([px, py]) => px === tile.x && py === tile.y));
-            const isValidRoadTile = Boolean(roadRec?.validTiles.some(([px, py]) => px === tile.x && py === tile.y));
-            const isBlockedRoadTile = Boolean(roadRec?.blockedTiles.some(([px, py]) => px === tile.x && py === tile.y));
-
-            const isRecZoning = Boolean(zoningRec?.recommendedTiles.some(([px, py]) => px === tile.x && py === tile.y));
-            const isTargetUtil = Boolean((utilityRec?.powerTile?.[0] === tile.x && utilityRec?.powerTile?.[1] === tile.y) || (utilityRec?.pumpTile?.[0] === tile.x && utilityRec?.pumpTile?.[1] === tile.y));
-
-            const isHighwayHighlight = tutorialHighlight === 'highway' && (isBestRoadPath || isValidRoadTile || (tile.type === TileType.ROAD && tile.roadClass === 'HIGHWAY'));
-            const isZoningHighlight = tutorialHighlight === 'zoning' && isRecZoning;
-            const isUtilityHighlight = tutorialHighlight === 'utilities' && isTargetUtil;
-            const isMissionHighlight = tutorialHighlight === 'mission' && tile.type !== TileType.EMPTY && !tile.water;
-
-            const needsUtilities = tile.type === TileType.RESIDENTIAL || tile.type === TileType.COMMERCIAL || tile.type === TileType.INDUSTRIAL || tile.type === TileType.OFFICE;
-            const isUnpowered = needsUtilities && !tile.powered;
-            const isUnwatered = needsUtilities && !tile.watered;
-            const hasHeavyTraffic = tile.type === TileType.ROAD && (tile.traffic ?? 0) > 40;
-
-            const isRoadCandidate = isRoadTool && isConnected2DRoadPlacement(grid, tile);
-
+          <canvas
+            ref={canvasRef}
+            width={width * tileSize}
+            height={height * tileSize}
+            className="block cursor-pointer"
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+          />
+          {/* Accessible Roving Focus Tile element maintaining keyboard and screen reader parity */}
+          {(() => {
+            const tile = currentCursorTile;
+            if (!tile) return null;
             return (
               <button
-                key={`${tile.x}-${tile.y}`}
-                ref={isFocus ? focusRef : undefined}
+                ref={focusBtnRef}
                 type="button"
-                className={`city-2d-tile relative flex items-center justify-center ${get2DTileClass(tile)} ${overlayBg ?? ''} ${isFocus ? 'ring-2 ring-cyan-400 ring-offset-1 z-20' : ''} ${isBestRoadPath ? 'ring-2 ring-cyan-300 z-10' : isHighwayHighlight ? 'tutorial-highlight' : ''} ${isZoningHighlight ? 'tutorial-zoning ring-2 ring-emerald-300' : ''} ${isUtilityHighlight ? 'tutorial-utility ring-2 ring-amber-300' : ''} ${isMissionHighlight ? 'tutorial-mission' : ''} ${isRoadCandidate ? 'ring-1 ring-emerald-300/80' : ''} ${isBlockedRoadTile ? 'opacity-40 bg-red-950/80' : ''}`}
+                className="city-2d-tile roving-focus absolute w-6 h-6 ring-2 ring-cyan-400 ring-offset-1 pointer-events-none focus:outline-none"
+                style={{
+                  left: tile.x * tileSize,
+                  top: tile.y * tileSize,
+                }}
                 aria-label={`Petak ${tile.x + 1}, ${tile.y + 1}; ${tile.type}`}
-                title={`(${tile.x + 1}, ${tile.y + 1}) ${tile.type}${tile.population ? ` · Pop: ${tile.population}` : ''}`}
-                onPointerEnter={() => {
-                  setInspectedTile(tile);
-                  onTilePointerEnter(tile.x, tile.y);
-                }}
-                onPointerDown={(event) => {
-                  if (!isRoadTool || event.button !== 0) return;
-                  setIsRoadDragging(true);
-                  onTileClick(tile.x, tile.y);
-                }}
-                onPointerUp={(event) => {
-                  if (!isRoadTool || event.button !== 0 || !isRoadDragging) return;
-                  onTileClick(tile.x, tile.y);
-                  setIsRoadDragging(false);
-                }}
-                onPointerCancel={() => setIsRoadDragging(false)}
+                title={`(${tile.x + 1}, ${tile.y + 1}) ${tile.type}`}
+                data-coord={`${tile.x},${tile.y}`}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
@@ -266,36 +462,22 @@ export function City2DCanvas({
                   let targetX = tile.x;
                   let targetY = tile.y;
                   if (event.key === 'ArrowUp') targetY = Math.max(0, tile.y - 1);
-                  else if (event.key === 'ArrowDown') targetY = Math.min(grid.length - 1, tile.y + 1);
+                  else if (event.key === 'ArrowDown') targetY = Math.min(height - 1, tile.y + 1);
                   else if (event.key === 'ArrowLeft') targetX = Math.max(0, tile.x - 1);
-                  else if (event.key === 'ArrowRight') targetX = Math.min((grid[0]?.length ?? 1) - 1, tile.x + 1);
+                  else if (event.key === 'ArrowRight') targetX = Math.min(width - 1, tile.x + 1);
                   else return;
 
                   event.preventDefault();
-                  const targetBtn = document.querySelector<HTMLButtonElement>(`button[data-coord="${targetX},${targetY}"]`);
-                  targetBtn?.focus();
-                  onTilePointerEnter(targetX, targetY);
+                  setCursorPos([targetX, targetY]);
+                  const nextTile = grid[targetY]?.[targetX];
+                  if (nextTile) {
+                    setInspectedTile(nextTile);
+                    onTilePointerEnter(targetX, targetY);
+                  }
                 }}
-                data-coord={`${tile.x},${tile.y}`}
-                onClick={() => {
-                  if (!isRoadTool) onTileClick(tile.x, tile.y);
-                }}
-              >
-                {/* Traffic Heat Dot */}
-                {hasHeavyTraffic && (
-                  <span className="absolute inset-0 m-auto h-2 w-2 rounded-full bg-rose-500 animate-ping opacity-75" />
-                )}
-
-                {/* Utility disconnection badges */}
-                {isUnpowered && (
-                  <span className="text-[9px] text-amber-300 font-extrabold leading-none drop-shadow">⚡</span>
-                )}
-                {!isUnpowered && isUnwatered && (
-                  <span className="text-[8px] text-blue-300 leading-none drop-shadow">💧</span>
-                )}
-              </button>
+              />
             );
-          })}
+          })()}
         </div>
       </div>
 

@@ -152,7 +152,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   top: 0;
   left: 0;
   right: 0;
-  z-index: 30;
+  z-index: 40;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -182,9 +182,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .next-action-card {
   position: fixed;
   top: 68px;
-  left: 16px;
+  left: 84px;
   z-index: 35;
-  width: min(340px, calc(100vw - 32px));
+  width: min(340px, calc(100vw - 100px));
   padding: 14px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-accent);
@@ -207,7 +207,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .next-action-chip {
   position: fixed;
   top: 68px;
-  left: 16px;
+  left: 84px;
   z-index: 35;
   display: inline-flex;
   align-items: center;
@@ -335,7 +335,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   position: fixed;
   right: 16px;
   top: 68px;
-  z-index: 30;
+  z-index: 20;
   display: flex;
   align-items: center;
   gap: 6px;

@@ -9,6 +9,9 @@ for (const item of report.reports) {
 if (!report.passed) {
   console.error('Benchmark integrity gate failed: non-finite state or non-deterministic replay.');
   process.exitCode = 1;
+} else if (report.reports.every((item) => item.budgetExceeded)) {
+  console.error('Benchmark performance gate failed: all official scenarios exceeded their configured performance budgets.');
+  process.exitCode = 1;
 } else if (report.reports.some((item) => item.budgetExceeded)) {
   console.warn('Benchmark performance advisory: one or more scenarios exceeded the target tick budget; scheduler fallback remains enabled.');
 }
