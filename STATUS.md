@@ -1,18 +1,18 @@
 # Skyline City — Autonomous Engineering & Performance Status
 
-> **Auto-generated**: 2026-09-06T09:26:41.655Z  
-> **Commit**: `310516e` (main)  
+> **Auto-generated**: 2026-09-06T09:28:22.784Z  
+> **Commit**: `cdc1d70` (main)  
 > **Smoke Day/Hash**: Day 2 · Hash `5be7d3c6` · ✅ PASS
 
 ## 1. Simulation Performance Gate (Target: Normal <= 50ms, 100K <= 120ms)
 
 | Scenario | Pop (Rep) | Entities | p50 | p95 | p99 | Budget | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **SMALL_TOWN** | 24 | 19 | 15.6ms | 21.5ms | 24.3ms | <= 50ms | ✅ PASSED |
-| **CONGESTED_CORRIDOR** | 640 | 4 | 10.8ms | 15.7ms | 24.9ms | <= 50ms | ✅ PASSED |
-| **INDUSTRIAL_CITY** | 160 | 49 | 12.9ms | 17.7ms | 20.4ms | <= 50ms | ✅ PASSED |
-| **FLOOD_RECOVERY** | 640 | 39 | 12.7ms | 15.4ms | 17.6ms | <= 50ms | ✅ PASSED |
-| **PERFORMANCE_100K** | 100,000 | 13 | 37.9ms | 46.6ms | 47.1ms | <= 120ms | ✅ PASSED |
+| **SMALL_TOWN** | 24 | 19 | 13.5ms | 23.3ms | 24.1ms | <= 50ms | ✅ PASSED |
+| **CONGESTED_CORRIDOR** | 640 | 4 | 10.4ms | 13.7ms | 23.6ms | <= 50ms | ✅ PASSED |
+| **INDUSTRIAL_CITY** | 160 | 49 | 12.5ms | 16.3ms | 19.5ms | <= 50ms | ✅ PASSED |
+| **FLOOD_RECOVERY** | 640 | 39 | 11.4ms | 14.9ms | 15.0ms | <= 50ms | ✅ PASSED |
+| **PERFORMANCE_100K** | 100,000 | 13 | 35.9ms | 46.3ms | 47.0ms | <= 120ms | ✅ PASSED |
 
 **Gate Result**: ✅ ALL BUDGETS & REGRESSION GATES PASSED
 
