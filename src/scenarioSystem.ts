@@ -19,6 +19,8 @@ export function evaluateScenario(state: CityState, scenario: ScenarioDefinition)
     'mixed-use': state.mixedUseBlocks ?? 0,
     jobs: state.filledJobs ?? state.workers,
     balance: Math.min(state.happiness, Math.max(0, 100 - state.unemploymentRate)),
+    affordability: Math.round(state.demographics?.householdStats?.averageSatisfaction ?? state.happiness ?? 65),
+    income: Math.round((state.income ?? 0) - (state.expenses ?? 0)),
   };
   const completed = scenario.objectives.every((objective) => {
     const value = objectiveValues[objective.id] ?? 0;

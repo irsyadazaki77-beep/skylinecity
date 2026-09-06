@@ -26,6 +26,9 @@ import { evaluateRoadJunction } from '../../trafficInsights';
 import type { RoadJunctionInsight } from '../../trafficInsights';
 import type { SupportedLanguage } from '../../localization';
 import { useModalFocus } from './useModalFocus';
+import { deriveBusinessProfile } from '../../businessIdentity';
+import { deriveHouseholdProfile } from '../../householdIdentity';
+import { getConstructionStage, getConstructionStageLabel } from '../../constructionPresentation';
 
 interface BuildingInspectorProps {
   tile: TileData | null;
@@ -170,6 +173,35 @@ export function BuildingInspector({ tile, language = 'id', onClose, onFocus, onD
   ].includes(tile.type);
   const serviceUpgradeOptions = isService ? getServiceUpgradesFor(tile.type) : [];
   const serviceStats = isService ? serviceUpgradeStats(tile.type, tile.serviceUpgrades) : null;
+  const business = deriveBusinessProfile(tile);
+  const constructionStage = getConstructionStage(tile);
+  const constructionLabel = getConstructionStageLabel(constructionStage, language === 'en' ? 'en' : 'id');
+  const isResidential = tile.type === TileType.RESIDENTIAL;
+  const estimatedSatisfaction = Math.round(
+    Math.min(100, Math.max(10, (tile.health ?? 70) * 0.3 + (tile.education ?? 70) * 0.3 + (100 - (tile.crime ?? 0)) * 0.2 + (100 - (tile.pollution ?? 0)) * 0.2))
+  );
+  const representativeHousehold = isResidential && tile.population > 0
+    ? deriveHouseholdProfile({
+        id: `hh-${tile.x}-${tile.y}`,
+        residence: { x: tile.x, y: tile.y },
+        citizenIds: Array.from({ length: Math.min(tile.population, 5) }, (_, i) => `cit-${tile.x}-${tile.y}-${i}`),
+        savings: Math.round((tile.landValue ?? 50) * 45 + (tile.level ?? 1) * 300),
+        rent: tile.rent ?? Math.round(15 + (tile.landValue ?? 50) * 0.4),
+        satisfaction: estimatedSatisfaction,
+        satisfactionFactors: {
+          rentAffordability: Math.round(tile.affordability ?? 65),
+          employment: 75,
+          commute: Math.max(10, 100 - (tile.traffic ?? 0) * 0.6),
+          crime: Math.max(10, 100 - (tile.crime ?? 0)),
+          pollution: Math.max(10, 100 - (tile.pollution ?? 0)),
+          schoolAccess: 70,
+          healthAccess: 75,
+          overall: estimatedSatisfaction,
+        },
+        relocationTimer: estimatedSatisfaction < 30 ? 3 : 0,
+        incomeClass: (tile.landValue ?? 50) > 70 ? 'HIGH' : (tile.landValue ?? 50) > 35 ? 'MIDDLE' : 'LOW',
+      })
+    : null;
 
   const baseCost = BUILD_COSTS[tile.type] || 0;
   const refundAmount = Math.round(baseCost * 0.5);
@@ -271,9 +303,16 @@ export function BuildingInspector({ tile, language = 'id', onClose, onFocus, onD
           <div className="text-[10px] uppercase tracking-wider text-[var(--accent-cyan)] font-semibold">
             Inspeksi Petak ({tile.x + 1}, {tile.y + 1})
           </div>
-          <h3 id="inspector-tile-title" className="text-base font-bold text-white mt-0.5 tracking-tight">
-            {tileTypeLabel(tile.type)}
-          </h3>
+          <div className="flex items-center gap-2 mt-0.5">
+            <h3 id="inspector-tile-title" className="text-base font-bold text-white tracking-tight">
+              {tileTypeLabel(tile.type)}
+            </h3>
+            {isZoned && (
+              <span className="rounded-full bg-cyan-500/20 px-2 py-0.5 text-[9px] font-mono font-medium text-cyan-300 border border-cyan-400/30">
+                {constructionLabel}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-1">
           {onFocus && (
@@ -472,6 +511,63 @@ export function BuildingInspector({ tile, language = 'id', onClose, onFocus, onD
             <span>Hunian {tile.mixedUseResidentialFloors ?? 0}L</span>
           </div>
         </div>
+      )}
+
+      {representativeHousehold && (
+        <section className="my-3 rounded-xl border border-sky-400/20 bg-sky-500/[0.07] p-3" aria-label="Profil keluarga penghuni">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <div className="text-[9px] uppercase tracking-wider text-sky-300 font-mono">Penghuni Terwakili</div>
+              <h3 className="text-sm font-semibold text-white">{representativeHousehold.familyName}</h3>
+            </div>
+            <span className={`rounded-md px-1.5 py-0.5 text-[9px] font-mono ${
+              representativeHousehold.statusColor === 'emerald' ? 'bg-emerald-400/10 text-emerald-200'
+              : representativeHousehold.statusColor === 'cyan' ? 'bg-cyan-400/10 text-cyan-200'
+              : representativeHousehold.statusColor === 'rose' ? 'bg-rose-400/10 text-rose-200'
+              : 'bg-amber-400/10 text-amber-200'
+            }`}>
+              {representativeHousehold.statusLabel}
+            </span>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-1.5 text-[10px]">
+            <div className="rounded-lg bg-black/20 p-2">
+              <span className="block text-slate-500">Anggota keluarga</span>
+              <span className="font-mono text-slate-100">{representativeHousehold.membersCount} jiwa ({representativeHousehold.adultsCount} dws, {representativeHousehold.childrenCount} anak)</span>
+            </div>
+            <div className="rounded-lg bg-black/20 p-2">
+              <span className="block text-slate-500">Sewa harian / tabungan</span>
+              <span className="font-mono text-slate-100">${representativeHousehold.dailyRent} / ${representativeHousehold.savings}</span>
+            </div>
+            <div className="rounded-lg bg-black/20 p-2">
+              <span className="block text-slate-500">Kelas pendapatan</span>
+              <span className="font-mono text-cyan-200">{representativeHousehold.incomeTier}</span>
+            </div>
+            <div className="rounded-lg bg-black/20 p-2">
+              <span className="block text-slate-500">Skor kepuasan</span>
+              <span className="font-mono text-emerald-200">{representativeHousehold.satisfactionScore}%</span>
+            </div>
+          </div>
+          <div className="mt-2 rounded-lg border border-white/10 bg-black/20 px-2 py-1.5 text-[10px] text-slate-300">
+            <span className="text-slate-500">Perhatian utama · </span>{representativeHousehold.primaryConcern}
+          </div>
+        </section>
+      )}
+
+      {business && (
+        <section className="my-3 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.07] p-3" aria-label="Identitas bisnis">
+          <div className="flex items-start justify-between gap-2">
+            <div><div className="text-[9px] uppercase tracking-wider text-emerald-300 font-mono">Bisnis Lokal</div><h3 className="text-sm font-semibold text-white">{business.name}</h3></div>
+            <span className={`rounded-md px-1.5 py-0.5 text-[9px] font-mono ${business.supplyStatus === 'STABLE' ? 'bg-emerald-400/10 text-emerald-200' : 'bg-amber-400/10 text-amber-200'}`}>{business.supplyStatus}</span>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-1.5 text-[10px]">
+            <div className="rounded-lg bg-black/20 p-2"><span className="block text-slate-500">Karyawan / kapasitas</span><span className="font-mono text-slate-100">{business.employees} / {business.jobCapacity}</span></div>
+            <div className="rounded-lg bg-black/20 p-2"><span className="block text-slate-500">Efisiensi</span><span className="font-mono text-emerald-200">{business.efficiency}%</span></div>
+            <div className="rounded-lg bg-black/20 p-2"><span className="block text-slate-500">Pendapatan / biaya</span><span className="font-mono text-slate-100">${business.revenue} / ${business.expenses}</span></div>
+            <div className="rounded-lg bg-black/20 p-2"><span className="block text-slate-500">Aktivitas pelanggan</span><span className="font-mono text-cyan-200">{business.customerActivity}%</span></div>
+          </div>
+          <div className="mt-2 rounded-lg border border-white/10 bg-black/20 px-2 py-1.5 text-[10px] text-slate-300"><span className="text-slate-500">Masalah utama · </span>{business.majorProblem}</div>
+          <div className="mt-1 text-[9px] text-slate-500">Sektor {business.sector} · Ketergantungan freight {business.freightDependency}%</div>
+        </section>
       )}
 
       {isTransit && (

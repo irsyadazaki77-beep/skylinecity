@@ -1,7 +1,7 @@
 import React, { useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { ActiveTool, CityIncident, ServiceVehicleAgent, TileData, TileType, OverlayMode, GameSettings, RoadClass } from '../../types';
+import { ActiveTool, CityIncident, ServiceVehicleAgent, TileData, TileType, OverlayMode, GameSettings, RoadClass, WeatherType } from '../../types';
 import { focusFrame, terrainHeight } from './visualModel';
 import { LandscapeContext } from './LandscapeContext';
 import { TerrainGrid } from './TerrainGrid';
@@ -21,6 +21,7 @@ import { gridToWorld } from './types3D';
 import { NetworkOverlays } from './NetworkOverlays';
 import { computeRoadRecommendations } from '../../tutorialPathfinder';
 import type { SimulationRenderRevisions } from '../../simulationContext';
+import { WeatherEffects } from './WeatherEffects';
 
 interface City3DCanvasProps {
   grid: TileData[][];
@@ -30,6 +31,8 @@ interface City3DCanvasProps {
   activeOverlay: OverlayMode;
   speed: number;
   timeOfDay?: number;
+  weather?: WeatherType;
+  precipitation?: number;
   activeTrips?: Trip[];
   transitLines?: import('../../types').TransitLine[];
   transitVehicles?: TransitVehicleAgent[];
@@ -128,6 +131,8 @@ export function City3DCanvas({
   activeOverlay,
   speed,
   timeOfDay = 6,
+  weather = 'CLEAR',
+  precipitation = 1,
   activeTrips,
   transitLines = [],
   transitVehicles,
@@ -349,6 +354,7 @@ export function City3DCanvas({
         onRotationChange={onCameraRotationChange}
       />
       <DayNightSky shadowSize={effectiveShadowMode === 'soft' ? 1024 : 512} timeOfDay={timeOfDay} dayNightCycle={settings?.dayNightCycle} />
+      <WeatherEffects weather={weather} precipitation={precipitation} qualityTier={qualityTier} reducedMotion={settings?.reducedMotion} />
       <LandscapeContext grid={grid} unlockedRegions={unlockedRegions} />
       <TerrainGrid
         selectedTile={selectedTile}

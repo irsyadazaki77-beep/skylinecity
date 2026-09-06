@@ -43,6 +43,27 @@ html, body { overflow-x: hidden; max-width: 100vw; }
   --touch-min: 44px;
 }
 
+@media (max-width: 640px) {
+  .city-pulse {
+    left: 8.7rem;
+    right: 0.75rem;
+    top: 9rem;
+    width: auto;
+    max-height: calc(100dvh - 17rem);
+    padding: 0.65rem;
+  }
+
+  .city-alert-stack {
+    top: 8.5rem;
+    right: 0.75rem;
+    max-width: min(15rem, calc(100vw - 10rem));
+  }
+
+  .city-alert-stack > div {
+    padding: 0.55rem;
+  }
+}
+
 * { box-sizing: border-box; }
 
 html, body, #root {

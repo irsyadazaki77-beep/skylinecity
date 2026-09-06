@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { TileData, TileType } from '../../types';
 import { buildingVariant, buildingScale } from './visualModel';
 import { gridToWorld } from './types3D';
+import { getConstructionStage } from '../../constructionPresentation';
 
 // Kept as an explicit opt-in compatibility switch while the modern kits are
 // the only active renderer. It avoids accidental reactivation of the legacy
@@ -774,6 +775,7 @@ export function BuildingMesh({ tile, nightFactor, gridWidth, gridHeight, footpri
   const [wx, , wz] = gridToWorld(footprint?.centerX ?? tile.x, footprint?.centerY ?? tile.y, gridWidth, gridHeight);
   const wy = (tile.elevation || 0) * 0.15;
   const { type, level = 1, abandoned, powered, watered } = tile;
+  const constructionStage = getConstructionStage(tile);
 
   // Update shared global emissive intensities to avoid per-instance React state re-renders
   if (nightFactor !== lastNightFactor) {
@@ -1420,6 +1422,43 @@ export function BuildingMesh({ tile, nightFactor, gridWidth, gridHeight, footpri
           scale={[1, type === TileType.OFFICE ? 0.32 + safeLevel * 0.23 : 0.34 + safeLevel * 0.25, 1]}
           visible={false}
         />
+      )}
+
+      {/* Construction and upgrade language is derived from persisted parcel
+          state, so it remains stable across save/load and replay. */}
+      {['PREPARATION', 'FOUNDATION', 'STRUCTURE', 'FACADE'].includes(constructionStage) && (
+        <group name={`Construction-${constructionStage}`}>
+          <mesh material={sharedMats.resPaving} position={[0, 0.035, 0]} receiveShadow>
+            <boxGeometry args={[0.92, 0.055, 0.92]} />
+          </mesh>
+          {constructionStage !== 'PREPARATION' && (
+            <mesh material={sharedMats.resConcrete} position={[0, 0.09, 0]} castShadow>
+              <boxGeometry args={[0.76, 0.12, 0.72]} />
+            </mesh>
+          )}
+          {(constructionStage === 'STRUCTURE' || constructionStage === 'FACADE') && (
+            <group>
+              {[-0.34, 0.34].flatMap((x) => [-0.31, 0.31].map((z) => (
+                <mesh key={`${x}-${z}`} material={sharedMats.resDarkMetal} position={[x, 0.55 + safeLevel * 0.12, z]} castShadow>
+                  <boxGeometry args={[0.035, 0.95 + safeLevel * 0.22, 0.035]} />
+                </mesh>
+              )))}
+              {[0.28, 0.62, 0.96].map((height) => (
+                <mesh key={height} material={sharedMats.indSafety} position={[0, height, 0]}>
+                  <boxGeometry args={[0.82, 0.025, 0.78]} />
+                </mesh>
+              ))}
+            </group>
+          )}
+          {constructionStage === 'FACADE' && (
+            <mesh material={type === TileType.INDUSTRIAL ? sharedMats.indFacadeTeal : sharedMats.resConcrete} position={[0, 0.55, 0]} castShadow>
+              <boxGeometry args={[0.7, 0.88, 0.66]} />
+            </mesh>
+          )}
+          <mesh material={sharedMats.indSafety} position={[0.38, 0.42, -0.35]} rotation={[0, 0, -0.12]}>
+            <boxGeometry args={[0.035, 0.76, 0.035]} />
+          </mesh>
+        </group>
       )}
 
       {/* ---------------- UNPOWERED / UNWATERED / ABANDONED WARNING BADGE ---------------- */}

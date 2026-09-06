@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getSoundChannelVolume, playUiSound, UiSound } from './audio';
+import { deriveAdaptiveMusicState, disposeAudio, getSoundChannelVolume, playUiSound, UiSound } from './audio';
+import { createEmptyGrid } from './engine';
 
 describe('procedural Web Audio sound system', () => {
   const sounds: UiSound[] = [
@@ -15,6 +16,9 @@ describe('procedural Web Audio sound system', () => {
     'vehicle',
     'siren',
     'ambience',
+    'milestone',
+    'upgrade',
+    'disaster',
   ];
 
   it('keeps music/ambience volume independent from UI volume', () => {
@@ -28,6 +32,29 @@ describe('procedural Web Audio sound system', () => {
       expect(() => playUiSound({ volume: 0 }, sound)).not.toThrow();
       expect(() => playUiSound({ volume: -10 }, sound)).not.toThrow();
     }
+  });
+
+  it('derives adaptive music state responsively from city conditions', () => {
+    const baseState: any = {
+      grid: createEmptyGrid(10, 10),
+      population: 50,
+      happiness: 65,
+      demand: { residential: 20, commercial: 5, industrial: 0 },
+    };
+    expect(deriveAdaptiveMusicState(baseState)).toBe('GROWTH');
+
+    const crisisState = { ...baseState, happiness: 22 };
+    expect(deriveAdaptiveMusicState(crisisState)).toBe('CRISIS');
+
+    const disasterState = { ...baseState, activeDisaster: 'FLOOD' };
+    expect(deriveAdaptiveMusicState(disasterState)).toBe('DISASTER');
+
+    const metropolisState = { ...baseState, population: 65000 };
+    expect(deriveAdaptiveMusicState(metropolisState)).toBe('METROPOLIS');
+  });
+
+  it('disposes audio resources safely', () => {
+    expect(() => disposeAudio()).not.toThrow();
   });
 
   it('handles all sound profiles when AudioContext is supported', () => {

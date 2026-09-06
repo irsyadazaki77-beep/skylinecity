@@ -39,6 +39,13 @@ const VEHICLE_COLORS = [
   new THREE.Color('#475569'), // slate
 ];
 
+function smoothHeading(currentAngle: number, nextAngle: number, t: number): number {
+  let diff = (nextAngle - currentAngle) % (Math.PI * 2);
+  if (diff > Math.PI) diff -= Math.PI * 2;
+  if (diff < -Math.PI) diff += Math.PI * 2;
+  return currentAngle + diff * t;
+}
+
 export function TrafficVehicles({
   grid,
   trips = [],
@@ -57,6 +64,7 @@ export function TrafficVehicles({
   const lineTransitMeshRef = useRef<THREE.InstancedMesh>(null);
   const freightMeshRef = useRef<THREE.InstancedMesh>(null);
   const serviceMeshRef = useRef<THREE.InstancedMesh>(null);
+  const pedestrianMeshRef = useRef<THREE.InstancedMesh>(null);
   const headlightMeshRef = useRef<THREE.InstancedMesh>(null);
   const progressById = useRef(new Map<string, number>());
   const stableProgress = (id: string, initial: number) => progressById.current.get(id) ?? initial;
@@ -73,6 +81,10 @@ export function TrafficVehicles({
   const transitTrips = useMemo(() => {
     const renderLimit = trafficDensity === 'low' ? 12 : trafficDensity === 'high' ? 48 : 24;
     return trips.filter((t) => t.mode === TransitMode.TRANSIT && t.path.length >= 2).slice(0, renderLimit);
+  }, [trafficDensity, trips]);
+  const pedestrianTrips = useMemo(() => {
+    const renderLimit = trafficDensity === 'low' ? 24 : trafficDensity === 'high' ? 120 : 64;
+    return trips.filter((trip) => (trip.mode === TransitMode.WALK || trip.mode === TransitMode.BIKE) && trip.path.length >= 2).slice(0, renderLimit);
   }, [trafficDensity, trips]);
   const visibleFreightTrips = useMemo(() => {
     const renderLimit = trafficDensity === 'low' ? 8 : trafficDensity === 'high' ? 32 : 16;
@@ -117,6 +129,13 @@ export function TrafficVehicles({
       color: new THREE.Color(idx % 2 === 0 ? '#fb923c' : '#f59e0b'),
     } as VehicleActor));
   }, [visibleFreightTrips]);
+  const pedestrians = useMemo(() => pedestrianTrips.map((trip, index) => ({
+    id: trip.id,
+    path: trip.path,
+    progress: stableProgress(trip.id, (index * 0.137) % 1),
+    speed: trip.mode === TransitMode.BIKE ? 0.085 : 0.045 + (index % 4) * 0.004,
+    color: new THREE.Color(['#fbbf24', '#fb7185', '#67e8f9', '#a7f3d0', '#f8fafc'][index % 5]),
+  } as VehicleActor)), [pedestrianTrips]);
   const serviceIncidents = useMemo(() => incidents
     .filter((incident) => (incident.dispatchPath?.length ?? 0) >= 2)
     .slice(0, 24), [incidents]);
@@ -166,11 +185,12 @@ export function TrafficVehicles({
       ...transitVehicles.map((vehicle) => vehicle.id),
       ...lineVehicles.map((vehicle) => vehicle.id),
       ...freightVehicles.map((vehicle) => vehicle.id),
+      ...pedestrians.map((pedestrian) => pedestrian.id),
     ]);
     for (const id of progressById.current.keys()) {
       if (!activeIds.has(id)) progressById.current.delete(id);
     }
-  }, [freightVehicles, lineVehicles, transitVehicles, vehicles]);
+  }, [freightVehicles, lineVehicles, pedestrians, transitVehicles, vehicles]);
 
   const carGeometry = useMemo(() => new THREE.BoxGeometry(0.24, 0.12, 0.44), []);
   const carMaterial = useMemo(() => new THREE.MeshStandardMaterial({
@@ -198,6 +218,8 @@ export function TrafficVehicles({
     emissive: '#450a0a',
     emissiveIntensity: 0.3,
   }), []);
+  const pedestrianGeometry = useMemo(() => new THREE.CapsuleGeometry(0.035, 0.1, 3, 5), []);
+  const pedestrianMaterial = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0 }), []);
 
   const headlightGeometry = useMemo(() => new THREE.SphereGeometry(0.03, 6, 6), []);
   const headlightMaterial = useMemo(() => new THREE.MeshBasicMaterial({
@@ -233,16 +255,26 @@ export function TrafficVehicles({
       const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
       const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
 
-      // Slight lane offset
+      // Calculate smoothed angle across turning transitions
       const dx = w1x - w0x;
       const dz = w1z - w0z;
-      const angle = Math.atan2(dx, dz);
+      const baseAngle = Math.atan2(dx, dz);
+      let headingAngle = baseAngle;
+      if (segIndex < totalSegments - 1) {
+        const pNext = path[segIndex + 2];
+        if (pNext) {
+          const [w2x, , w2z] = gridToWorld(pNext[0], pNext[1], gridWidth, gridHeight);
+          const nextAngle = Math.atan2(w2x - w1x, w2z - w1z);
+          const turnT = THREE.MathUtils.smoothstep(segT, 0.62, 1.0);
+          headingAngle = smoothHeading(baseAngle, nextAngle, turnT);
+        }
+      }
 
-      const sideX = Math.cos(angle) * 0.12;
-      const sideZ = -Math.sin(angle) * 0.12;
+      const sideX = Math.cos(headingAngle) * 0.13;
+      const sideZ = -Math.sin(headingAngle) * 0.13;
 
       dummy.position.set(curX + sideX, curY + 0.08, curZ + sideZ);
-      dummy.rotation.set(0, angle, 0);
+      dummy.rotation.set(0, headingAngle, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
 
@@ -274,10 +306,16 @@ export function TrafficVehicles({
       const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
       const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
       const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
-      const angle = Math.atan2(w1x - w0x, w1z - w0z);
+      const baseAngle = Math.atan2(w1x - w0x, w1z - w0z);
+      let headingAngle = baseAngle;
+      if (segIndex < totalSegments - 1 && path[segIndex + 2]) {
+        const [w2x, , w2z] = gridToWorld(path[segIndex + 2][0], path[segIndex + 2][1], gridWidth, gridHeight);
+        const nextAngle = Math.atan2(w2x - w1x, w2z - w1z);
+        headingAngle = smoothHeading(baseAngle, nextAngle, THREE.MathUtils.smoothstep(segT, 0.62, 1.0));
+      }
 
       dummy.position.set(curX, curY + 0.13, curZ);
-      dummy.rotation.set(0, angle, 0);
+      dummy.rotation.set(0, headingAngle, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
       transitMeshRef.current.setMatrixAt(i, dummy.matrix);
@@ -299,9 +337,15 @@ export function TrafficVehicles({
       const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
       const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
       const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
-      const angle = Math.atan2(w1x - w0x, w1z - w0z);
+      const baseAngle = Math.atan2(w1x - w0x, w1z - w0z);
+      let headingAngle = baseAngle;
+      if (segIndex < totalSegments - 1 && v.path[segIndex + 2]) {
+        const [w2x, , w2z] = gridToWorld(v.path[segIndex + 2][0], v.path[segIndex + 2][1], gridWidth, gridHeight);
+        const nextAngle = Math.atan2(w2x - w1x, w2z - w1z);
+        headingAngle = smoothHeading(baseAngle, nextAngle, THREE.MathUtils.smoothstep(segT, 0.62, 1.0));
+      }
       dummy.position.set(curX, curY + 0.14, curZ);
-      dummy.rotation.set(0, angle, 0);
+      dummy.rotation.set(0, headingAngle, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
       lineTransitMeshRef.current.setMatrixAt(i, dummy.matrix);
@@ -324,9 +368,15 @@ export function TrafficVehicles({
       const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
       const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
       const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
-      const angle = Math.atan2(w1x - w0x, w1z - w0z);
+      const baseAngle = Math.atan2(w1x - w0x, w1z - w0z);
+      let headingAngle = baseAngle;
+      if (segIndex < totalSegments - 1 && v.path[segIndex + 2]) {
+        const [w2x, , w2z] = gridToWorld(v.path[segIndex + 2][0], v.path[segIndex + 2][1], gridWidth, gridHeight);
+        const nextAngle = Math.atan2(w2x - w1x, w2z - w1z);
+        headingAngle = smoothHeading(baseAngle, nextAngle, THREE.MathUtils.smoothstep(segT, 0.62, 1.0));
+      }
       dummy.position.set(curX, curY + 0.16, curZ);
-      dummy.rotation.set(0, angle, 0);
+      dummy.rotation.set(0, headingAngle, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
       freightMeshRef.current.setMatrixAt(i, dummy.matrix);
@@ -348,13 +398,51 @@ export function TrafficVehicles({
       const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
       const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
       const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
-      const angle = Math.atan2(w1x - w0x, w1z - w0z);
+      const baseAngle = Math.atan2(w1x - w0x, w1z - w0z);
+      let headingAngle = baseAngle;
+      if (segIndex < totalSegments - 1 && v.path[segIndex + 2]) {
+        const [w2x, , w2z] = gridToWorld(v.path[segIndex + 2][0], v.path[segIndex + 2][1], gridWidth, gridHeight);
+        const nextAngle = Math.atan2(w2x - w1x, w2z - w1z);
+        headingAngle = smoothHeading(baseAngle, nextAngle, THREE.MathUtils.smoothstep(segT, 0.62, 1.0));
+      }
       dummy.position.set(curX, curY + 0.2, curZ);
-      dummy.rotation.set(0, angle, 0);
+      dummy.rotation.set(0, headingAngle, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
       serviceMeshRef.current.setMatrixAt(i, dummy.matrix);
-      serviceMeshRef.current.setColorAt(i, v.color);
+      // Emergency vehicle alternating siren lights
+      const sirenColor = Math.sin((v.progress * 48) + i) > 0
+        ? (i % 2 === 0 ? new THREE.Color('#38bdf8') : new THREE.Color('#ef4444'))
+        : (i % 2 === 0 ? new THREE.Color('#f8fafc') : new THREE.Color('#3b82f6'));
+      serviceMeshRef.current.setColorAt(i, sirenColor);
+    }
+
+    if (pedestrianMeshRef.current) for (let i = 0; i < pedestrians.length; i++) {
+      const actor = pedestrians[i];
+      advanceProgress(actor, dt);
+      const totalSegments = actor.path.length - 1;
+      const exactIndex = actor.progress * totalSegments;
+      const segIndex = Math.min(Math.floor(exactIndex), totalSegments - 1);
+      // Ease at every junction: pedestrians visibly slow before crossing and
+      // accelerate again after clearing it, without changing simulation state.
+      const rawT = exactIndex - segIndex;
+      const segT = rawT * rawT * (3 - 2 * rawT);
+      const p0 = actor.path[segIndex];
+      const p1 = actor.path[segIndex + 1];
+      if (!p0 || !p1) continue;
+      const [w0x, , w0z] = gridToWorld(p0[0], p0[1], gridWidth, gridHeight);
+      const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
+      const angle = Math.atan2(w1x - w0x, w1z - w0z);
+      const sidewalkSide = i % 2 === 0 ? 0.31 : -0.31;
+      const curX = THREE.MathUtils.lerp(w0x, w1x, segT) + Math.cos(angle) * sidewalkSide;
+      const curZ = THREE.MathUtils.lerp(w0z, w1z, segT) - Math.sin(angle) * sidewalkSide;
+      const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
+      dummy.position.set(curX, curY + 0.11 + Math.sin((actor.progress * 80) + i) * 0.012, curZ);
+      dummy.rotation.set(0, angle, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      pedestrianMeshRef.current.setMatrixAt(i, dummy.matrix);
+      pedestrianMeshRef.current.setColorAt(i, actor.color);
     }
 
     if (meshRef.current) {
@@ -377,13 +465,17 @@ export function TrafficVehicles({
       serviceMeshRef.current.instanceMatrix.needsUpdate = true;
       if (serviceMeshRef.current.instanceColor) serviceMeshRef.current.instanceColor.needsUpdate = true;
     }
+    if (pedestrianMeshRef.current) {
+      pedestrianMeshRef.current.instanceMatrix.needsUpdate = true;
+      if (pedestrianMeshRef.current.instanceColor) pedestrianMeshRef.current.instanceColor.needsUpdate = true;
+    }
 
     if (headlightMeshRef.current) {
       headlightMeshRef.current.instanceMatrix.needsUpdate = true;
     }
   });
 
-  if (vehicles.length === 0 && transitVehicles.length === 0 && lineVehicles.length === 0 && freightVehicles.length === 0 && serviceVehicles.length === 0) return null;
+  if (vehicles.length === 0 && transitVehicles.length === 0 && lineVehicles.length === 0 && freightVehicles.length === 0 && serviceVehicles.length === 0 && pedestrians.length === 0) return null;
 
   return (
     <group name="TrafficVehicles">
@@ -421,6 +513,9 @@ export function TrafficVehicles({
           args={[serviceGeometry, serviceMaterial, serviceVehicles.length]}
           castShadow
         />
+      )}
+      {pedestrians.length > 0 && (
+        <instancedMesh ref={pedestrianMeshRef} args={[pedestrianGeometry, pedestrianMaterial, pedestrians.length]} castShadow />
       )}
       {nightFactor > 0.3 && vehicles.length > 0 && (
         <instancedMesh

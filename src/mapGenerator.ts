@@ -54,7 +54,14 @@ class SeededNoise {
   }
 }
 
-export type MapPreset = 'river_valley' | 'coastal_plains' | 'highland' | 'flatlands';
+export type MapPreset =
+  | 'river_valley'
+  | 'coastal_plains'
+  | 'highland'
+  | 'flatlands'
+  | 'island_region'
+  | 'floodplain'
+  | 'industrial_basin';
 
 export interface GeneratorParams {
   seed: number;
@@ -122,6 +129,38 @@ export function generateWorld(params: GeneratorParams): TileData[][] {
         if (distFromCenter < 0.15 + waterAmount * 0.1) {
           isWater = true;
           elevation = 1;
+        }
+      } else if (preset === 'island_region') {
+        // Tropical archipelago surrounded by ocean
+        const distFromCenter = Math.sqrt(Math.pow(nx - 0.5, 2) + Math.pow(ny - 0.5, 2));
+        const islandNoise = n.fbm(x * 0.08, y * 0.08, 4) * 0.45;
+        const isLand = (1 - distFromCenter * 1.5 + islandNoise) > (0.35 + waterAmount * 0.18);
+        if (!isLand) {
+          isWater = true;
+          elevation = 0;
+        } else {
+          elevation = Math.max(1, Math.round(1 + (1 - distFromCenter) * 3 + islandNoise * 3));
+        }
+      } else if (preset === 'floodplain') {
+        // Low flat delta with bifurcated river branches
+        const noiseVal = n.fbm(x * 0.03, y * 0.03, 2) * roughness;
+        elevation = Math.max(0, Math.min(1, Math.round(noiseVal)));
+        const r1 = 0.35 + Math.sin(y * 0.12) * 0.08;
+        const r2 = 0.68 + Math.cos(y * 0.14) * 0.09;
+        const w = 0.035 + waterAmount * 0.03;
+        if (Math.abs(nx - r1) < w || Math.abs(nx - r2) < w) {
+          isWater = true;
+          elevation = 0;
+        }
+      } else if (preset === 'industrial_basin') {
+        // Flat interior basin encircled by mineral ridges
+        const distFromCenter = Math.sqrt(Math.pow(nx - 0.5, 2) + Math.pow(ny - 0.5, 2));
+        const rim = Math.max(0, distFromCenter - 0.22) * 12;
+        const noiseVal = n.fbm(x * 0.07, y * 0.07, 3) * roughness * 5;
+        elevation = Math.round(rim + noiseVal);
+        if (distFromCenter < 0.08 + waterAmount * 0.05) {
+          isWater = true;
+          elevation = 0;
         }
       } else {
         // Flatlands - very smooth, minor water body

@@ -94,11 +94,11 @@ export function NotificationToast({ gameState, language = 'id' }: NotificationTo
   if (alerts.length === 0) return null;
 
   return (
-    <div className="absolute top-20 right-6 z-30 flex flex-col gap-2 max-w-sm pointer-events-none">
+    <div className="city-alert-stack absolute top-20 right-6 z-30 flex flex-col gap-2 max-w-sm pointer-events-none" aria-live="polite">
       {alerts.map((alert) => (
         <div
           key={alert.id}
-          className={`pointer-events-auto p-3 rounded-xl border shadow-xl flex items-start gap-3 backdrop-blur transition-all duration-300 ${
+          className={`p-3 rounded-xl border shadow-xl flex items-start gap-3 backdrop-blur transition-all duration-300 ${
             alert.type === 'error'
               ? 'bg-red-950/80 border-red-500/40 text-red-200'
               : 'bg-amber-950/80 border-amber-500/40 text-amber-200'

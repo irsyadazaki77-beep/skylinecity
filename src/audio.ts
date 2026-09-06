@@ -1,21 +1,30 @@
-import { GameSettings } from './types';
+import { CityState, GameSettings } from './types';
+
+export type AudioCategory = 'MASTER' | 'MUSIC' | 'AMBIENT' | 'TRAFFIC' | 'WEATHER' | 'UI' | 'SERVICES';
 
 export type UiSound =
   | 'build'
+  | 'construction'
   | 'demolish'
   | 'success'
   | 'alert'
-  | 'click'
   | 'warning'
+  | 'error'
+  | 'click'
   | 'rain'
   | 'vehicle'
   | 'siren'
   | 'ambience'
-  | 'construction'
-  | 'error';
+  | 'milestone'
+  | 'upgrade'
+  | 'disaster';
+
+export type AdaptiveMusicState = 'CALM' | 'GROWTH' | 'BUSY_CITY' | 'CRISIS' | 'DISASTER' | 'METROPOLIS';
 
 let audioContext: AudioContext | null = null;
 let ambienceTimer: number | null = null;
+let currentMusicState: AdaptiveMusicState = 'CALM';
+let activeOscillators: { osc: OscillatorNode; gain: GainNode }[] = [];
 
 export function getSoundChannelVolume(
   settings: Pick<GameSettings, 'volume'> & Partial<Pick<GameSettings, 'musicVolume'>>,
@@ -59,6 +68,9 @@ export function playUiSound(
     vehicle: { frequency: 120, duration: 0.15, type: 'triangle', bend: 1.2 },
     siren: { frequency: 650, duration: 0.22, type: 'sine', bend: 1.35 },
     ambience: { frequency: 220, duration: 1.2, type: 'sine', bend: 1.02 },
+    milestone: { frequency: 587.33, duration: 0.45, type: 'triangle', bend: 1.5 },
+    upgrade: { frequency: 440, duration: 0.18, type: 'sine', bend: 1.33 },
+    disaster: { frequency: 110, duration: 0.6, type: 'sawtooth', bend: 0.8 },
   };
 
   const profile = profiles[sound];
@@ -87,58 +99,128 @@ export function playUiSound(
 }
 
 /**
+ * Derives the active musical mood state from live simulation metrics.
+ */
+export function deriveAdaptiveMusicState(state: CityState): AdaptiveMusicState {
+  if (
+    (state.activeDisasters ?? 0) > 0 ||
+    Boolean((state as unknown as { activeDisaster?: unknown }).activeDisaster) ||
+    (state.disasterHappinessPenalty ?? 0) > 20
+  ) {
+    return 'DISASTER';
+  }
+  if ((state.causalDiagnostics?.some((d) => d.severity === 'CRITICAL')) || (state.happiness ?? 50) < 30) return 'CRISIS';
+  if (state.population >= 50000) return 'METROPOLIS';
+  if (state.population >= 5000 || (state.congestionIndex ?? 0) > 35) return 'BUSY_CITY';
+  const legacyDemand = (state as unknown as { demand?: { residential?: number; commercial?: number } }).demand;
+  const resDemand = state.residentialDemand ?? legacyDemand?.residential ?? 0;
+  const comDemand = state.commercialDemand ?? legacyDemand?.commercial ?? 0;
+  if (resDemand > 15 || comDemand > 15) return 'GROWTH';
+  return 'CALM';
+}
+
+/**
  * Procedural ambient city soundscape.
- * Periodically generates soothing harmonic tones when musicVolume > 0.
+ * Generates smooth multi-voice harmonic chord pads based on city state.
  */
 export function updateProceduralAmbience(
   settings: Pick<GameSettings, 'volume'> & Partial<Pick<GameSettings, 'musicVolume'>>,
+  musicState: AdaptiveMusicState = currentMusicState,
 ): void {
+  currentMusicState = musicState;
   const musicVol = Math.max(0, Math.min(100, settings.musicVolume ?? 0));
   if (typeof window === 'undefined') return;
 
   if (musicVol <= 0) {
     if (ambienceTimer !== null) {
-      window.clearInterval(ambienceTimer);
+      clearInterval(ambienceTimer);
       ambienceTimer = null;
     }
+    // Fade out active voices
+    activeOscillators.forEach(({ osc, gain }) => {
+      try {
+        gain.gain.setValueAtTime(gain.gain.value, 0);
+        osc.stop();
+      } catch {}
+    });
+    activeOscillators = [];
     return;
   }
 
-  const context = getAudioContext();
-  if (!context) return;
+  if (ambienceTimer !== null) return;
 
-  if (ambienceTimer === null) {
-    const chordProgressions = [
-      [220, 277.18, 329.63], // A major
-      [196, 246.94, 293.66], // G major
-      [174.61, 220, 261.63], // F major
-      [164.81, 207.65, 246.94], // E minor
-    ];
-    let step = 0;
+  // Harmonious chord progressions per music state
+  const chordSets: Record<AdaptiveMusicState, number[][]> = {
+    CALM: [
+      [261.63, 329.63, 392.00], // C4, E4, G4
+      [220.00, 261.63, 329.63], // A3, C4, E4
+      [349.23, 440.00, 523.25], // F4, A4, C5
+    ],
+    GROWTH: [
+      [261.63, 329.63, 392.00, 493.88], // Cmaj7
+      [293.66, 369.99, 440.00, 523.25], // Ddom7
+      [349.23, 440.00, 523.25, 659.25], // Fmaj7
+    ],
+    BUSY_CITY: [
+      [293.66, 369.99, 440.00], // D, F#, A
+      [329.63, 392.00, 493.88], // E, G, B
+      [392.00, 493.88, 587.33], // G, B, D
+    ],
+    CRISIS: [
+      [220.00, 261.63, 311.13], // A dim
+      [207.65, 246.94, 293.66], // G# dim
+    ],
+    DISASTER: [
+      [110.00, 155.56, 196.00], // A2 low tension
+      [98.00, 138.59, 174.61],  // G2 low tension
+    ],
+    METROPOLIS: [
+      [261.63, 392.00, 523.25, 659.25], // C4, G4, C5, E5
+      [220.00, 329.63, 440.00, 587.33], // A3, E4, A4, D5
+      [349.23, 440.00, 523.25, 698.46], // F4, A4, C5, F5
+    ],
+  };
 
-    const playAmbientChord = () => {
-      if (context.state === 'suspended') return;
-      const notes = chordProgressions[step % chordProgressions.length];
-      step += 1;
-      const now = context.currentTime;
-      const chordGain = Math.min(0.018, 0.018 * (musicVol / 100));
+  let step = 0;
+  ambienceTimer = window.setInterval(() => {
+    const context = getAudioContext();
+    if (!context || context.state !== 'running') return;
 
-      notes.forEach((freq, idx) => {
+    const chords = chordSets[currentMusicState] || chordSets.CALM;
+    const chord = chords[step % chords.length];
+    step++;
+
+    const now = context.currentTime;
+    const voiceGain = (musicVol / 100) * 0.015;
+
+    chord.forEach((freq) => {
+      try {
         const osc = context.createOscillator();
         const gain = context.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, now + idx * 0.15);
-        gain.gain.setValueAtTime(0.0001, now + idx * 0.15);
-        gain.gain.exponentialRampToValueAtTime(chordGain, now + idx * 0.15 + 0.8);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.15 + 4.5);
+        osc.type = currentMusicState === 'DISASTER' ? 'sawtooth' : currentMusicState === 'CRISIS' ? 'triangle' : 'sine';
+        osc.frequency.setValueAtTime(freq, now);
+
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.linearRampToValueAtTime(voiceGain, now + 1.2);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 4.8);
+
         osc.connect(gain);
         gain.connect(context.destination);
-        osc.start(now + idx * 0.15);
-        osc.stop(now + idx * 0.15 + 4.6);
-      });
-    };
+        osc.start(now);
+        osc.stop(now + 4.9);
+      } catch {}
+    });
+  }, 4800);
+}
 
-    ambienceTimer = window.setInterval(playAmbientChord, 5000);
-    playAmbientChord();
+/** Cleanly releases audio resources on shutdown or unmount. */
+export function disposeAudio(): void {
+  if (ambienceTimer !== null) {
+    clearInterval(ambienceTimer);
+    ambienceTimer = null;
+  }
+  if (audioContext && audioContext.state !== 'closed') {
+    void audioContext.close();
+    audioContext = null;
   }
 }

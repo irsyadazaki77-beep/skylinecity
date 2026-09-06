@@ -548,6 +548,10 @@ export default function App() {
       let validCount = 0;
       let blockedCount = 0;
       let firstBlockedReason = '';
+      let prevElevation: number | null = null;
+      let hasBridgeSection = false;
+      let hasIntersection = false;
+
       for (const [tx, ty] of tiles) {
         const t = gameState.grid[ty]?.[tx];
         const unlocked = isTileInUnlockedRegion(tx, ty, gameState.unlockedRegions);
@@ -560,7 +564,18 @@ export default function App() {
           validCount += 1;
         }
         if (!unlocked || !t) continue;
+
+        // Check slope gradient between consecutive tiles along the drag
+        if (prevElevation !== null && Math.abs((t.elevation || 0) - prevElevation) > 2) {
+          valid = false;
+          blockedCount += 1;
+          validCount = Math.max(0, validCount - 1);
+          if (!firstBlockedReason) firstBlockedReason = 'Kemiringan tanah terlalu curam untuk jalan';
+        }
+        prevElevation = t.elevation || 0;
+
         if (t.water) {
+          hasBridgeSection = true;
           if (!canBuildBridge) continue;
           if (t.type === TileType.ROAD && t.roadStructure === 'BRIDGE') {
             const currentClass = getRoadClass(t);
@@ -584,6 +599,7 @@ export default function App() {
         if (t.type === TileType.EMPTY) {
           cost += activeTool === 'TUNNEL_ROAD' ? TUNNEL_BUILD_COST : ROAD_BUILD_COSTS[activeRoadClass];
         } else if (t.type === TileType.ROAD) {
+          hasIntersection = true;
           const currentClass = getRoadClass(t);
           if (roadClassRank(activeRoadClass) < roadClassRank(currentClass)) {
             valid = false;
@@ -606,13 +622,18 @@ export default function App() {
         if (!firstBlockedReason) firstBlockedReason = 'Dana kota tidak mencukupi';
       }
 
+      let successReason = 'Semua petak valid · siap dibangun';
+      if (hasBridgeSection) successReason = 'Jalur jembatan Highway melintasi perairan';
+      else if (hasIntersection) successReason = 'Tersambung ke simpang jalan';
+      else if (activeTool === 'TUNNEL_ROAD') successReason = 'Terowongan bawah tanah';
+
       return {
         previewTiles: tiles,
         previewColor: valid ? 'green' : 'red',
         totalPlacementCost: cost,
         previewValidCount: validCount,
         previewBlockedCount: blockedCount,
-        previewReason: valid ? 'Semua petak valid · ujung jalur tersambung' : firstBlockedReason,
+        previewReason: valid ? successReason : firstBlockedReason,
       };
     }
 

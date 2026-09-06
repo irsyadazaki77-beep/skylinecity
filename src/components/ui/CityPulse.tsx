@@ -1,5 +1,5 @@
-import React from 'react';
-import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, BookOpen, Crosshair, Info, Siren } from 'lucide-react';
+import React, { useState } from 'react';
+import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, BookOpen, ChevronDown, ChevronUp, Crosshair, Info, Siren } from 'lucide-react';
 import { CausalDiagnostic } from '../../types';
 import type { CitizenStory } from '../../citizenStories';
 import { createLocalizationCatalog, SupportedLanguage, translate } from '../../localization';
@@ -144,6 +144,7 @@ export function CityPulse({ day, diagnostics, citizenStory, delta, onOpenInfo, o
   const visibleDiagnostics = diagnostics.slice(0, 5);
   const criticalCount = diagnostics.filter((diagnostic) => diagnostic.severity === 'CRITICAL').length;
   const hasDelta = day > 1 && [delta.population, delta.money, delta.income, delta.expenses, delta.happiness, delta.congestion, delta.commute].some((value) => Math.abs(value) > 0.001);
+  const [expanded, setExpanded] = useState(() => typeof window === 'undefined' || !window.matchMedia('(max-width: 640px)').matches);
 
   return (
     <section className="city-pulse fixed left-[9.5rem] top-20 z-30 w-[min(26rem,calc(100vw-11rem))] rounded-2xl border border-white/15 bg-[#0f172a]/94 p-3 text-white shadow-2xl backdrop-blur-xl" aria-label={translate(catalog, 'pulse.title')} aria-live="polite">
@@ -157,10 +158,15 @@ export function CityPulse({ day, diagnostics, citizenStory, delta, onOpenInfo, o
             <div className="text-[9px] text-slate-500">Perubahan sejak tick terakhir · Hari {day}</div>
           </div>
         </div>
-        <button type="button" onClick={onOpenInfo} className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[9px] font-semibold text-slate-300 transition-colors hover:bg-white/10 hover:text-white">{translate(catalog, 'pulse.cityInfo')}</button>
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={onOpenInfo} className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[9px] font-semibold text-slate-300 transition-colors hover:bg-white/10 hover:text-white">{translate(catalog, 'pulse.cityInfo')}</button>
+          <button type="button" onClick={() => setExpanded((value) => !value)} className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-slate-300 transition-colors hover:bg-white/10 hover:text-white" aria-label={expanded ? 'Ringkas denyut kota' : 'Buka detail denyut kota'} aria-expanded={expanded}>
+            {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
+        </div>
       </div>
 
-      {hasDelta && (
+      {expanded && hasDelta && (
         <div className="mt-2 grid grid-cols-4 gap-1.5">
           <DeltaChip label="Warga" value={delta.population} />
           <DeltaChip label="Kas" value={delta.money} />
@@ -169,7 +175,7 @@ export function CityPulse({ day, diagnostics, citizenStory, delta, onOpenInfo, o
         </div>
       )}
 
-      <div className="mt-2 space-y-2">
+      {expanded && <div className="mt-2 max-h-[min(62vh,34rem)] space-y-2 overflow-y-auto pr-0.5">
         {citizenStory && <CitizenStoryCard story={citizenStory} onFocusLocation={onFocusLocation} />}
         {visibleDiagnostics.length > 0 ? visibleDiagnostics.map((diagnostic) => (
           <DiagnosticCard key={diagnostic.id} diagnostic={diagnostic} onFocusLocation={onFocusLocation} onOpenInfo={onOpenInfo} language={language} />
@@ -178,7 +184,7 @@ export function CityPulse({ day, diagnostics, citizenStory, delta, onOpenInfo, o
             {translate(catalog, 'pulse.stable')}
           </div>
         )}
-      </div>
+      </div>}
     </section>
   );
 }
