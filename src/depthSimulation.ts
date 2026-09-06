@@ -1,4 +1,4 @@
-import { CityState, getRoadClass, TileData, TileType } from './types';
+import { getRoadClass, TileData, TileType } from './types';
 import { RoadGraph, getAdjacentRoadNodeKey } from './traffic';
 import { parcelCapacityMultiplier } from './parcels';
 import { mixedUseJobCapacityMultiplier } from './mixedUse';
@@ -281,8 +281,8 @@ export function simulateCityDepthAndEnvironment(
   return {
     landValueAverage: Math.round(totalLandValue / denominator),
     suitabilityAverage: Math.round(totalSuitability / Math.max(1, suitabilityTiles)),
-    pollutionAverage: Math.round(totalPollution / denominator),
-    noiseAverage: Math.round(totalNoise / denominator),
+    pollutionAverage: Math.round((totalPollution / denominator) * 10) / 10,
+    noiseAverage: Math.round((totalNoise / denominator) * 10) / 10,
     educationLevel: Math.round(totalEducation / denominator),
     healthIndex: Math.round(totalHealth / denominator),
     buildingLevelCounts: {
@@ -304,7 +304,7 @@ export function simulateBuildingEvolution(
   officeDemand: number,
   indDemand: number,
   unlockedUpgrades: string[]
-): void {
+): Array<[number, number]> {
   const height = grid.length;
   const width = grid[0].length;
   const hasU = (id: string) => unlockedUpgrades.includes(id);
@@ -312,6 +312,8 @@ export function simulateBuildingEvolution(
   const maxResLevel = hasU('sky_permits') ? 5 : (hasU('high_dens_res') ? 3 : 2);
   const maxComLevel = hasU('sky_permits') ? 5 : (hasU('high_dens_com') ? 3 : 2);
   const maxIndLevel = hasU('sky_permits') ? 5 : (hasU('high_dens_ind') ? 3 : 2);
+  const changedTiles: Array<[number, number]> = [];
+  const visualSignature = (tile: TileData) => `${tile.type}|${tile.level}|${tile.abandoned ? 1 : 0}|${tile.powered ? 1 : 0}|${tile.watered ? 1 : 0}|${tile.disasterImpact ?? 0}|${tile.elevation}`;
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -326,6 +328,8 @@ export function simulateBuildingEvolution(
         continue;
       }
 
+      const beforeVisual = visualSignature(tile);
+
       const hasRoad = getAdjacentRoadNodeKey(x, y, roadGraph) !== null;
       const isActive = tile.powered && tile.watered && hasRoad;
 
@@ -337,6 +341,7 @@ export function simulateBuildingEvolution(
           tile.abandoned = true;
           if (tile.level > 1) tile.level = Math.max(1, tile.level - 1);
         }
+        if (visualSignature(tile) !== beforeVisual) changedTiles.push([x, y]);
         continue;
       }
 
@@ -347,10 +352,11 @@ export function simulateBuildingEvolution(
           tile.abandoned = false;
           tile.upgradeProgress = 0;
         }
+        if (visualSignature(tile) !== beforeVisual) changedTiles.push([x, y]);
         continue;
       }
 
-      let currentLevel = Math.min(5, Math.max(1, tile.level));
+      const currentLevel = Math.min(5, Math.max(1, tile.level));
       let currentCap = 0;
       let targetDemand = 0;
       let maxLevel = 1;
@@ -419,6 +425,8 @@ export function simulateBuildingEvolution(
           tile.abandoned = true;
         }
       }
+      if (visualSignature(tile) !== beforeVisual) changedTiles.push([x, y]);
     }
   }
+  return changedTiles;
 }

@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const isCI = Boolean(process.env.CI);
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 60000,
@@ -11,12 +13,16 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: 'http://localhost:3002',
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
   },
   webServer: {
-    command: 'npm run dev',
+    // E2E validates the same production bundle that is released. Local runs
+    // may reuse an already-started server, while CI always starts a fresh
+    // preview after building.
+    command: 'npm run build && npm run preview -- --host 0.0.0.0 --port 3002',
     port: 3002,
-    reuseExistingServer: true,
+    reuseExistingServer: !isCI,
     timeout: 30000,
   },
   projects: [

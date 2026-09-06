@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MISSIONS, ACHIEVEMENTS, Mission, Achievement } from '../progression';
+import { MISSIONS, ACHIEVEMENTS } from '../progression';
 import { CityState } from '../types';
 import { SCENARIO_DEFINITIONS } from '../contentRegistry';
 import { evaluateScenario } from '../scenarioSystem';

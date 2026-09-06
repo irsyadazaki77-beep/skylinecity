@@ -6,7 +6,6 @@ import {
   computeRoadRecommendations,
   computeUtilityRecommendations,
   computeZoningRecommendations,
-  findSettlementCentroid,
 } from './tutorialPathfinder';
 
 describe('tutorialPathfinder', () => {

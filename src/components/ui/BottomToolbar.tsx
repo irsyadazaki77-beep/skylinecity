@@ -1,9 +1,6 @@
 import React from 'react';
 import { 
   Pause, 
-  Play, 
-  FastForward, 
-  Zap, 
   Map, 
   Sun, 
   Undo2, 
@@ -33,9 +30,6 @@ interface BottomToolbarProps {
 export function BottomToolbar({
   speed,
   setSpeed,
-  day,
-  income,
-  expenses,
   unlockedRegionsCount,
   mapExpansionMode,
   onToggleExpansionMode,
@@ -50,7 +44,7 @@ export function BottomToolbar({
   const [showToolsContext, setShowToolsContext] = React.useState(false);
 
   return (
-    <div className="simulation-toolbar fixed bottom-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-2 pointer-events-auto select-none max-w-[95vw]">
+    <div className="simulation-toolbar select-none">
       {/* Active Events Notification Pill */}
       {activeEvents.length > 0 && (
         <div 

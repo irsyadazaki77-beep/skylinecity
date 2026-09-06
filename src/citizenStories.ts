@@ -57,7 +57,6 @@ function candidateStories(state: CityState): CitizenStory[] {
   const households = [...(serialized.households ?? [])].sort((a, b) => a.id.localeCompare(b.id));
   const trips = [...(serialized.activeTrips ?? [])].sort((a, b) => a.id.localeCompare(b.id));
   const byCitizen = new Map(citizens.map((citizen) => [citizen.id, citizen]));
-  const byHousehold = new Map(households.map((household) => [household.id, household]));
   const candidates: CitizenStory[] = [];
 
   const flooded = households.find((household) => (tileAt(state.grid, household.residence)?.waterDepth ?? 0) >= 0.3);
@@ -211,4 +210,3 @@ export function advanceCitizenStories(previous: CitizenStoryState | undefined, s
     lastEmittedByKey: base.lastEmittedByKey,
   };
 }
-

@@ -16,7 +16,6 @@ export type UiSound =
 
 let audioContext: AudioContext | null = null;
 let ambienceTimer: number | null = null;
-let ambienceGainNode: GainNode | null = null;
 
 export function getSoundChannelVolume(
   settings: Pick<GameSettings, 'volume'> & Partial<Pick<GameSettings, 'musicVolume'>>,

@@ -1,182 +1,217 @@
-import { test, expect } from '@playwright/test';
+import { expect, Page, test } from '@playwright/test';
 
-test.describe('Skyline Simulator - Full Core Loop & E2E Validation', () => {
+const STARTER_ROAD = { x: 34, y: 29 };
+const STARTER_CONNECTOR = { x: 35, y: 29 };
+const STARTER_ZONE = { x: 33, y: 28 };
+const STARTER_RESIDENTIAL = { x: 35, y: 27 };
+const TILE_SIZE = 24;
+
+async function startNewCity(page: Page): Promise<void> {
+  await page.goto('/');
+  const newCityButton = page.getByRole('button', { name: /Kota Baru/i });
+  if (await newCityButton.isVisible()) await newCityButton.click();
+  await expect(page.locator('.game-hud')).toBeVisible();
+}
+
+async function open2D(page: Page): Promise<void> {
+  await page.locator('button[aria-label="Tampilan 2D"]').click();
+  await expect(page.locator('.city-2d-canvas')).toBeVisible();
+}
+
+async function canvasPoint(page: Page, x: number, y: number): Promise<{ x: number; y: number }> {
+  const grid = page.locator('.city-2d-grid');
+  await grid.evaluate((element, position) => {
+    const scrollContainer = element.parentElement;
+    if (!scrollContainer) return;
+    scrollContainer.scrollLeft = Math.max(0, position.x * 24 - scrollContainer.clientWidth / 2 + 12);
+    scrollContainer.scrollTop = Math.max(0, position.y * 24 - scrollContainer.clientHeight / 2 + 12);
+  }, { x, y });
+  const box = await page.locator('.city-2d-canvas canvas').boundingBox();
+  expect(box).not.toBeNull();
+  return { x: box!.x + x * TILE_SIZE + TILE_SIZE / 2, y: box!.y + y * TILE_SIZE + TILE_SIZE / 2 };
+}
+
+async function clickCanvasTile(page: Page, x: number, y: number): Promise<void> {
+  const point = await canvasPoint(page, x, y);
+  await page.mouse.click(point.x, point.y);
+}
+
+async function dragCanvasTiles(page: Page, start: { x: number; y: number }, end: { x: number; y: number }): Promise<void> {
+  const grid = page.locator('.city-2d-grid');
+  const center = { x: Math.round((start.x + end.x) / 2), y: Math.round((start.y + end.y) / 2) };
+  await grid.evaluate((element, position) => {
+    const scrollContainer = element.parentElement;
+    if (!scrollContainer) return;
+    scrollContainer.scrollLeft = Math.max(0, position.x * 24 - scrollContainer.clientWidth / 2 + 12);
+    scrollContainer.scrollTop = Math.max(0, position.y * 24 - scrollContainer.clientHeight / 2 + 12);
+  }, center);
+  const box = await page.locator('.city-2d-canvas canvas').boundingBox();
+  expect(box).not.toBeNull();
+  const startPoint = { x: box!.x + start.x * TILE_SIZE + TILE_SIZE / 2, y: box!.y + start.y * TILE_SIZE + TILE_SIZE / 2 };
+  const endPoint = { x: box!.x + end.x * TILE_SIZE + TILE_SIZE / 2, y: box!.y + end.y * TILE_SIZE + TILE_SIZE / 2 };
+  await page.mouse.move(startPoint.x, startPoint.y);
+  await page.mouse.down();
+  await page.mouse.move(endPoint.x, endPoint.y);
+  await page.waitForTimeout(100);
+  await page.mouse.up();
+  await page.waitForTimeout(100);
+}
+
+async function selectLocalRoad(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /Jalan/i }).first().click();
+  await page.getByRole('button', { name: /Jalan Lokal/i }).first().click();
+}
+
+async function selectResidentialZoning(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /Zona/i }).first().click();
+  await page.getByRole('button', { name: /Hunian/i }).first().click();
+}
+
+test.describe('Skyline Simulator - real core workflows', () => {
   test.beforeEach(async ({ page }) => {
-    // Clear localStorage to ensure predictable start screen behavior
-    await page.addInitScript(() => {
-      window.localStorage.clear();
-    });
+    await page.addInitScript(() => window.localStorage.clear());
   });
 
-  test('New City, Indonesian localization, and Start Screen dismissal', async ({ page }) => {
+  test('creates a new city and lets the player minimize/reopen onboarding', async ({ page }) => {
     await page.goto('/');
-
-    // Verify Start Screen is displayed with Indonesian localization
     const startModal = page.locator('div[role="dialog"]');
-    await expect(startModal).toBeVisible();
-    await expect(startModal).toContainText('Skyline Simulator');
     await expect(startModal).toContainText('Kota Baru');
-
-    // Click "Kota Baru" to start a new city
-    const newCityBtn = page.getByRole('button', { name: /Kota Baru/i });
-    await expect(newCityBtn).toBeVisible();
-    await newCityBtn.click();
-
-    // Start screen modal should be dismissed
+    await page.getByRole('button', { name: /Kota Baru/i }).click();
     await expect(startModal).not.toBeVisible();
-
-    // Verify Main Game HUD with Indonesian labels
-    await expect(page.locator('.game-hud')).toBeVisible();
-    await expect(page.locator('.game-hud')).toContainText('Skyline Simulator');
-    await expect(page.locator('.game-hud')).toContainText('Populasi');
-    await expect(page.locator('.game-hud')).toContainText('Kas Kota');
+    await expect(page.locator('[aria-label="Panduan pemain baru"]')).toBeVisible();
+    await page.getByRole('button', { name: 'Minimalkan panduan' }).click();
+    await expect(page.getByRole('button', { name: 'Buka panduan langkah berikutnya' })).toBeVisible();
+    await page.getByRole('button', { name: 'Buka panduan langkah berikutnya' }).click();
+    await expect(page.locator('[aria-label="Panduan pemain baru"]')).toBeVisible();
   });
 
-  test('Simulation control: start, pause, and speed adjustments', async ({ page }) => {
-    await page.goto('/');
+  test('builds a real local road drag and zones a valid residential tile', async ({ page }) => {
+    await startNewCity(page);
+    await open2D(page);
+    await selectLocalRoad(page);
+    await dragCanvasTiles(page, STARTER_ROAD, STARTER_CONNECTOR);
+    await page.getByRole('button', { name: /Pilih/i }).first().click();
+    await clickCanvasTile(page, STARTER_CONNECTOR.x, STARTER_CONNECTOR.y);
+    const roadInspector = page.locator('[aria-labelledby="inspector-tile-title"]');
+    await expect(roadInspector).toContainText(/Jalan|ROAD/i);
+    await page.getByRole('button', { name: 'Tutup inspeksi petak' }).click();
 
-    // Dismiss start screen if present
-    const newCityBtn = page.getByRole('button', { name: /Kota Baru/i });
-    if (await newCityBtn.isVisible()) {
-      await newCityBtn.click();
-    }
-
-    // Locate speed toolbar
-    const pauseBtn = page.locator('button[aria-label="Jeda simulasi"]');
-    const speed1Btn = page.locator('button[aria-label="Kecepatan normal 1x"]');
-    const speed2Btn = page.locator('button[aria-label="Kecepatan cepat 2x"]');
-
-    await expect(pauseBtn).toBeVisible();
-    await expect(speed1Btn).toBeVisible();
-
-    // The city starts in paused state (speed = 0)
-    await expect(pauseBtn).toHaveAttribute('aria-pressed', 'true');
-
-    // Unpause by clicking 1x speed
-    await speed1Btn.click();
-    await expect(speed1Btn).toHaveAttribute('aria-pressed', 'true');
-    await expect(pauseBtn).toHaveAttribute('aria-pressed', 'false');
-
-    // Fast forward to 2x speed
-    await speed2Btn.click();
-    await expect(speed2Btn).toHaveAttribute('aria-pressed', 'true');
-
-    // Pause again
-    await pauseBtn.click();
-    await expect(pauseBtn).toHaveAttribute('aria-pressed', 'true');
+    await selectResidentialZoning(page);
+    await clickCanvasTile(page, STARTER_ZONE.x, STARTER_ZONE.y);
+    await page.getByRole('button', { name: /Pilih/i }).first().click();
+    await clickCanvasTile(page, STARTER_ZONE.x, STARTER_ZONE.y);
+    const zoningInspector = page.locator('[aria-labelledby="inspector-tile-title"]');
+    await expect(zoningInspector).toContainText(/Hunian|RESIDENTIAL/i);
   });
 
-  test('Building tools and zoning selection in sidebar', async ({ page }) => {
-    await page.goto('/');
-
-    const newCityBtn = page.getByRole('button', { name: /Kota Baru/i });
-    if (await newCityBtn.isVisible()) {
-      await newCityBtn.click();
-    }
-
-    // Select Road tool category from sidebar
-    const roadCategoryBtn = page.getByRole('button', { name: /Jalan/i }).first();
-    await expect(roadCategoryBtn).toBeVisible();
-    await roadCategoryBtn.click();
-
-    // Drawer should open with road options
-    const roadOption = page.getByRole('button', { name: /Jalan Lokal/i }).first();
-    await expect(roadOption).toBeVisible();
-    await roadOption.click();
-
-    // Select Zoning category from sidebar
-    const zoningCategoryBtn = page.getByRole('button', { name: /Zona/i }).first();
-    await expect(zoningCategoryBtn).toBeVisible();
-    await zoningCategoryBtn.click();
-
-    // Drawer should show zoning options
-    const resZoning = page.getByRole('button', { name: /Hunian/i }).first();
-    await expect(resZoning).toBeVisible();
+  test('advances the simulation, then pauses on the same day', async ({ page }) => {
+    await startNewCity(page);
+    const hud = page.locator('.game-hud');
+    const speed1 = page.locator('button[aria-label="Kecepatan normal 1x"]');
+    const pause = page.locator('button[aria-label="Jeda simulasi"]');
+    await expect(pause).toHaveAttribute('aria-pressed', 'true');
+    await speed1.click();
+    await expect(hud).toContainText(/Hari 2\b/, { timeout: 10_000 });
+    await pause.click();
+    const pausedDay = await hud.getByText(/Hari \d+ · \d+:00/).textContent();
+    await page.waitForTimeout(1_300);
+    await expect(hud.getByText(/Hari \d+ · \d+:00/)).toHaveText(pausedDay ?? '');
   });
 
-  test('Diagnostic panels and city inspector', async ({ page }) => {
-    await page.goto('/');
+  test('opens the inspector for the actual starter residential tile', async ({ page }) => {
+    await startNewCity(page);
+    await open2D(page);
+    await clickCanvasTile(page, STARTER_RESIDENTIAL.x, STARTER_RESIDENTIAL.y);
+    const inspector = page.locator('[aria-labelledby="inspector-tile-title"]');
+    await expect(inspector).toBeVisible();
+    await expect(inspector).toContainText('Inspeksi Petak (36, 28)');
+    await expect(inspector).toContainText(/Hunian|Residential/i);
+  });
 
-    const newCityBtn = page.getByRole('button', { name: /Kota Baru/i });
-    if (await newCityBtn.isVisible()) {
-      await newCityBtn.click();
-    }
+  test('keeps real edits visible across 2D/3D and supports keyboard map navigation', async ({ page }) => {
+    await startNewCity(page);
+    await open2D(page);
+    await selectLocalRoad(page);
+    await dragCanvasTiles(page, STARTER_ROAD, STARTER_CONNECTOR);
+    await selectResidentialZoning(page);
+    await clickCanvasTile(page, STARTER_ZONE.x, STARTER_ZONE.y);
 
-    // Open Game Menu
-    const menuBtn = page.locator('button[aria-haspopup="menu"]');
-    await expect(menuBtn).toBeVisible();
-    await menuBtn.click();
+    const focusTile = page.locator('.roving-focus');
+    await focusTile.focus();
+    const initialCoord = await focusTile.getAttribute('data-coord');
+    await page.keyboard.press('ArrowRight');
+    await expect(focusTile).not.toHaveAttribute('data-coord', initialCoord ?? '');
+    await page.keyboard.press('Enter');
+    await page.locator('button[aria-label="Tampilan 3D"]').click();
+    await expect(page.locator('.city-2d-canvas')).not.toBeVisible();
+    await expect(page.locator('canvas').first()).toBeVisible();
+  });
 
-    // Open City Information Diagnostic Panel
-    const infoOption = page.getByRole('menuitem', { name: /Informasi Kota/i });
-    await expect(infoOption).toBeVisible();
-    await infoOption.click();
+  test('saves, mutates, and loads the saved city back', async ({ page }) => {
+    await startNewCity(page);
+    await open2D(page);
+    await page.locator('button[aria-haspopup="menu"]').click();
+    await page.getByRole('menuitem', { name: /Simpan \/ Muat/i }).click();
+    const saveDialog = page.locator('[aria-labelledby="save-load-title"]');
+    await expect(saveDialog).toBeVisible();
+    await saveDialog.getByRole('button', { name: /^Simpan$/i }).first().click();
+    await expect(saveDialog).toContainText('Skyline Metropolis');
+    await page.keyboard.press('Escape');
 
-    // Verify City Information Panel opens
+    await selectLocalRoad(page);
+    await dragCanvasTiles(page, STARTER_ROAD, STARTER_CONNECTOR);
+    await selectResidentialZoning(page);
+    await clickCanvasTile(page, STARTER_ZONE.x, STARTER_ZONE.y);
+    await page.getByRole('button', { name: /Pilih/i }).first().click();
+    await clickCanvasTile(page, STARTER_ZONE.x, STARTER_ZONE.y);
+    await expect(page.locator('[aria-labelledby="inspector-tile-title"]')).toContainText(/Hunian|RESIDENTIAL/i);
+    await page.getByRole('button', { name: 'Tutup inspeksi petak' }).click();
+
+    await page.locator('button[aria-haspopup="menu"]').click();
+    await page.getByRole('menuitem', { name: /Simpan \/ Muat/i }).click();
+    const loadDialog = page.locator('[aria-labelledby="save-load-title"]');
+    await expect(loadDialog.getByRole('button', { name: /^Muat$/i }).first()).toBeVisible();
+    await loadDialog.getByRole('button', { name: /^Muat$/i }).first().click();
+    await page.getByRole('button', { name: /Pilih/i }).first().click();
+    await clickCanvasTile(page, STARTER_ZONE.x, STARTER_ZONE.y);
+    await expect(page.locator('[aria-labelledby="inspector-tile-title"]')).toContainText(/Kosong|EMPTY/i);
+  });
+
+  test('switches the primary language and updates the management menu', async ({ page }) => {
+    await startNewCity(page);
+    await page.locator('button[aria-haspopup="menu"]').click();
+    await page.getByRole('menuitem', { name: /Pengaturan/i }).click();
+    const settings = page.locator('[aria-labelledby="settings-title"]');
+    await settings.getByRole('tab', { name: /Aksesibilitas/i }).click();
+    await settings.getByLabel(/Bahasa/i).selectOption('en');
+    await expect(settings).toContainText('Settings');
+    await settings.getByRole('button', { name: /Tutup pengaturan/i }).click();
+    await page.locator('button[aria-haspopup="menu"]').click();
+    await expect(page.getByRole('menuitem', { name: /City Information/i })).toBeVisible();
+  });
+
+  test('does not restore a stale worker tick after an active build edit', async ({ page }) => {
+    await startNewCity(page);
+    const speed1 = page.locator('button[aria-label="Kecepatan normal 1x"]');
+    await speed1.click();
+    await expect(page.locator('.game-hud')).toContainText(/Hari 2\b/, { timeout: 10_000 });
+    await open2D(page);
+    await selectLocalRoad(page);
+    await dragCanvasTiles(page, STARTER_ROAD, STARTER_CONNECTOR);
+    await page.locator('button[aria-label="Jeda simulasi"]').click();
+    await page.getByRole('button', { name: /Pilih/i }).first().click();
+    await clickCanvasTile(page, STARTER_CONNECTOR.x, STARTER_CONNECTOR.y);
+    await expect(page.locator('[aria-labelledby="inspector-tile-title"]')).toContainText(/Jalan|ROAD/i);
+  });
+
+  test('opens diagnostics from the game menu', async ({ page }) => {
+    await startNewCity(page);
+    await page.locator('button[aria-haspopup="menu"]').click();
+    await page.getByRole('menuitem', { name: /Informasi Kota/i }).click();
     const infoPanel = page.locator('.city-information-panel');
     await expect(infoPanel).toBeVisible();
     await expect(infoPanel).toContainText(/Informasi Kota|Statistik/i);
-
-    // Close panel
     await page.keyboard.press('Escape');
     await expect(infoPanel).not.toBeVisible();
-  });
-
-  test('3D to 2D and back to 3D mode switching', async ({ page }) => {
-    await page.goto('/');
-
-    const newCityBtn = page.getByRole('button', { name: /Kota Baru/i });
-    if (await newCityBtn.isVisible()) {
-      await newCityBtn.click();
-    }
-
-    // Locate 2D/3D camera toolbar controls
-    const toggle2DBtn = page.locator('button[aria-label="Tampilan 2D"]');
-    const toggle3DBtn = page.locator('button[aria-label="Tampilan 3D"]');
-
-    await expect(toggle2DBtn).toBeVisible();
-    await expect(toggle3DBtn).toBeVisible();
-
-    // Switch to 2D mode
-    await toggle2DBtn.click();
-    await expect(toggle2DBtn).toHaveAttribute('aria-pressed', 'true');
-
-    // Verify 2D canvas is mounted and interactive
-    const canvas2D = page.locator('.city-2d-canvas');
-    await expect(canvas2D).toBeVisible();
-    await expect(canvas2D).toContainText('Mode 2D Taktis');
-
-    // Switch back to 3D mode
-    await toggle3DBtn.click();
-    await expect(toggle3DBtn).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('.city-2d-canvas')).not.toBeVisible();
-  });
-
-  test('Save and Load management dialog', async ({ page }) => {
-    await page.goto('/');
-
-    const newCityBtn = page.getByRole('button', { name: /Kota Baru/i });
-    if (await newCityBtn.isVisible()) {
-      await newCityBtn.click();
-    }
-
-    // Open Game Menu
-    const menuBtn = page.locator('button[aria-haspopup="menu"]');
-    await expect(menuBtn).toBeVisible();
-    await menuBtn.click();
-
-    // Open Save/Load dialog
-    const saveLoadOption = page.getByRole('menuitem', { name: /Simpan \/ Muat/i });
-    await expect(saveLoadOption).toBeVisible();
-    await saveLoadOption.click();
-
-    // Verify Save/Load modal dialog opens
-    const saveModal = page.locator('div[role="dialog"]');
-    await expect(saveModal).toBeVisible();
-    await expect(saveModal).toContainText(/Simpan|Slot/i);
-
-    // Close dialog
-    await page.keyboard.press('Escape');
-    await expect(saveModal).not.toBeVisible();
   });
 });

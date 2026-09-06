@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { CityState, GameSettings } from '../types';
-import { simulateTick, getLastSimulationPhaseTimings } from '../engine';
+import { simulateTick, getLastSimulationPhaseTimings, getLastSimulationRenderRevisions } from '../engine';
 import {
   createSimulationSchedulerState,
   observeSimulationTick,
   SimulationSchedulerTelemetry,
 } from '../simulationScheduler';
+import { createExternalRenderRevisions, SimulationRenderRevisions } from '../simulationContext';
+import { isCurrentWorkerTickResult, WorkerInMessage, WorkerOutMessage } from '../simulationWorkerProtocol';
 
 export interface SimulationCommit {
   previous: CityState;
@@ -19,23 +21,34 @@ interface UseSimulationControlsOptions {
   gameState?: CityState;
 }
 
+interface WorkerRequestIdentity {
+  workerGeneration: number;
+  requestId: number;
+  stateRevision: number;
+  tickId: number;
+}
+
+const WORKER_HANDSHAKE_TIMEOUT_MS = 3_000;
+
 export function useSimulationControls({
   settings,
   setGameState,
   pendingSimulationCommit,
   gameState,
 }: UseSimulationControlsOptions) {
-  // Game starts paused by requirement B
   const [speed, setSpeed] = useState<0 | 1 | 2 | 3>(0);
   const [qualityTier, setQualityTier] = useState<'balanced' | 'reduced'>('balanced');
   const lastSimulationTickMs = useRef(0);
   const lastSimulationPhaseTimings = useRef<Record<string, number>>({});
   const simulationTickId = useRef(0);
   const simulationScheduler = useRef(createSimulationSchedulerState());
-
   const gameStateRef = useRef<CityState | null>(gameState ?? null);
-  gameStateRef.current = gameState ?? gameStateRef.current;
+  const workerGenerationRef = useRef(0);
+  const stateRevisionRef = useRef(0);
+  const requestIdRef = useRef(0);
+  const workerRequestRef = useRef<WorkerRequestIdentity | null>(null);
 
+  const [renderRevisions, setRenderRevisions] = useState<SimulationRenderRevisions>(() => createExternalRenderRevisions(gameState?.grid));
   const [schedulerTelemetry, setSchedulerTelemetry] = useState<SimulationSchedulerTelemetry>({
     budgetMs: 50,
     latestTickMs: 0,
@@ -50,129 +63,209 @@ export function useSimulationControls({
     setQualityTier((current) => (current === tier ? current : tier));
   }, []);
 
-  // Web Worker reference
   const workerRef = useRef<Worker | null>(null);
   const workerReadyRef = useRef(false);
+  const workerFailedRef = useRef(false);
   const isTickingRef = useRef(false);
+  const handshakeTimerRef = useRef<number | null>(null);
 
-  // Initialize Web Worker when supported
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof Worker === 'undefined') return;
-    try {
-      const worker = new Worker(new URL('../simulationWorker.ts', import.meta.url), { type: 'module' });
-      workerRef.current = worker;
+  const nextIdentity = useCallback((tickId: number): WorkerRequestIdentity => ({
+    workerGeneration: workerGenerationRef.current,
+    requestId: ++requestIdRef.current,
+    stateRevision: stateRevisionRef.current,
+    tickId,
+  }), []);
 
-      worker.onmessage = (event: MessageEvent<any>) => {
-        const data = event.data;
-        if (!data) return;
-
-        if (data.type === 'STATE_RESET_CONFIRMED') {
-          workerReadyRef.current = true;
-        } else if (data.type === 'TICK_COMPLETED') {
-          isTickingRef.current = false;
-          const { nextState, elapsedMs, phaseTimings, telemetry } = data;
-          lastSimulationTickMs.current = elapsedMs;
-          lastSimulationPhaseTimings.current = phaseTimings;
-          simulationTickId.current += 1;
-
-          setSchedulerTelemetry((prev) => (
-            prev.rollingP95Ms === telemetry.rollingP95Ms &&
-            prev.qualityTier === telemetry.qualityTier &&
-            prev.intervalMs === telemetry.intervalMs
-              ? prev
-              : telemetry
-          ));
-          handleQualityHint(telemetry.qualityTier);
-
-          const previous = gameStateRef.current ?? nextState;
-          pendingSimulationCommit.current = { previous, next: nextState };
-          gameStateRef.current = nextState;
-
-          // Pure React state updater: no side effects inside!
-          setGameState(() => nextState);
-        }
-      };
-
-      if (gameStateRef.current) {
-        worker.postMessage({ type: 'INIT', state: gameStateRef.current, settings });
-        workerReadyRef.current = true;
-      }
-
-      return () => {
-        worker.terminate();
-        workerRef.current = null;
-        workerReadyRef.current = false;
-      };
-    } catch {
-      workerRef.current = null;
-      workerReadyRef.current = false;
-    }
+  const failWorker = useCallback((worker: Worker) => {
+    if (workerRef.current !== worker) return;
+    workerFailedRef.current = true;
+    workerReadyRef.current = false;
+    isTickingRef.current = false;
+    workerRequestRef.current = null;
+    workerGenerationRef.current += 1;
+    if (handshakeTimerRef.current !== null) window.clearTimeout(handshakeTimerRef.current);
+    handshakeTimerRef.current = null;
+    worker.terminate();
+    workerRef.current = null;
   }, []);
 
-  // Sync external state changes (e.g. build commands, loads) to worker
   useEffect(() => {
-    if (!workerRef.current || !workerReadyRef.current || !gameState) return;
-    if (gameState !== gameStateRef.current) {
-      gameStateRef.current = gameState;
-      workerRef.current.postMessage({ type: 'RESET_STATE', state: gameState });
-    }
-  }, [gameState]);
+    if (typeof window === 'undefined' || typeof Worker === 'undefined' || !gameStateRef.current) return undefined;
 
-  // Simulation tick loop
+    const worker = new Worker(new URL('../simulationWorker.ts', import.meta.url), { type: 'module' });
+    workerRef.current = worker;
+    workerFailedRef.current = false;
+    workerReadyRef.current = false;
+    workerGenerationRef.current += 1;
+    stateRevisionRef.current = Math.max(1, stateRevisionRef.current);
+    const initIdentity = nextIdentity(0);
+    workerRequestRef.current = initIdentity;
+
+    worker.onmessage = (event: MessageEvent<WorkerOutMessage>) => {
+      const data = event.data;
+      if (!data || data.workerGeneration !== workerGenerationRef.current) return;
+
+      if (data.type === 'INIT_ACK') {
+        if (data.requestId !== initIdentity.requestId || data.stateRevision !== stateRevisionRef.current) return;
+        workerReadyRef.current = true;
+        workerRequestRef.current = null;
+        if (handshakeTimerRef.current !== null) window.clearTimeout(handshakeTimerRef.current);
+        handshakeTimerRef.current = null;
+        return;
+      }
+
+      if (data.type === 'STATE_RESET_CONFIRMED') {
+        const request = workerRequestRef.current;
+        if (!request || request.requestId !== data.requestId || request.stateRevision !== data.stateRevision) return;
+        workerReadyRef.current = true;
+        isTickingRef.current = false;
+        workerRequestRef.current = null;
+        stateRevisionRef.current = data.stateRevision;
+        gameStateRef.current = data.state;
+        return;
+      }
+
+      if (data.type === 'WORKER_REJECTED') {
+        failWorker(worker);
+        return;
+      }
+
+      if (data.type !== 'TICK_COMPLETED') return;
+      const request = workerRequestRef.current;
+      if (!request || !isCurrentWorkerTickResult(data, request)) return;
+
+      workerRequestRef.current = null;
+      isTickingRef.current = false;
+      stateRevisionRef.current = data.stateRevision;
+      lastSimulationTickMs.current = data.elapsedMs;
+      lastSimulationPhaseTimings.current = data.phaseTimings;
+      simulationTickId.current = data.tickId;
+      setRenderRevisions(data.renderRevisions);
+
+      setSchedulerTelemetry((prev) => (
+        prev.rollingP95Ms === data.telemetry.rollingP95Ms &&
+        prev.qualityTier === data.telemetry.qualityTier &&
+        prev.intervalMs === data.telemetry.intervalMs
+          ? prev
+          : data.telemetry
+      ));
+      handleQualityHint(data.telemetry.qualityTier);
+
+      const previous = gameStateRef.current ?? data.nextState;
+      pendingSimulationCommit.current = { previous, next: data.nextState };
+      gameStateRef.current = data.nextState;
+      setGameState(() => data.nextState);
+    };
+    worker.onerror = () => failWorker(worker);
+    worker.onmessageerror = () => failWorker(worker);
+
+    worker.postMessage({
+      type: 'INIT',
+      ...initIdentity,
+      state: gameStateRef.current,
+      settings,
+    } satisfies WorkerInMessage);
+    handshakeTimerRef.current = window.setTimeout(() => {
+      if (!workerReadyRef.current) failWorker(worker);
+    }, WORKER_HANDSHAKE_TIMEOUT_MS);
+
+    return () => {
+      if (handshakeTimerRef.current !== null) window.clearTimeout(handshakeTimerRef.current);
+      handshakeTimerRef.current = null;
+      workerGenerationRef.current += 1;
+      workerRequestRef.current = null;
+      worker.terminate();
+      if (workerRef.current === worker) workerRef.current = null;
+      workerReadyRef.current = false;
+      isTickingRef.current = false;
+    };
+  }, [failWorker, handleQualityHint, nextIdentity, pendingSimulationCommit, setGameState, settings]);
+
+  // Every state change not produced by the worker is a new simulation epoch.
+  // This covers builds, undo/redo, new city, load, and any explicit reset.
+  useEffect(() => {
+    if (!gameState || gameState === gameStateRef.current) return;
+
+    gameStateRef.current = gameState;
+    workerGenerationRef.current += 1;
+    stateRevisionRef.current += 1;
+    simulationTickId.current = 0;
+    isTickingRef.current = false;
+    pendingSimulationCommit.current = null;
+    setRenderRevisions(createExternalRenderRevisions(gameState.grid));
+
+    const worker = workerRef.current;
+    if (!worker || workerFailedRef.current) return;
+
+    workerReadyRef.current = false;
+    const resetIdentity = nextIdentity(0);
+    workerRequestRef.current = resetIdentity;
+    worker.postMessage({
+      type: 'RESET_STATE',
+      ...resetIdentity,
+      state: gameState,
+    } satisfies WorkerInMessage);
+  }, [gameState, nextIdentity, pendingSimulationCommit]);
+
   useEffect(() => {
     if (speed === 0) return undefined;
     let timer = 0;
     let cancelled = false;
 
+    const runSynchronousTick = () => {
+      const current = gameStateRef.current;
+      if (!current) return;
+      const simulationStartedAt = performance.now();
+      let next = current;
+      const requestedTicks = schedulerTelemetry.ticksPerInterval;
+      for (let i = 0; i < requestedTicks; i += 1) next = simulateTick(next, settings);
+      const elapsedMs = performance.now() - simulationStartedAt;
+      lastSimulationTickMs.current = elapsedMs;
+      lastSimulationPhaseTimings.current = getLastSimulationPhaseTimings();
+      simulationTickId.current += requestedTicks;
+      stateRevisionRef.current += requestedTicks;
+
+      const scheduled = observeSimulationTick(simulationScheduler.current, elapsedMs, next.population, speed);
+      simulationScheduler.current = scheduled.state;
+      setSchedulerTelemetry((previous) => (
+        previous.rollingP95Ms === scheduled.telemetry.rollingP95Ms &&
+        previous.qualityTier === scheduled.telemetry.qualityTier &&
+        previous.intervalMs === scheduled.telemetry.intervalMs
+          ? previous
+          : scheduled.telemetry
+      ));
+      handleQualityHint(scheduled.telemetry.qualityTier);
+      setRenderRevisions(getLastSimulationRenderRevisions());
+      pendingSimulationCommit.current = { previous: current, next };
+      gameStateRef.current = next;
+      setGameState(() => next);
+    };
+
     const runTick = () => {
       if (cancelled) return;
-
       const worker = workerRef.current;
-      const workerReady = workerReadyRef.current;
 
-      if (worker && workerReady) {
-        if (!isTickingRef.current) {
+      if (worker && !workerFailedRef.current) {
+        // A worker is not usable until INIT/RESET has been acknowledged. Wait
+        // for that acknowledgement instead of running a competing timeline.
+        if (workerReadyRef.current && !isTickingRef.current) {
+          const tickId = simulationTickId.current + schedulerTelemetry.ticksPerInterval;
+          const identity = nextIdentity(tickId);
+          workerRequestRef.current = identity;
           isTickingRef.current = true;
           worker.postMessage({
             type: 'TICK',
+            ...identity,
             requestedTicks: schedulerTelemetry.ticksPerInterval,
             speed,
             settings,
-          });
+          } satisfies WorkerInMessage);
         }
-        if (!cancelled) timer = window.setTimeout(runTick, schedulerTelemetry.intervalMs);
       } else {
-        // Synchronous execution fallback (used when Worker is not available / in tests)
-        // All side-effects are performed OUTSIDE of setGameState!
-        const current = gameStateRef.current;
-        if (current) {
-          const simulationStartedAt = performance.now();
-          let next = current;
-          const requestedTicks = schedulerTelemetry.ticksPerInterval;
-          for (let i = 0; i < requestedTicks; i += 1) next = simulateTick(next, settings);
-          const elapsedMs = performance.now() - simulationStartedAt;
-          lastSimulationTickMs.current = elapsedMs;
-          lastSimulationPhaseTimings.current = getLastSimulationPhaseTimings();
-          simulationTickId.current += 1;
-
-          const scheduled = observeSimulationTick(simulationScheduler.current, elapsedMs, next.population, speed);
-          simulationScheduler.current = scheduled.state;
-          setSchedulerTelemetry((previous) => (
-            previous.rollingP95Ms === scheduled.telemetry.rollingP95Ms &&
-            previous.qualityTier === scheduled.telemetry.qualityTier &&
-            previous.intervalMs === scheduled.telemetry.intervalMs
-              ? previous
-              : scheduled.telemetry
-          ));
-          handleQualityHint(scheduled.telemetry.qualityTier);
-          pendingSimulationCommit.current = { previous: current, next };
-          gameStateRef.current = next;
-
-          // Pure React updater
-          setGameState(() => next);
-        }
-        if (!cancelled) timer = window.setTimeout(runTick, schedulerTelemetry.intervalMs);
+        runSynchronousTick();
       }
+
+      if (!cancelled) timer = window.setTimeout(runTick, schedulerTelemetry.intervalMs);
     };
 
     timer = window.setTimeout(runTick, schedulerTelemetry.intervalMs);
@@ -180,7 +273,7 @@ export function useSimulationControls({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [handleQualityHint, pendingSimulationCommit, schedulerTelemetry.intervalMs, schedulerTelemetry.ticksPerInterval, setGameState, settings, speed]);
+  }, [handleQualityHint, nextIdentity, pendingSimulationCommit, schedulerTelemetry.intervalMs, schedulerTelemetry.ticksPerInterval, setGameState, settings, speed]);
 
   return {
     speed,
@@ -193,5 +286,6 @@ export function useSimulationControls({
     lastSimulationTickMs,
     lastSimulationPhaseTimings,
     simulationTickId,
+    renderRevisions,
   };
 }

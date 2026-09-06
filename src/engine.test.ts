@@ -94,6 +94,23 @@ function createMockCityState(overrides: Partial<CityState> = {}): CityState {
 
 describe('Skyline Simulator Engine 2.0 Subsystems (Phase 1)', () => {
 
+  it('does not mutate input state and replays deterministically from the same snapshot', () => {
+    const input = createMockCityState();
+    input.grid[0][0].type = TileType.ROAD;
+    input.grid[0][1].type = TileType.RESIDENTIAL;
+    input.grid[0][1].population = 8;
+    input.transitLines = [{
+      id: 'line-test', name: 'Test', mode: 'BUS', stops: [[0, 0], [0, 1]], frequency: 8, active: true,
+    }];
+    const before = structuredClone(input);
+
+    const first = simulateTick(input);
+    const replay = simulateTick(structuredClone(before));
+
+    expect(input).toEqual(before);
+    expect(first).toEqual(replay);
+  });
+
   it('should create starter jobs and taxable activity during the first city tick', () => {
     const next = simulateTick(createInitialCityState(createStarterGrid(), 2088, 'normal'));
     const jobs = next.grid.flat()
@@ -120,7 +137,7 @@ describe('Skyline Simulator Engine 2.0 Subsystems (Phase 1)', () => {
     // Disconnected Isolated Residential at (5,5) with no generator or pump connected
     grid[5][5].type = TileType.RESIDENTIAL;
     
-    const { powerCapacity, powerDemand, waterCapacity, waterDemand } = allocateUtilities(grid, []);
+    const { powerCapacity, waterCapacity } = allocateUtilities(grid, []);
     
     expect(powerCapacity).toBe(50);
     expect(waterCapacity).toBe(50);

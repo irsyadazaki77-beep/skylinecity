@@ -10,6 +10,7 @@ export interface NetworkUtilityResult {
   waterDemand: number;
   overloadedPowerGrids: number;
   overloadedWaterGrids: number;
+  changedTiles: Array<[number, number]>;
 }
 
 export interface CityServicesResult {
@@ -72,10 +73,14 @@ export function simulateUtilityNetworks(
   let totalWaterDemand = 0;
   let overloadedPowerGrids = 0;
   let overloadedWaterGrids = 0;
+  const changedTileKeys = new Set<string>();
+
+  const markChanged = (tile: TileData) => changedTileKeys.add(`${tile.x},${tile.y}`);
 
   // Reset all tiles before distribution
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
+      if (grid[y][x].powered || grid[y][x].watered) markChanged(grid[y][x]);
       grid[y][x].powered = false;
       grid[y][x].watered = false;
     }
@@ -166,7 +171,7 @@ export function simulateUtilityNetworks(
       let compPowerDemand = 0;
       let compWaterDemand = 0;
 
-      for (const tile of demandingTiles) {
+      for (let index = 0; index < demandingTiles.length; index += 1) {
         compPowerDemand += Math.max(1, Math.round(1 * powerDemandMult));
         compWaterDemand += Math.max(1, Math.round(1 * waterDemandMult));
       }
@@ -186,9 +191,11 @@ export function simulateUtilityNetworks(
       for (const tile of demandingTiles) {
         const pReq = Math.max(1, Math.round(1 * powerDemandMult));
         if (powerPool >= pReq) {
+          if (!tile.powered) markChanged(tile);
           tile.powered = true;
           powerPool -= pReq;
         } else {
+          if (tile.powered) markChanged(tile);
           tile.powered = false;
         }
       }
@@ -198,9 +205,11 @@ export function simulateUtilityNetworks(
       for (const tile of demandingTiles) {
         const wReq = Math.max(1, Math.round(1 * waterDemandMult));
         if (waterPool >= wReq) {
+          if (!tile.watered) markChanged(tile);
           tile.watered = true;
           waterPool -= wReq;
         } else {
+          if (tile.watered) markChanged(tile);
           tile.watered = false;
         }
       }
@@ -214,6 +223,7 @@ export function simulateUtilityNetworks(
     waterDemand: totalWaterDemand,
     overloadedPowerGrids,
     overloadedWaterGrids,
+    changedTiles: [...changedTileKeys].map((key) => key.split(',').map(Number) as [number, number]),
   };
 }
 
@@ -229,7 +239,7 @@ export function simulateCityServices(
   desirability: number,
   averageCommuteTime: number,
   residentialTaxRate: number,
-  unlockedUpgrades: string[]
+  _unlockedUpgrades: string[]
 ): CityServicesResult {
   const height = grid.length;
   const width = grid[0].length;

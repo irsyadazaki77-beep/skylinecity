@@ -1,4 +1,4 @@
-import { CausalDiagnostic, CityState, TileData, TileType } from './types';
+import { CausalDiagnostic, CityState, TileType } from './types';
 import { RESIDENTIAL_CAPACITIES } from './depthSimulation';
 import { getResidentialCapacity } from './zoning';
 

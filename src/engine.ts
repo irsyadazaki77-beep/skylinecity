@@ -1,17 +1,16 @@
 import { GAME_CONFIG } from './config';
 import { simulateCityDepthAndEnvironment, simulateBuildingEvolution, RESIDENTIAL_CAPACITIES, COMMERCIAL_CAPACITIES, INDUSTRIAL_CAPACITIES } from './depthSimulation';
 import { simulateCityServices, simulateUtilityNetworks } from './services';
-import { advanceIntersectionSignalStates, buildRoadGraph, simulateRoadNetworkAndTraffic } from './traffic';
+import { advanceIntersectionSignalStates, applySignalStatesToRoadGraph, buildRoadGraph } from './traffic';
 import { simulateTransitNetwork } from './transit';
 import { simulateLogistics } from './logistics';
 import { simulateIncidents } from './incidents';
 import { simulateDisasters } from './disasters';
 import { simulateHydrology } from './hydrology';
-import { getMilestoneLevel, MISSIONS, ACHIEVEMENTS } from './progression';
+import { getMilestoneLevel, ACHIEVEMENTS } from './progression';
 import { BUILD_COSTS, CityEventData, CityState, createTile, GameSettings, getRoadClass, ROAD_MAINTENANCE_COSTS, TileData, TileType } from './types';
 import { reconcileParcels, refreshParcelStatuses } from './parcels';
 import { 
-  createInitialDemographics, 
   createInitialCitizenSimulationState, 
   serializeCitizenSimulation, 
   hydrateCitizenSimulation, 
@@ -36,6 +35,14 @@ import { calculateTileRent } from './citizenSimulation/satisfaction';
 import { simulateClimate } from './climate';
 import { serviceUpgradeStats } from './serviceUpgrades';
 import { createStarterGrid } from './starterCity';
+import {
+  createSimulationTickContext,
+  finalizeSimulationRenderRevisions,
+  markTilesChanged,
+  refreshTileAggregates,
+  SimulationTickContext,
+} from './simulationContext';
+import { cloneCityStateForSimulation } from './simulationState';
 
 export function createEmptyGrid(width = 60, height = 60): TileData[][] {
   return Array.from({ length: height }, (_, y) =>
@@ -48,6 +55,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 let lastSimulationPhaseTimings: Record<string, number> = {};
+let lastSimulationRenderRevisions = finalizeSimulationRenderRevisions(createSimulationTickContext([]));
 
 function profilerNow(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -58,41 +66,9 @@ export function getLastSimulationPhaseTimings(): Record<string, number> {
   return { ...lastSimulationPhaseTimings };
 }
 
-function countTiles(grid: TileData[][], type: TileType): number {
-  let count = 0;
-  for (let y = 0; y < grid.length; y++) {
-    const row = grid[y];
-    for (let x = 0; x < row.length; x++) {
-      if (row[x].type === type) count++;
-    }
-  }
-  return count;
-}
-
-function activePopulation(grid: TileData[][]): number {
-  let sum = 0;
-  for (let y = 0; y < grid.length; y++) {
-    const row = grid[y];
-    for (let x = 0; x < row.length; x++) {
-      const tile = row[x];
-      if (tile.type === TileType.RESIDENTIAL) sum += (tile.population || 0);
-    }
-  }
-  return sum;
-}
-
-function activeJobs(grid: TileData[][]): number {
-  let sum = 0;
-  for (let y = 0; y < grid.length; y++) {
-    const row = grid[y];
-    for (let x = 0; x < row.length; x++) {
-      const tile = row[x];
-      if (tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE || tile.type === TileType.INDUSTRIAL) {
-        sum += (tile.jobs || 0);
-      }
-    }
-  }
-  return sum;
+/** Render metadata is transient and intentionally not part of CityState. */
+export function getLastSimulationRenderRevisions() {
+  return { ...lastSimulationRenderRevisions, dirtyChunkKeys: [...lastSimulationRenderRevisions.dirtyChunkKeys] };
 }
 
 function hasRoadAccess(tile: TileData, grid: TileData[][]): boolean {
@@ -119,21 +95,12 @@ export function calculateDemandsAndDesirability(
   powerDemand: number,
   waterCapacity: number,
   waterDemand: number,
+  context?: SimulationTickContext,
 ) {
-  let buildingsCount = 0;
-  let reliableCount = 0;
-  let officeJobs = 0;
-  for (let y = 0; y < grid.length; y++) {
-    const row = grid[y];
-    for (let x = 0; x < row.length; x++) {
-      const tile = row[x];
-      if (tile.type === TileType.RESIDENTIAL || tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE || tile.type === TileType.INDUSTRIAL) {
-        buildingsCount++;
-        if (tile.powered && tile.watered) reliableCount++;
-        if (tile.type === TileType.OFFICE) officeJobs += (tile.jobs || 0);
-      }
-    }
-  }
+  const aggregates = context?.tileAggregates ?? createSimulationTickContext(grid).tileAggregates;
+  const buildingsCount = aggregates.buildingCount;
+  const reliableCount = aggregates.reliableBuildingCount;
+  const officeJobs = aggregates.officeJobs;
   const utilityReliability = buildingsCount ? reliableCount / buildingsCount : 1;
   const serviceScore = (
     state.healthcareCoverage + state.educationCoverage + state.fireSafety + (100 - state.crimeRate) + state.wasteCoverage
@@ -184,7 +151,6 @@ export function simulatePopulation(
   const comCapacityMultiplier = unlockedUpgrades.includes('high_dens_com') ? 2 : 1;
   const indCapacityMultiplier = unlockedUpgrades.includes('high_dens_ind') ? 2 : 1;
   let totalPop = 0;
-  let totalWorkers = 0;
   let totalJobs = 0;
 
   for (const row of grid) {
@@ -322,7 +288,7 @@ export function calculateEconomy(
   population = 0,
   households = 0,
   workers = 0,
-  jobs = 0,
+  _jobs = 0,
   unlockedUpgrades: string[] = [],
   residentialTaxRate = 9,
   commercialTaxRate = 9,
@@ -340,11 +306,22 @@ export function calculateEconomy(
   let commercialJobs = 0;
   let officeJobs = 0;
   let industrialJobs = 0;
+  const buildingLevelCounts = {
+    residential: [0, 0, 0, 0, 0],
+    commercial: [0, 0, 0, 0, 0],
+    industrial: [0, 0, 0, 0, 0],
+  };
 
   for (let y = 0; y < grid.length; y++) {
     const row = grid[y];
     for (let x = 0; x < row.length; x++) {
       const tile = row[x];
+    if (!tile.abandoned) {
+      const levelIndex = Math.max(0, Math.min(4, Math.round(tile.level ?? 1) - 1));
+      if (tile.type === TileType.RESIDENTIAL) buildingLevelCounts.residential[levelIndex] += 1;
+      else if (tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE) buildingLevelCounts.commercial[levelIndex] += 1;
+      else if (tile.type === TileType.INDUSTRIAL) buildingLevelCounts.industrial[levelIndex] += 1;
+    }
     if (tile.type === TileType.RESIDENTIAL) resRevenue += (tile.population || 0) * GAME_CONFIG.BASE_RES_TAX_COEFF * (residentialTaxRate / 9);
     if (tile.type === TileType.COMMERCIAL) {
       commercialJobs += tile.jobs || 0;
@@ -431,6 +408,7 @@ export function calculateEconomy(
     officeUtilization,
     industrialUtilization,
     marketHealth: Math.round(((commercialUtilization + officeUtilization + industrialUtilization) / 3) * 100),
+    buildingLevelCounts,
   };
 }
 
@@ -509,36 +487,29 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     phaseStartedAt = now;
   };
 
-  // Fast clone: avoid expensive JSON serialization of the entire 60x60 grid
-  const grid = input.grid.map((row) => row.map((tile) => ({ ...tile })));
-  const state: CityState = {
-    ...input,
-    grid,
-    unlockedRegions: input.unlockedRegions ?? ['1,1'],
-    eventsData: input.eventsData ? [...input.eventsData] : [],
-    unlockedAchievements: [...input.unlockedAchievements],
-    completedMissions: [...input.completedMissions],
-    history: [...input.history],
-    incidents: input.incidents ? input.incidents.map((incident) => ({ ...incident })) : [],
-    serviceVehicles: input.serviceVehicles ? input.serviceVehicles.map((vehicle) => ({ ...vehicle, path: vehicle.path.map(([x, y]) => [x, y] as [number, number]) })) : [],
-    serviceMaintenanceOrders: input.serviceMaintenanceOrders ? input.serviceMaintenanceOrders.map((order) => ({ ...order, facility: { ...order.facility } })) : [],
-    serviceBayQueues: { ...(input.serviceBayQueues ?? {}) },
-    serviceDepotCondition: { ...(input.serviceDepotCondition ?? {}) },
-    disasters: input.disasters ? input.disasters.map((disaster) => ({ ...disaster })) : [],
-    districts: input.districts ? input.districts.map((district) => ({ ...district, tiles: district.tiles.map(([x, y]) => [x, y] as [number, number]) })) : [],
-    schemaVersion: input.schemaVersion ?? 1,
-    commandQueue: input.commandQueue ? input.commandQueue.map((command) => ({ ...command, payload: { ...command.payload } })) : [],
-    recentSimulationEvents: input.recentSimulationEvents ? input.recentSimulationEvents.map((event) => ({ ...event, payload: { ...event.payload } })) : [],
-    tradeContracts: input.tradeContracts ? input.tradeContracts.map((contract) => ({ ...contract })) : [],
-    recoveryProjects: input.recoveryProjects ? input.recoveryProjects.map((project) => ({ ...project, tiles: project.tiles.map(([x, y]) => [x, y] as [number, number]) })) : [],
-    causalDiagnostics: input.causalDiagnostics ? input.causalDiagnostics.map((diagnostic) => ({ ...diagnostic, location: diagnostic.location ? { ...diagnostic.location } : undefined })) : [],
-    signalStates: Object.fromEntries(Object.entries(input.signalStates ?? {}).map(([key, signal]) => [key, { ...signal }])),
-  };
+  // One mutable working copy is the explicit mutation boundary for the tick.
+  // Nested mutable collections are copied by cloneCityStateForSimulation;
+  // input remains safe for replay, undo, and stale-worker rejection.
+  const state = cloneCityStateForSimulation(input);
+  const grid = state.grid;
+  const context = createSimulationTickContext(grid);
 
   markPhase('INPUT');
   state.simulationPhase = 'INPUT';
   const appliedCommands = applySimulationCommands(state, state.commandQueue ?? []);
   state.commandQueue = [];
+  refreshTileAggregates(context, grid);
+  for (const command of appliedCommands) {
+    const payload = command.payload as { x?: number; y?: number; changes?: Array<{ x: number; y: number }> };
+    const coordinates: Array<[number, number]> = [];
+    if (Number.isInteger(payload.x) && Number.isInteger(payload.y)) coordinates.push([payload.x!, payload.y!]);
+    for (const change of payload.changes ?? []) {
+      if (Number.isInteger(change.x) && Number.isInteger(change.y)) coordinates.push([change.x, change.y]);
+    }
+    if (coordinates.length === 0) continue;
+    const kind = command.type === 'TERRAFORM' ? 'TERRAIN' : command.type === 'SET_SIGNAL' || command.type === 'REPAIR_ROAD' ? 'ROAD' : 'TOPOLOGY';
+    markTilesChanged(context, coordinates, kind);
+  }
   const commandEvents = appliedCommands.map((command) => ({
     id: `command-applied-${command.id}`,
     type: 'COMMAND_APPLIED',
@@ -641,17 +612,21 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   evWaterMult *= climate.waterDemandMultiplier;
 
   // Allocate utilities passing active event multipliers directly to BFS network allocation
-  const utilities = simulateUtilityNetworks(state.grid, state.unlockedUpgrades, evPowerMult, evWaterMult);
-  state.simulationPhase = 'UTILITIES';
   markPhase('UTILITIES');
+  const utilities = simulateUtilityNetworks(state.grid, state.unlockedUpgrades, evPowerMult, evWaterMult);
+  markTilesChanged(context, utilities.changedTiles, 'UTILITY');
+  refreshTileAggregates(context, grid);
+  state.simulationPhase = 'UTILITIES';
   state.powerCapacity = utilities.powerCapacity;
   state.powerDemand = utilities.powerDemand;
   state.waterCapacity = utilities.waterCapacity;
   state.waterDemand = utilities.waterDemand;
 
   markPhase('ENVIRONMENT');
-  let roadGraph = buildRoadGraph(state.grid, state.unlockedUpgrades, state.timeOfDay);
+  const roadGraph = buildRoadGraph(state.grid, state.unlockedUpgrades, state.timeOfDay, state.signalStates);
+  context.roadGraph = roadGraph;
   state.signalStates = advanceIntersectionSignalStates(roadGraph, state.signalStates, state.timeOfDay, 1);
+  applySignalStatesToRoadGraph(roadGraph, state.signalStates);
   const depth = simulateCityDepthAndEnvironment(state.grid, roadGraph, state.unlockedUpgrades);
   state.landValueAverage = depth.landValueAverage;
   state.suitabilityAverage = depth.suitabilityAverage;
@@ -666,31 +641,10 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     enabled: mixedUseEnabled || mixedUseTiles.size > 0,
     mixedUseTiles,
   });
+  markTilesChanged(context, initialMixedUse.changedTiles ?? [], 'BUILDING');
   state.mixedUseBlocks = initialMixedUse.mixedUseBlocks;
   state.mixedUseFloorArea = initialMixedUse.mixedUseFloorArea;
   state.mixedUseJobs = initialMixedUse.mixedUseJobs;
-  let envTilesCount = 0;
-  let envLandValueSum = 0;
-  let envPollutionSum = 0;
-  let envNoiseSum = 0;
-  for (let y = 0; y < grid.length; y++) {
-    const row = grid[y];
-    for (let x = 0; x < row.length; x++) {
-      const tile = row[x];
-      if (tile.type !== TileType.EMPTY && !tile.water) {
-        envTilesCount++;
-        envLandValueSum += tile.landValue;
-        envPollutionSum += tile.pollution;
-        envNoiseSum += tile.noise;
-      }
-    }
-  }
-  if (envTilesCount > 0) {
-    state.landValueAverage = Math.round(envLandValueSum / envTilesCount);
-    state.pollutionAverage = Math.round((envPollutionSum / envTilesCount) * 10) / 10;
-    state.noiseAverage = Math.round((envNoiseSum / envTilesCount) * 10) / 10;
-  }
-
   const initialParking = simulateParking(state.grid);
   state.parkingDemand = initialParking.demand;
   state.parkingSupply = initialParking.supply;
@@ -701,8 +655,8 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   const services = simulateCityServices(
     state.grid,
     roadGraph,
-    activePopulation(state.grid),
-    activeJobs(state.grid),
+    context.tileAggregates.population,
+    context.tileAggregates.jobs,
     state.desirability,
     state.averageCommuteTime,
     state.residentialTaxRate,
@@ -723,7 +677,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   state.happiness = clamp(services.happiness + districtEffects.serviceCoverageBoost * 0.35 + evHappinessOffset - disasterResult.happinessPenalty, 0, 100);
 
   markPhase('DEMAND');
-  const demands = calculateDemandsAndDesirability(state.grid, state, state.powerCapacity, state.powerDemand, state.waterCapacity, state.waterDemand);
+  const demands = calculateDemandsAndDesirability(state.grid, state, state.powerCapacity, state.powerDemand, state.waterCapacity, state.waterDemand, context);
   state.desirability = demands.desirability;
   state.residentialDemand = clamp(Math.round((demands.residentialDemand + districtEffects.residentialDemandBonus) * diffMods.demandMultiplier * evDemandMult), GAME_CONFIG.DEMAND_MIN, GAME_CONFIG.DEMAND_MAX);
   state.commercialDemand = clamp(Math.round((demands.commercialDemand + districtEffects.commercialDemandBonus) * diffMods.demandMultiplier * evDemandMult), GAME_CONFIG.DEMAND_MIN, GAME_CONFIG.DEMAND_MAX);
@@ -733,7 +687,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   markPhase('URBAN_FORM');
   const preLogistics = simulateLogistics(state.grid, roadGraph, state.warehouseInventory ?? {}, false);
   const logisticsGrowthFactor = Math.max(0.65, Math.min(1, 0.65 + preLogistics.freightReliability / 100 * 0.35));
-  simulateBuildingEvolution(
+  const evolvedBuildingTiles = simulateBuildingEvolution(
     state.grid,
     roadGraph,
     state.residentialDemand,
@@ -742,6 +696,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     Math.round(state.industrialDemand * logisticsGrowthFactor),
     state.unlockedUpgrades,
   );
+  markTilesChanged(context, evolvedBuildingTiles, 'BUILDING');
   const evolvedParcels = refreshParcelStatuses(state.grid);
   state.parcelCount = evolvedParcels.parcelCount;
   state.developedParcelCount = evolvedParcels.developedParcelCount;
@@ -751,6 +706,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     enabled: mixedUseEnabled || mixedUseTiles.size > 0,
     mixedUseTiles,
   });
+  markTilesChanged(context, evolvedMixedUse.changedTiles ?? [], 'BUILDING');
   state.mixedUseBlocks = evolvedMixedUse.mixedUseBlocks;
   state.mixedUseFloorArea = evolvedMixedUse.mixedUseFloorArea;
   state.mixedUseJobs = evolvedMixedUse.mixedUseJobs;
@@ -761,6 +717,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     Math.round(state.industrialDemand * logisticsGrowthFactor),
     state.unlockedUpgrades,
   );
+  refreshTileAggregates(context, grid);
   for (let y = 0; y < grid.length; y++) {
     const row = grid[y];
     for (let x = 0; x < row.length; x++) {
@@ -773,8 +730,6 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
       }
     }
   }
-  roadGraph = buildRoadGraph(state.grid, state.unlockedUpgrades, state.timeOfDay, state.signalStates);
-
   // Transit is evaluated before the citizen step so modal choice can react to
   // the network that exists on this tick. Facilities are capacity providers,
   // not merely decorative buildings: they must be powered and road-connected.
@@ -782,7 +737,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   const transitNetwork = simulateTransitNetwork(
     state.grid,
     roadGraph,
-    activePopulation(state.grid),
+    context.tileAggregates.population,
     state.unlockedUpgrades,
     state.transitLines ?? [],
     state.timeOfDay,
@@ -1034,23 +989,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   // Monotonic milestone progression: achieved milestones never regress
   state.milestoneLevel = Math.max(state.milestoneLevel ?? 0, getMilestoneLevel(state));
 
-  const buildingLevelCounts = {
-    residential: [0, 0, 0, 0, 0],
-    commercial: [0, 0, 0, 0, 0],
-    industrial: [0, 0, 0, 0, 0],
-  };
-  for (let y = 0; y < grid.length; y++) {
-    const row = grid[y];
-    for (let x = 0; x < row.length; x++) {
-      const tile = row[x];
-      if (tile.abandoned) continue;
-      const levelIndex = Math.max(0, Math.min(4, Math.round(tile.level ?? 1) - 1));
-      if (tile.type === TileType.RESIDENTIAL) buildingLevelCounts.residential[levelIndex] += 1;
-      else if (tile.type === TileType.COMMERCIAL) buildingLevelCounts.commercial[levelIndex] += 1;
-      else if (tile.type === TileType.INDUSTRIAL) buildingLevelCounts.industrial[levelIndex] += 1;
-    }
-  }
-  state.buildingLevelCounts = buildingLevelCounts;
+  state.buildingLevelCounts = economy.buildingLevelCounts;
   state.completedMissions = [...state.completedMissions];
   state.unlockedAchievements = [...state.unlockedAchievements];
   for (const achievement of ACHIEVEMENTS) {
@@ -1118,6 +1057,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   const profileEnd = profilerNow();
   phaseTimings[phaseName] = Math.round((profileEnd - phaseStartedAt) * 10) / 10;
   lastSimulationPhaseTimings = phaseTimings;
+  lastSimulationRenderRevisions = finalizeSimulationRenderRevisions(context);
 
   return state;
 }

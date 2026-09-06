@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { CityMilestone } from '../progression';
-import { Landmark, Trophy, Sparkles, X } from 'lucide-react';
+import { Trophy, X } from 'lucide-react';
 import { useModalFocus } from './ui/useModalFocus';
 
 interface MilestoneBannerProps {

@@ -1,6 +1,3 @@
-import * as THREE from 'three';
-import { TileType } from '../../types';
-
 export const TILE_SIZE = 1; // 1 unit in 3D world per tile
 export const GRID_WIDTH = 30;
 export const GRID_HEIGHT = 20;

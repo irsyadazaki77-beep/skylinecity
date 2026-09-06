@@ -1,5 +1,5 @@
 import { TileData, TileType, TransitLine } from './types';
-import { RoadGraph, getAdjacentRoadNodeKey, getRoadNodeKey } from './traffic';
+import { RoadGraph, getAdjacentRoadNodeKey } from './traffic';
 
 export interface TransitNetworkResult {
   busDepots: number;

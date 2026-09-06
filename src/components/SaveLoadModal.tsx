@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { SaveImportPreview, SaveSlotInfo, saveRepository } from '../saveSystem';
 import { CityState } from '../types';
-import { X, Save, FolderOpen, Plus, Trash2, Download, Upload, AlertTriangle, RefreshCw } from 'lucide-react';
+import { X, Save, FolderOpen, Trash2, Download, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useModalFocus } from './ui/useModalFocus';
 import { createLocalizationCatalog, SupportedLanguage, translate } from '../localization';
 

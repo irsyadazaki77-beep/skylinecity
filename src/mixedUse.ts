@@ -48,6 +48,7 @@ export interface MixedUseMetrics {
   mixedUseBlocks: number;
   mixedUseFloorArea: number;
   mixedUseJobs: number;
+  changedTiles?: Array<[number, number]>;
 }
 
 function stableProgramIndex(tile: TileData): number {
@@ -81,6 +82,16 @@ function clearProgram(tile: TileData): void {
   tile.mixedUseResidentialFloors = undefined;
 }
 
+function programSignature(tile: TileData): string {
+  return [
+    tile.mixedUseProgram,
+    tile.mixedUseFloorCount,
+    tile.mixedUseRetailFloors,
+    tile.mixedUseOfficeFloors,
+    tile.mixedUseResidentialFloors,
+  ].join(':');
+}
+
 /**
  * Assigns a stable, data-driven floor program to every eligible mixed-use
  * block. The commercial frontage tile is the block anchor; the residential
@@ -97,9 +108,23 @@ export function reconcileMixedUsePrograms(
   let mixedUseBlocks = 0;
   let mixedUseFloorArea = 0;
   let mixedUseJobs = 0;
+  const changedTiles: Array<[number, number]> = [];
+  const previousPrograms = new Map<string, string>();
+  const touchedProgramKeys = new Set<string>();
 
   for (const row of grid) {
-    for (const tile of row) clearProgram(tile);
+    for (const tile of row) {
+      if (tile.mixedUseProgram !== undefined
+        || tile.mixedUseFloorCount !== undefined
+        || tile.mixedUseRetailFloors !== undefined
+        || tile.mixedUseOfficeFloors !== undefined
+        || tile.mixedUseResidentialFloors !== undefined) {
+        const key = `${tile.x},${tile.y}`;
+        previousPrograms.set(key, programSignature(tile));
+        touchedProgramKeys.add(key);
+      }
+      clearProgram(tile);
+    }
   }
 
   const areaAllowed = (x: number, y: number) => !options.mixedUseTiles || [
@@ -109,7 +134,7 @@ export function reconcileMixedUsePrograms(
     `${x + 1},${y + 1}`,
   ].every((key) => options.mixedUseTiles!.has(key));
 
-  if (!enabled) return { mixedUseBlocks, mixedUseFloorArea, mixedUseJobs };
+  if (!enabled) return { mixedUseBlocks, mixedUseFloorArea, mixedUseJobs, changedTiles };
 
   const programs = Object.keys(MIXED_USE_PROGRAMS) as MixedUseFloorProgram[];
   for (let y = 0; y < height - 1; y += 1) {
@@ -132,6 +157,10 @@ export function reconcileMixedUsePrograms(
       grid[y][x + 1].mixedUseProgram = program;
       grid[y + 1][x].mixedUseProgram = program;
       grid[y + 1][x + 1].mixedUseProgram = program;
+      touchedProgramKeys.add(`${anchor.x},${anchor.y}`);
+      touchedProgramKeys.add(`${grid[y][x + 1].x},${grid[y][x + 1].y}`);
+      touchedProgramKeys.add(`${grid[y + 1][x].x},${grid[y + 1][x].y}`);
+      touchedProgramKeys.add(`${grid[y + 1][x + 1].x},${grid[y + 1][x + 1].y}`);
 
       mixedUseBlocks += 1;
       mixedUseFloorArea += floorCount * 4;
@@ -139,7 +168,13 @@ export function reconcileMixedUsePrograms(
     }
   }
 
-  return { mixedUseBlocks, mixedUseFloorArea, mixedUseJobs };
+  for (const key of touchedProgramKeys) {
+    const [x, y] = key.split(',').map(Number);
+    const tile = grid[y]?.[x];
+    if (tile && previousPrograms.get(key) !== programSignature(tile)) changedTiles.push([x, y]);
+  }
+
+  return { mixedUseBlocks, mixedUseFloorArea, mixedUseJobs, changedTiles };
 }
 
 export function mixedUseJobCapacityMultiplier(tile: TileData): number {

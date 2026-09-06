@@ -12,7 +12,7 @@ interface Building3DProps {
   abandoned?: boolean;
 }
 
-export function Building3D({ type, population, jobs, level, traffic, powered, watered, abandoned }: Building3DProps) {
+export function Building3D({ type, population, jobs, level, traffic: _traffic, powered, watered, abandoned }: Building3DProps) {
   // Determine height and visual attributes based on type, level, and occupants
   let height = 0;
   let topColor = '#14161A';

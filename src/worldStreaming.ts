@@ -1,4 +1,4 @@
-import { TileData, TileType } from './types';
+import { TileData } from './types';
 import { MapPreset, REGION_SIZE } from './mapGenerator';
 import { createTile } from './types';
 

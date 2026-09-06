@@ -5,18 +5,15 @@ import { buildRoadGraph } from '../traffic';
 import { SeededRandom } from './prng';
 import {
   EducationLevel,
-  AgeStage,
   Citizen,
   Household,
   WorkplaceFacility,
   SchoolFacility,
-  TransitMode,
 } from './types';
 import { createCitizen, createHousehold, simulateDemographicMigration } from './migration';
 import { syncWorkplaceFacilities, matchCitizensToWorkplaces } from './jobMatching';
 import { syncSchoolFacilitiesAndEnrollment } from './schools';
-import { evaluateHouseholdSatisfaction, calculateTileRent } from './satisfaction';
-import { generateCitizenTrips, applyTripTrafficToRoads, findRoadPath, findTransitLineAccess } from './trips';
+import { applyTripTrafficToRoads, findTransitLineAccess } from './trips';
 import { 
   createInitialCitizenSimulationState, 
   serializeCitizenSimulation, 

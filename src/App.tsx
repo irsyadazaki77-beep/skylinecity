@@ -19,13 +19,12 @@ import { BuildingInspector } from './components/ui/BuildingInspector';
 import { BottomToolbar } from './components/ui/BottomToolbar';
 import { CameraToolbar } from './components/ui/CameraToolbar';
 import { MilestoneBanner } from './components/MilestoneBanner';
-import { ActiveTool, BUILD_COSTS, CityState, createTile, getRoadClass, GameSettings, IntersectionControl, OverlayMode, ROAD_BUILD_COSTS, RoadClass, SignalTimingMode, TileData, TileType, TransitLine, TERRAFORM_COST, TUNNEL_BUILD_COST, TurnMovement, ZoneDensity } from './types';
+import { ActiveTool, BUILD_COSTS, CityState, createTile, getRoadClass, GameSettings, IntersectionControl, ROAD_BUILD_COSTS, RoadClass, SignalTimingMode, TileData, TileType, TransitLine, TERRAFORM_COST, TUNNEL_BUILD_COST, TurnMovement, ZoneDensity } from './types';
 import { FreightCommodity } from './logistics';
 import { GAME_CONFIG } from './config';
-import { createInitialCityState, getLastSimulationPhaseTimings, simulateTick, unlockRegion } from './engine';
-import { isTileInUnlockedRegion, canUnlockRegion } from './mapGenerator';
+import { createInitialCityState, unlockRegion } from './engine';
+import { isTileInUnlockedRegion } from './mapGenerator';
 import { MILESTONES, TECH_NODES } from './progression';
-import { saveGameAsync } from './saveSystem';
 import { createStarterGrid } from './starterCity';
 import { applyTerrainTool, getTerrainBrushTiles, isTerrainTool } from './terrain';
 import { DistrictPolicy, createDistrict, getDistrictAt } from './districts';
@@ -44,7 +43,6 @@ import { getServiceUpgrade } from './serviceUpgrades';
 import { calculateTransitLineInsights } from './transitInsights';
 import { calculateServiceDispatchInsights } from './serviceDispatchInsights';
 import { createRuntimeAuditScenario } from './runtimeAuditScenario';
-import { createSimulationSchedulerState, observeSimulationTick, SimulationSchedulerTelemetry } from './simulationScheduler';
 import { calculateBuildForecast } from './buildForecast';
 import { playUiSound, updateProceduralAmbience, type UiSound } from './audio';
 import { createLocalizationCatalog, translate } from './localization';
@@ -77,14 +75,6 @@ function isRuntimeAuditScenarioRequested(): boolean {
 
 function cloneGrid(grid: TileData[][]): TileData[][] {
   return grid.map((row) => row.map((tile) => ({ ...tile })));
-}
-
-function cloneCityState(state: CityState): CityState {
-  try {
-    return structuredClone(state);
-  } catch {
-    return { ...state, grid: cloneGrid(state.grid) };
-  }
 }
 
 const ROAD_CLASS_ORDER: RoadClass[] = ['LOCAL', 'ARTERIAL', 'HIGHWAY'];
@@ -212,7 +202,7 @@ export default function App() {
 
   const {
     hasAutosave,
-    setHasAutosave,
+    
     handleAutosaveOnTick,
   } = useSaveLifecycle({
     settings,
@@ -224,10 +214,10 @@ export default function App() {
     qualityTier,
     handleQualityHint,
     schedulerTelemetry,
-    setSchedulerTelemetry,
     lastSimulationTickMs,
     lastSimulationPhaseTimings,
     simulationTickId,
+    renderRevisions,
   } = useSimulationControls({
     settings,
     setGameState,
@@ -303,7 +293,7 @@ export default function App() {
       peakEndHour: 9,
       peakFrequency: mode === 'TRAM' ? 4 : 5,
     };
-    recordEdit(gameState);
+    recordEdit(gameState, 'TRANSIT');
     setGameState((current) => ({
       ...current,
       transitLines: [...(current.transitLines ?? []), line],
@@ -323,7 +313,7 @@ export default function App() {
 
   const handleRemoveTransitLine = useCallback((lineId: string) => {
     if (!(gameState.transitLines ?? []).some((line) => line.id === lineId)) return;
-    recordEdit(gameState);
+    recordEdit(gameState, 'TRANSIT');
     setGameState((current) => queueSimulationCommand({
       ...current,
       transitLines: (current.transitLines ?? []).filter((line) => line.id !== lineId),
@@ -340,7 +330,7 @@ export default function App() {
 
   const handleToggleTransitLine = useCallback((lineId: string) => {
     if (!(gameState.transitLines ?? []).some((line) => line.id === lineId)) return;
-    recordEdit(gameState);
+    recordEdit(gameState, 'TRANSIT');
     setGameState((current) => {
       const line = (current.transitLines ?? []).find((candidate) => candidate.id === lineId);
       const active = line ? !line.active : false;
@@ -355,7 +345,7 @@ export default function App() {
 
   const handleUpdateTransitLine = useCallback((lineId: string, patch: Partial<TransitLine>) => {
     if (!(gameState.transitLines ?? []).some((line) => line.id === lineId)) return;
-    recordEdit(gameState);
+    recordEdit(gameState, 'TRANSIT');
     setGameState((current) => queueSimulationCommand({
       ...current,
       transitLines: (current.transitLines ?? []).map((line) => line.id === lineId ? { ...line, ...patch } : line),
@@ -690,7 +680,7 @@ export default function App() {
     const baseCost = BUILD_COSTS[tile.type] ?? 0;
     const refund = Math.round(baseCost * 0.5);
     playSound('demolish');
-    recordEdit(gameState);
+    recordEdit(gameState, 'BULLDOZE');
 
     updateGrid((grid) => {
       grid[y][x] = createTile(x, y, { elevation: tile.elevation, resource: tile.resource });
@@ -704,7 +694,7 @@ export default function App() {
     const res = unlockRegion(gameState, rx, ry);
     if (res.success) {
       playSound('success');
-      recordEdit(gameState);
+      recordEdit(gameState, 'REGION');
       setGameState(queueSimulationCommand({
         ...res.newState,
         activeRegionKeys: Array.from(new Set([...(res.newState.activeRegionKeys ?? ['1,1']), `${rx},${ry}`])),
@@ -769,7 +759,7 @@ export default function App() {
         .map(([tx, ty]) => ({ x: tx, y: ty, elevation: previewGrid[ty][tx].elevation }))
         .filter((change) => change.elevation !== gameState.grid[change.y][change.x].elevation);
       playSound('build');
-      recordEdit(gameState);
+      recordEdit(gameState, 'TERRAFORM');
       updateGrid((grid) => {
         applyTerrainTool(grid, x, y, activeTool, brushSize);
       });
@@ -806,7 +796,7 @@ export default function App() {
         createdDay: gameState.day,
       });
       playSound('success');
-      recordEdit(gameState);
+      recordEdit(gameState, 'DISTRICT');
       setGameState((current) => queueSimulationCommand(
         { ...current, districts: [...(current.districts ?? []), district] },
         createSimulationCommand('CREATE_DISTRICT', current.day, { district }),
@@ -896,7 +886,7 @@ export default function App() {
         // Commit drag road path
         if (previewTiles.length > 0 && previewColor === 'green' && gameState.money >= totalPlacementCost) {
           playSound('build');
-          recordEdit(gameState);
+          recordEdit(gameState, 'BUILD');
           updateGrid((grid) => {
             for (const [px, py] of previewTiles) {
               const t = grid[py]?.[px];
@@ -954,7 +944,7 @@ export default function App() {
     if (isZoning && brushSize > 1) {
       if (previewTiles.length > 0 && previewColor === 'green' && gameState.money >= totalPlacementCost) {
         playSound('build');
-        recordEdit(gameState);
+        recordEdit(gameState, 'ZONE');
         const zoning = zoningPlacement(activeTool);
         if (!zoning) return;
         updateGrid((grid) => {
@@ -1012,7 +1002,7 @@ export default function App() {
         return;
       }
       playSound('build');
-      recordEdit(gameState);
+      recordEdit(gameState, 'BUILD');
       updateGrid((grid) => {
         grid[y][x] = repair.tile;
       });
@@ -1124,7 +1114,7 @@ export default function App() {
     }
 
     playSound('build');
-    recordEdit(gameState);
+    recordEdit(gameState, 'BUILD');
     updateGrid((grid) => {
       grid[y][x] = {
         ...grid[y][x],
@@ -1161,7 +1151,7 @@ export default function App() {
   const handleUpdateRoadControl = useCallback((x: number, y: number, patch: { intersectionControl?: IntersectionControl; signalTimingMode?: SignalTimingMode; signalOffsetHours?: number; prohibitedTurns?: TurnMovement[] }) => {
     const tile = gameState.grid[y]?.[x];
     if (!tile || tile.type !== TileType.ROAD) return;
-    recordEdit(gameState);
+    recordEdit(gameState, 'INTERSECTION');
     setGameState((current) => {
       const tile = current.grid[y]?.[x];
       if (!tile || tile.type !== TileType.ROAD) return current;
@@ -1188,7 +1178,7 @@ export default function App() {
     const activeOrder = (gameState.serviceMaintenanceOrders ?? []).some((order) => `${order.facility.x},${order.facility.y}` === key);
     const cost = Math.max(25, Math.ceil((100 - condition) * 4));
     if (condition >= 99.5 || activeOrder || gameState.money < cost) return;
-    recordEdit(gameState);
+    recordEdit(gameState, 'SERVICE');
     setGameState((current) => {
       const tile = current.grid[y]?.[x];
       const fleetDepot = Boolean(tile && [TileType.FIRE_STATION, TileType.POLICE_STATION, TileType.CLINIC].includes(tile.type));
@@ -1213,7 +1203,7 @@ export default function App() {
   const handleUpgradeService = useCallback((x: number, y: number, upgradeId: string) => {
     const upgrade = getServiceUpgrade(upgradeId);
     if (!upgrade) return;
-    recordEdit(gameState);
+    recordEdit(gameState, 'SERVICE');
     setGameState((current) => {
       const tile = current.grid[y]?.[x];
       if (!tile || !upgrade.facilityTypes.includes(tile.type) || tile.serviceUpgrades?.includes(upgradeId) || current.money < upgrade.buildCost) return current;
@@ -1231,7 +1221,7 @@ export default function App() {
     if (!tile || tile.type !== TileType.ROAD || (tile.roadCondition ?? 100) >= 96) return;
     const active = (gameState.recoveryProjects ?? []).some((project) => project.active && project.tiles.some(([tx, ty]) => tx === x && ty === y));
     if (active) return;
-    recordEdit(gameState);
+    recordEdit(gameState, 'DISASTER');
     setGameState((current) => {
       const tile = current.grid[y]?.[x];
       if (!tile || tile.type !== TileType.ROAD || (tile.roadCondition ?? 100) >= 96) return current;
@@ -1254,7 +1244,7 @@ export default function App() {
         ? gameState.commercialTaxRate
         : gameState.industrialTaxRate;
     if (nextRate === currentRate) return;
-    recordEdit(gameState);
+    recordEdit(gameState, 'POLICY');
     setGameState((current) => queueSimulationCommand(
       { ...current, [`${type}TaxRate`]: nextRate },
       createSimulationCommand('SET_TAX', current.day, { type, value: nextRate }),
@@ -1271,7 +1261,7 @@ export default function App() {
       const current = type === 'residential' ? gameState.residentialTaxRate : type === 'commercial' ? gameState.commercialTaxRate : gameState.industrialTaxRate;
       return current === value;
     })) return;
-    recordEdit(gameState);
+    recordEdit(gameState, 'POLICY');
     setGameState((current) => rates.reduce((next, [type, value]) => {
       const key = `${type}TaxRate` as 'residentialTaxRate' | 'commercialTaxRate' | 'industrialTaxRate';
       return queueSimulationCommand(
@@ -1285,7 +1275,7 @@ export default function App() {
     if (gameState.money < cost || gameState.unlockedUpgrades.includes(id)) return;
     const node = TECH_NODES.find((item) => item.id === id);
     if (!node || gameState.milestoneLevel < node.requiredMilestoneLevel || (node.prerequisiteId && !gameState.unlockedUpgrades.includes(node.prerequisiteId))) return;
-    recordEdit(gameState);
+    recordEdit(gameState, 'TECH');
     setGameState((current) => queueSimulationCommand(
       { ...current, money: current.money - cost, unlockedUpgrades: [...current.unlockedUpgrades, id] },
       createSimulationCommand('UNLOCK_TECH', current.day, { id, cost }),
@@ -1293,7 +1283,7 @@ export default function App() {
   };
 
   const handleTogglePolicy = (policyId: string) => {
-    recordEdit(gameState);
+    recordEdit(gameState, 'POLICY');
     setGameState((current) => {
       const enabled = !current.activePolicies.includes(policyId);
       return queueSimulationCommand({
@@ -1322,7 +1312,7 @@ export default function App() {
 
   const handleRemoveDistrict = (districtId: string) => {
     if (!(gameState.districts ?? []).some((district) => district.id === districtId)) return;
-    recordEdit(gameState);
+    recordEdit(gameState, 'DISTRICT');
     setGameState((current) => queueSimulationCommand(
       { ...current, districts: (current.districts ?? []).filter((district) => district.id !== districtId) },
       createSimulationCommand('REMOVE_DISTRICT', current.day, { districtId }),
@@ -1331,7 +1321,7 @@ export default function App() {
 
   const handleClaimMission = (missionId: string, reward: number) => {
     if (gameState.completedMissions.includes(missionId)) return;
-    recordEdit(gameState);
+    recordEdit(gameState, 'OTHER');
     setGameState((current) => queueSimulationCommand(
       { ...current, money: current.money + reward, completedMissions: [...current.completedMissions, missionId] },
       createSimulationCommand('CLAIM_MISSION', current.day, { missionId, reward }),
@@ -1355,12 +1345,14 @@ export default function App() {
   };
 
   const handlePreparationAction = useCallback((action: import('./disasterPreparation').PreparationAction, enabled: boolean) => {
+    recordEdit(gameState, 'DISASTER');
     setGameState((current) => queueSimulationCommand(current, createSimulationCommand('SET_DISASTER_PREPARATION', current.day, { action, enabled })));
-  }, []);
+  }, [gameState, recordEdit]);
 
   const handleCampaignStyle = useCallback((style: import('./campaigns').CityStyleGoal) => {
+    recordEdit(gameState, 'OTHER');
     setGameState((current) => queueSimulationCommand(current, createSimulationCommand('SET_CAMPAIGN_STYLE', current.day, { style })));
-  }, []);
+  }, [gameState, recordEdit]);
 
   const handleCreateTradeContract = useCallback((commodity: FreightCommodity, direction: 'IMPORT' | 'EXPORT') => {
     const fee = direction === 'IMPORT' ? 180 : 120;
@@ -1725,6 +1717,7 @@ export default function App() {
             activeOverlay={activeOverlay}
             unlockedRegions={gameState.unlockedRegions}
             onTileClick={handleTileClick}
+            onRoadDragEnd={handleTileClick}
             onTilePointerEnter={handlePointerEnter}
             onTilePointerLeave={handlePointerLeave}
           />
@@ -1768,6 +1761,7 @@ export default function App() {
           dragPreviewColor={previewColor}
           settings={settings}
           onTileClick={handleTileClick}
+          renderRevisions={renderRevisions}
           onTilePointerEnter={handlePointerEnter}
           onTilePointerLeave={handlePointerLeave}
           onCancelInteraction={cancelTileInteraction}

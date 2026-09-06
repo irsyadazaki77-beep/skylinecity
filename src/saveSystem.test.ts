@@ -75,7 +75,7 @@ describe('release save compatibility', () => {
 
   it('rejects structurally unsafe city states instead of hydrating them', () => {
     const state = createInitialCityState(createStarterGrid(), 99);
-    const envelope = JSON.stringify({ ...createSaveEnvelope(state), state: { ...state, money: 1e999 } });
+    const envelope = JSON.stringify({ ...createSaveEnvelope(state), state: { ...state, money: Number.POSITIVE_INFINITY } });
     expect(importSavePreview(envelope).valid).toBe(false);
   });
 

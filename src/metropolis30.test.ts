@@ -5,7 +5,7 @@ import { createContentRegistry, registerMod, registerModContentPack, validateMod
 import { calculateRegionTelemetry, getActiveRegionKeys } from './regionSimulation';
 import { createRecoveryProject } from './recoveryProjects';
 import { evaluateScenario } from './scenarioSystem';
-import { createBenchmarkState, runBenchmarkScenario } from './metropolisBenchmarks';
+import { runBenchmarkScenario } from './metropolisBenchmarks';
 import { generateRegionChunk, getStreamingRegionKeys } from './worldStreaming';
 import { SimulationCommand, TileType } from './types';
 

@@ -14,11 +14,13 @@ describe('public beta benchmark and scheduler guardrails', () => {
     expect(Object.values(first.phaseMs).every((sample) => Number.isFinite(sample.p95))).toBe(true);
   });
 
-  it('covers every official scenario without relying on timing-sensitive pass/fail limits', () => {
+  it('keeps integrity and performance as separate explicit gates', () => {
     const report = runOfficialBenchmarkSuite(1, 888);
     expect(report.reports).toHaveLength(5);
     expect(report.deterministic).toBe(true);
-    expect(report.passed).toBe(true);
+    expect(report.integrityGate.passed).toBe(true);
+    expect(typeof report.performanceGate.passed).toBe('boolean');
+    expect(report.passed).toBe(report.integrityGate.passed && report.performanceGate.passed);
   }, 30_000);
 
   it('exercises represented population and sampled citizen workload in the 100k fixture', () => {

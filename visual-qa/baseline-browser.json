@@ -1,0 +1,37 @@
+[
+  {
+    "width": 1440,
+    "height": 900,
+    "errors": [
+      "[.WebGL-0x2dbc0040c400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+      "[.WebGL-0x2dbc0040c400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+      "[.WebGL-0x2dbc0040c400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+      "[.WebGL-0x2dbc0040c400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)"
+    ],
+    "timing": {
+      "p50": 366.59999999999854,
+      "p95": 799.9000000000015,
+      "note": "Headless browser RAF, not GPU timing"
+    }
+  },
+  {
+    "width": 1280,
+    "height": 720,
+    "errors": [],
+    "timing": {
+      "p50": 283.3000000000029,
+      "p95": 716.6000000000004,
+      "note": "Headless browser RAF, not GPU timing"
+    }
+  },
+  {
+    "width": 393,
+    "height": 851,
+    "errors": [],
+    "timing": {
+      "p50": 66.70000000000073,
+      "p95": 100,
+      "note": "Headless browser RAF, not GPU timing"
+    }
+  }
+]

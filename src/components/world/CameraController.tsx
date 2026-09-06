@@ -74,7 +74,9 @@ export function CameraController({ reducedMotion = false, terrainCeiling = 0, fo
       const pitchRad = (pitch * Math.PI) / 180;
       const rotRad = ((rotation + 45) * Math.PI) / 180;
 
-      const distance = focusDistance ?? 24 / zoom;
+      // A modest 8% closer gameplay frame keeps the starter blocks readable
+      // while preserving the surrounding road connection and river context.
+      const distance = focusDistance ?? 22 / zoom;
       const camY = Math.sin(pitchRad) * distance;
       const planeDist = Math.cos(pitchRad) * distance;
       const camX = Math.sin(rotRad) * planeDist;

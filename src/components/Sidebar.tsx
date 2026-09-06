@@ -27,8 +27,6 @@ import {
   Search,
   Star,
   X,
-  ChevronRight,
-  Layers,
 } from 'lucide-react';
 import { ActiveTool, BUILD_COSTS, ROAD_BUILD_COSTS, ROAD_REPAIR_COST, RoadClass, TERRAFORM_COST, TileType, TUNNEL_BUILD_COST } from '../types';
 import { createLocalizationCatalog, SupportedLanguage, translate } from '../localization';
@@ -66,6 +64,7 @@ export function Sidebar({
   const [favoriteTools, setFavoriteTools] = useState<ActiveTool[]>(() => {
     try { return JSON.parse(localStorage.getItem('skyline_favorite_tools') ?? '[]') as ActiveTool[]; } catch { return []; }
   });
+  const internalToolSelectionRef = useRef(false);
 
   const drawerRef = useRef<HTMLDivElement>(null);
   const catalog = createLocalizationCatalog(language);
@@ -76,6 +75,10 @@ export function Sidebar({
 
   // Sync category when activeTool changes from outside (e.g. NextAction or shortcut)
   useEffect(() => {
+    if (internalToolSelectionRef.current) {
+      internalToolSelectionRef.current = false;
+      return;
+    }
     const includesTool = (tools: readonly string[]) => tools.includes(activeTool);
     if (includesTool([TileType.ROAD, 'TUNNEL_ROAD', 'ROAD_REPAIR'])) setSelectedCategory('ROADS');
     else if (includesTool([TileType.RESIDENTIAL, 'RESIDENTIAL_MEDIUM', 'RESIDENTIAL_HIGH', TileType.COMMERCIAL, TileType.OFFICE, TileType.INDUSTRIAL])) setSelectedCategory('ZONING');
@@ -98,7 +101,12 @@ export function Sidebar({
   }, [selectedCategory, activeTool]);
 
   const setActiveTool = (tool: ActiveTool) => {
+    if (tool !== activeTool) internalToolSelectionRef.current = true;
     applyTool(tool);
+    // Once a tool is selected, return the map to the player. This is critical
+    // on touch layouts where the drawer backdrop otherwise intercepts every
+    // canvas gesture until it is dismissed manually.
+    setSelectedCategory(null);
     const nextRecent = [tool, ...recentTools.filter((item) => item !== tool)].slice(0, 4);
     setRecentTools(nextRecent);
     try { localStorage.setItem('skyline_recent_tools', JSON.stringify(nextRecent)); } catch { /* optional preference */ }

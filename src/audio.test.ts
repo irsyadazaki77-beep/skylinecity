@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { getSoundChannelVolume, playUiSound, UiSound } from './audio';
 
 describe('procedural Web Audio sound system', () => {

@@ -1,0 +1,6 @@
+[
+  {
+    "command": "npm run lint",
+    "exitCode": 2
+  }
+]

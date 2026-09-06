@@ -10,7 +10,6 @@ import {
 } from './tutorialFlow';
 import { createStarterGrid } from './starterCity';
 import { computeRoadRecommendations } from './tutorialPathfinder';
-import { getCoreLoopAdvice } from './coreLoopAdvisor';
 import { getNextActionModel } from './nextAction';
 import { get2DTileClass } from './components/world/City2DCanvas';
 import { DEFAULT_LOCALIZATION, translate } from './localization';

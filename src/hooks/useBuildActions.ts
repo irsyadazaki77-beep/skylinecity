@@ -1,66 +1,158 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { ActiveTool, RoadClass, TileData, CityState } from '../types';
 import { DistrictPolicy } from '../districts';
-import { SimulationCommit } from './useSimulationControls';
+import type { SimulationCommit } from './useSimulationControls';
 
-function cloneGrid(grid: TileData[][]): TileData[][] {
-  return grid.map((row) => row.map((tile) => ({ ...tile })));
+function cloneValue<T>(value: T): T {
+  try {
+    return structuredClone(value);
+  } catch {
+    if (value === null || typeof value !== 'object') return value;
+    if (Array.isArray(value)) return value.map((entry) => cloneValue(entry)) as T;
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) result[key] = cloneValue(entry);
+    return result as T;
+  }
 }
 
 export function cloneCityState(state: CityState): CityState {
-  try {
-    return structuredClone(state);
-  } catch {
-    return { ...state, grid: cloneGrid(state.grid) };
-  }
+  return cloneValue(state);
 }
 
-export interface TileDelta {
-  x: number;
-  y: number;
-  previous: TileData;
-  next: TileData;
+/**
+ * A reversible edit is a domain snapshot, not a JSON/grid diff. The grid is
+ * copied once when an edit starts and once when it completes, while change
+ * detection uses container revisions/references and scalar domain fields.
+ */
+export interface ReversibleCitySnapshot {
+  grid: TileData[][];
+  money: number;
+  unlockedUpgrades: string[];
+  activePolicies: string[];
+  transitLines?: CityState['transitLines'];
+  districts?: CityState['districts'];
+  signalStates?: CityState['signalStates'];
+  unlockedRegions: string[];
+  activeRegionKeys?: string[];
+  serviceMaintenanceOrders?: CityState['serviceMaintenanceOrders'];
+  serviceDepotCondition?: CityState['serviceDepotCondition'];
+  serviceBayQueues?: CityState['serviceBayQueues'];
+  recoveryProjects?: CityState['recoveryProjects'];
+  disasterPreparationState?: CityState['disasterPreparationState'];
+  policyConsequences?: CityState['policyConsequences'];
+  regions?: CityState['regions'];
+  commandQueue?: CityState['commandQueue'];
+  residentialTaxRate: number;
+  commercialTaxRate: number;
+  industrialTaxRate: number;
+  municipalDebt?: number;
+  capitalBudget?: number;
 }
 
 export interface BuildHistoryAction {
-  moneyDelta: number;
-  tiles: TileDelta[];
-  upgrades?: { before: string[]; after: string[] };
-  policies?: { before: string[]; after: string[] };
+  domain: 'BUILD' | 'ZONE' | 'BULLDOZE' | 'TERRAFORM' | 'TRANSIT' | 'INTERSECTION' | 'DISTRICT' | 'POLICY' | 'SERVICE' | 'REGION' | 'TECH' | 'DISASTER' | 'OTHER';
+  before: ReversibleCitySnapshot;
+  after: ReversibleCitySnapshot;
 }
 
-function computeGridDelta(beforeGrid: TileData[][], afterGrid: TileData[][]): TileDelta[] {
-  const deltas: TileDelta[] = [];
-  const height = Math.min(beforeGrid.length, afterGrid.length);
-  for (let y = 0; y < height; y++) {
-    const bRow = beforeGrid[y];
-    const aRow = afterGrid[y];
-    const width = Math.min(bRow.length, aRow.length);
-    for (let x = 0; x < width; x++) {
-      const b = bRow[x];
-      const a = aRow[x];
-      if (
-        b.type !== a.type ||
-        b.level !== a.level ||
-        b.elevation !== a.elevation ||
-        b.roadClass !== a.roadClass ||
-        b.roadStructure !== a.roadStructure ||
-        b.roadCondition !== a.roadCondition ||
-        b.zoneDensity !== a.zoneDensity ||
-        b.abandoned !== a.abandoned ||
-        b.parcelStatus !== a.parcelStatus ||
-        (b.serviceUpgrades?.length ?? 0) !== (a.serviceUpgrades?.length ?? 0)
-      ) {
-        deltas.push({
-          x,
-          y,
-          previous: { ...b },
-          next: { ...a },
-        });
-      }
-    }
-  }
-  return deltas;
+interface SnapshotReferences {
+  grid: TileData[][];
+  unlockedUpgrades: string[];
+  activePolicies: string[];
+  transitLines?: CityState['transitLines'];
+  districts?: CityState['districts'];
+  signalStates?: CityState['signalStates'];
+  unlockedRegions: string[];
+  activeRegionKeys?: string[];
+  serviceMaintenanceOrders?: CityState['serviceMaintenanceOrders'];
+  serviceDepotCondition?: CityState['serviceDepotCondition'];
+  serviceBayQueues?: CityState['serviceBayQueues'];
+  recoveryProjects?: CityState['recoveryProjects'];
+  disasterPreparationState?: CityState['disasterPreparationState'];
+  policyConsequences?: CityState['policyConsequences'];
+  regions?: CityState['regions'];
+  commandQueue?: CityState['commandQueue'];
+}
+
+interface PendingEdit {
+  snapshot: ReversibleCitySnapshot;
+  references: SnapshotReferences;
+  domain: BuildHistoryAction['domain'];
+}
+
+export function captureHistorySnapshot(state: CityState): ReversibleCitySnapshot {
+  return cloneValue({
+    grid: state.grid,
+    money: state.money,
+    unlockedUpgrades: state.unlockedUpgrades,
+    activePolicies: state.activePolicies,
+    transitLines: state.transitLines,
+    districts: state.districts,
+    signalStates: state.signalStates,
+    unlockedRegions: state.unlockedRegions,
+    activeRegionKeys: state.activeRegionKeys,
+    serviceMaintenanceOrders: state.serviceMaintenanceOrders,
+    serviceDepotCondition: state.serviceDepotCondition,
+    serviceBayQueues: state.serviceBayQueues,
+    recoveryProjects: state.recoveryProjects,
+    disasterPreparationState: state.disasterPreparationState,
+    policyConsequences: state.policyConsequences,
+    regions: state.regions,
+    commandQueue: state.commandQueue,
+    residentialTaxRate: state.residentialTaxRate,
+    commercialTaxRate: state.commercialTaxRate,
+    industrialTaxRate: state.industrialTaxRate,
+    municipalDebt: state.municipalDebt,
+    capitalBudget: state.capitalBudget,
+  });
+}
+
+function captureReferences(state: CityState): SnapshotReferences {
+  return {
+    grid: state.grid,
+    unlockedUpgrades: state.unlockedUpgrades,
+    activePolicies: state.activePolicies,
+    transitLines: state.transitLines,
+    districts: state.districts,
+    signalStates: state.signalStates,
+    unlockedRegions: state.unlockedRegions,
+    activeRegionKeys: state.activeRegionKeys,
+    serviceMaintenanceOrders: state.serviceMaintenanceOrders,
+    serviceDepotCondition: state.serviceDepotCondition,
+    serviceBayQueues: state.serviceBayQueues,
+    recoveryProjects: state.recoveryProjects,
+    disasterPreparationState: state.disasterPreparationState,
+    policyConsequences: state.policyConsequences,
+    regions: state.regions,
+    commandQueue: state.commandQueue,
+  };
+}
+
+function referencesChanged(before: SnapshotReferences, after: CityState): boolean {
+  return before.grid !== after.grid
+    || before.unlockedUpgrades !== after.unlockedUpgrades
+    || before.activePolicies !== after.activePolicies
+    || before.transitLines !== after.transitLines
+    || before.districts !== after.districts
+    || before.signalStates !== after.signalStates
+    || before.unlockedRegions !== after.unlockedRegions
+    || before.activeRegionKeys !== after.activeRegionKeys
+    || before.serviceMaintenanceOrders !== after.serviceMaintenanceOrders
+    || before.serviceDepotCondition !== after.serviceDepotCondition
+    || before.serviceBayQueues !== after.serviceBayQueues
+    || before.recoveryProjects !== after.recoveryProjects
+    || before.disasterPreparationState !== after.disasterPreparationState
+    || before.policyConsequences !== after.policyConsequences
+    || before.regions !== after.regions
+    || before.commandQueue !== after.commandQueue;
+}
+
+export function restoreHistorySnapshot(current: CityState, snapshot: ReversibleCitySnapshot): CityState {
+  const restored = cloneValue(snapshot);
+  return {
+    ...current,
+    ...restored,
+  };
 }
 
 interface UseBuildActionsOptions {
@@ -90,16 +182,9 @@ export function useBuildActions({
 
   const undoStack = useRef<BuildHistoryAction[]>([]);
   const redoStack = useRef<BuildHistoryAction[]>([]);
-  const pendingPreEdit = useRef<{
-    grid: TileData[][];
-    money: number;
-    upgrades: string[];
-    policies: string[];
-  } | null>(null);
-
+  const pendingPreEdit = useRef<PendingEdit | null>(null);
   const isUndoRedoActive = useRef(false);
 
-  // When gameState changes after recordEdit was called, compute and store the inverse patch
   useEffect(() => {
     if (isUndoRedoActive.current) {
       isUndoRedoActive.current = false;
@@ -109,29 +194,28 @@ export function useBuildActions({
     if (!pre) return;
     pendingPreEdit.current = null;
 
-    const deltas = computeGridDelta(pre.grid, gameState.grid);
-    const moneyDelta = gameState.money - pre.money;
-    const upgradeChanged = pre.upgrades.length !== gameState.unlockedUpgrades.length;
-    const policyChanged = pre.policies.length !== gameState.activePolicies.length;
-
-    if (deltas.length > 0 || moneyDelta !== 0 || upgradeChanged || policyChanged) {
+    if (referencesChanged(pre.references, gameState)
+      || pre.snapshot.money !== gameState.money
+      || pre.snapshot.residentialTaxRate !== gameState.residentialTaxRate
+      || pre.snapshot.commercialTaxRate !== gameState.commercialTaxRate
+      || pre.snapshot.industrialTaxRate !== gameState.industrialTaxRate
+      || pre.snapshot.municipalDebt !== gameState.municipalDebt
+      || pre.snapshot.capitalBudget !== gameState.capitalBudget) {
       undoStack.current.push({
-        moneyDelta,
-        tiles: deltas,
-        upgrades: upgradeChanged ? { before: [...pre.upgrades], after: [...gameState.unlockedUpgrades] } : undefined,
-        policies: policyChanged ? { before: [...pre.policies], after: [...gameState.activePolicies] } : undefined,
+        domain: pre.domain,
+        before: pre.snapshot,
+        after: captureHistorySnapshot(gameState),
       });
       if (undoStack.current.length > 30) undoStack.current.shift();
       redoStack.current = [];
     }
   }, [gameState]);
 
-  const recordEdit = useCallback((state: CityState) => {
+  const recordEdit = useCallback((state: CityState, domain: BuildHistoryAction['domain'] = 'OTHER') => {
     pendingPreEdit.current = {
-      grid: state.grid.map((row) => row.map((tile) => ({ ...tile }))),
-      money: state.money,
-      upgrades: [...state.unlockedUpgrades],
-      policies: [...state.activePolicies],
+      snapshot: captureHistorySnapshot(state),
+      references: captureReferences(state),
+      domain,
     };
   }, []);
 
@@ -141,20 +225,7 @@ export function useBuildActions({
     isUndoRedoActive.current = true;
     redoStack.current.push(action);
     pendingSimulationCommit.current = null;
-
-    setGameState((current) => {
-      const nextGrid = current.grid.map((row) => [...row]);
-      for (const d of action.tiles) {
-        nextGrid[d.y][d.x] = { ...d.previous };
-      }
-      return {
-        ...current,
-        grid: nextGrid,
-        money: current.money - action.moneyDelta,
-        unlockedUpgrades: action.upgrades ? [...action.upgrades.before] : current.unlockedUpgrades,
-        activePolicies: action.policies ? [...action.policies.before] : current.activePolicies,
-      };
-    });
+    setGameState((current) => restoreHistorySnapshot(current, action.before));
     setSelectedTile(null);
   }, [pendingSimulationCommit, setGameState, setSelectedTile]);
 
@@ -164,20 +235,7 @@ export function useBuildActions({
     isUndoRedoActive.current = true;
     undoStack.current.push(action);
     pendingSimulationCommit.current = null;
-
-    setGameState((current) => {
-      const nextGrid = current.grid.map((row) => [...row]);
-      for (const d of action.tiles) {
-        nextGrid[d.y][d.x] = { ...d.next };
-      }
-      return {
-        ...current,
-        grid: nextGrid,
-        money: current.money + action.moneyDelta,
-        unlockedUpgrades: action.upgrades ? [...action.upgrades.after] : current.unlockedUpgrades,
-        activePolicies: action.policies ? [...action.policies.after] : current.activePolicies,
-      };
-    });
+    setGameState((current) => restoreHistorySnapshot(current, action.after));
     setSelectedTile(null);
   }, [pendingSimulationCommit, setGameState, setSelectedTile]);
 

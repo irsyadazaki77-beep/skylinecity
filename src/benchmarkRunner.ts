@@ -3,6 +3,11 @@ import { createBenchmarkState, BenchmarkScenario } from './metropolisBenchmarks'
 import { getStateHash } from './releaseReadiness';
 import { getSimulationBudgetMs, percentile } from './simulationScheduler';
 import { CityState } from './types';
+import {
+  BENCHMARK_REGRESSION_MARGIN_MS,
+  BENCHMARK_REGRESSION_RATIO,
+  OFFICIAL_BENCHMARK_BASELINE,
+} from './benchmarkBaseline';
 
 export const OFFICIAL_BENCHMARKS: BenchmarkScenario[] = [
   'SMALL_TOWN',
@@ -34,11 +39,27 @@ export interface BenchmarkReport {
   finite: boolean;
   budgetMs: number;
   budgetExceeded: boolean;
+  regressionExceeded: boolean;
+}
+
+export interface BenchmarkIntegrityGate {
+  passed: boolean;
+  deterministic: boolean;
+  finite: boolean;
+  validReplay: boolean;
+  failures: string[];
+}
+
+export interface BenchmarkPerformanceGate {
+  passed: boolean;
+  failures: string[];
 }
 
 export interface BenchmarkSuiteReport {
   reports: BenchmarkReport[];
   deterministic: boolean;
+  integrityGate: BenchmarkIntegrityGate;
+  performanceGate: BenchmarkPerformanceGate;
   passed: boolean;
 }
 
@@ -51,10 +72,28 @@ export function isFiniteCityState(state: CityState): boolean {
     state.money, state.population, state.income, state.expenses, state.happiness,
     state.trafficAverage, state.congestionIndex, state.averageCommuteTime,
   ];
-  return scalarValues.every(Number.isFinite) && state.grid.flat().every((tile) => [
-    tile.population, tile.jobs, tile.traffic, tile.elevation, tile.pollution,
-    tile.noise, tile.crime, tile.health, tile.education, tile.landValue,
-  ].every(Number.isFinite));
+  if (!scalarValues.every(Number.isFinite)) return false;
+  for (let y = 0; y < state.grid.length; y += 1) {
+    const row = state.grid[y];
+    for (let x = 0; x < row.length; x += 1) {
+      const tile = row[x];
+      if (![tile.population, tile.jobs, tile.traffic, tile.elevation, tile.pollution,
+        tile.noise, tile.crime, tile.health, tile.education, tile.landValue].every(Number.isFinite)) return false;
+    }
+  }
+  return true;
+}
+
+function sumGridPopulation(state: CityState): number {
+  let population = 0;
+  for (let y = 0; y < state.grid.length; y += 1) {
+    const row = state.grid[y];
+    for (let x = 0; x < row.length; x += 1) {
+      const tile = row[x];
+      if (tile.type === 'RESIDENTIAL') population += tile.population;
+    }
+  }
+  return population;
 }
 
 export function runOfficialBenchmark(scenario: BenchmarkScenario, ticks = 10, seed = 2088): BenchmarkReport {
@@ -76,6 +115,9 @@ export function runOfficialBenchmark(scenario: BenchmarkScenario, ticks = 10, se
   const phaseMs = Object.fromEntries(Object.entries(phaseSamples).map(([phase, samples]) => [phase, summarize(samples)]));
   const budgetMs = getSimulationBudgetMs(state.population);
   const tickMs = summarize(tickSamples);
+  const baseline = OFFICIAL_BENCHMARK_BASELINE[scenario];
+  const regressionExceeded = tickMs.p95 > baseline.p95 * BENCHMARK_REGRESSION_RATIO + BENCHMARK_REGRESSION_MARGIN_MS
+    || tickMs.p50 > baseline.p50 * BENCHMARK_REGRESSION_RATIO + BENCHMARK_REGRESSION_MARGIN_MS;
   return {
     scenario,
     seed,
@@ -83,7 +125,7 @@ export function runOfficialBenchmark(scenario: BenchmarkScenario, ticks = 10, se
     tickMs,
     phaseMs,
     population: state.population,
-    gridPopulation: state.grid.flat().reduce((sum, tile) => sum + (tile.type === 'RESIDENTIAL' ? tile.population : 0), 0),
+    gridPopulation: sumGridPopulation(state),
     citizenAgents: state.citizenState?.citizens?.length ?? 0,
     populationScale: state.citizenState?.populationScale ?? 1,
     entities: (state.activeTrips?.length ?? 0) + (state.activeFreightTrips?.length ?? 0) + (state.transitVehicles?.length ?? 0) + (state.serviceVehicles?.length ?? 0),
@@ -92,6 +134,7 @@ export function runOfficialBenchmark(scenario: BenchmarkScenario, ticks = 10, se
     finite: isFiniteCityState(state),
     budgetMs,
     budgetExceeded: tickMs.p95 > budgetMs,
+    regressionExceeded,
   };
 }
 
@@ -99,6 +142,33 @@ export function runOfficialBenchmarkSuite(ticks = 10, seed = 2088): BenchmarkSui
   const reports = OFFICIAL_BENCHMARKS.map((scenario) => runOfficialBenchmark(scenario, ticks, seed));
   const replayReports = OFFICIAL_BENCHMARKS.map((scenario) => runOfficialBenchmark(scenario, ticks, seed));
   const deterministic = reports.every((report, index) => report.stateHash === replayReports[index].stateHash);
-  const passed = deterministic && reports.every((report) => report.finite);
-  return { reports, deterministic, passed };
+  const finite = reports.every((report) => report.finite);
+  const validReplay = deterministic && replayReports.every((report) => report.finite);
+  const integrityFailures = [
+    ...(!deterministic ? ['deterministic replay mismatch'] : []),
+    ...(!finite ? ['non-finite authoritative state'] : []),
+    ...(!validReplay ? ['replay produced an invalid state'] : []),
+  ];
+  const integrityGate: BenchmarkIntegrityGate = {
+    passed: integrityFailures.length === 0,
+    deterministic,
+    finite,
+    validReplay,
+    failures: integrityFailures,
+  };
+  const performanceFailures = reports.flatMap((report) => [
+    ...(report.budgetExceeded ? [`${report.scenario} exceeded ${report.budgetMs}ms p95 budget`] : []),
+    ...(report.regressionExceeded ? [`${report.scenario} regressed against committed baseline`] : []),
+  ]);
+  const performanceGate: BenchmarkPerformanceGate = {
+    passed: performanceFailures.length === 0,
+    failures: performanceFailures,
+  };
+  return {
+    reports,
+    deterministic,
+    integrityGate,
+    performanceGate,
+    passed: integrityGate.passed && performanceGate.passed,
+  };
 }

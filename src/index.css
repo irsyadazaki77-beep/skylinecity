@@ -579,7 +579,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .tool-rail-container {
     top: 56px;
     bottom: 0;
-    z-index: 25;
+    /* Build selection must remain actionable when City Pulse appears after a
+       running tick. The drawer itself is the active interaction surface. */
+    z-index: 35;
   }
   .tool-rail {
     width: 56px;
@@ -605,14 +607,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   }
   .simulation-toolbar {
     bottom: 8px;
-    left: 8px;
-    right: 8px;
+    left: 8px !important;
+    right: 8px !important;
     /* Cancel the desktop -translate-x-1/2 utility when the bar becomes
        viewport-width on mobile; otherwise its right half is clipped. */
     transform: none !important;
     translate: none !important;
-    width: calc(100vw - 16px);
-    max-width: none;
+    width: calc(100vw - 16px) !important;
+    max-width: none !important;
   }
   .simulation-toolbar-main {
     padding: 4px 8px;

@@ -12,8 +12,6 @@ export interface DisasterSimulationResult {
   recoveryRate: number;
 }
 
-const DISASTER_TYPES: CityDisasterType[] = ['EARTHQUAKE', 'FLOOD', 'WILDFIRE', 'STORM'];
-
 function isNearWater(grid: TileData[][], x: number, y: number): boolean {
   return [[0, 1], [1, 0], [0, -1], [-1, 0]].some(([dx, dy]) => grid[y + dy]?.[x + dx]?.water);
 }
@@ -157,7 +155,7 @@ export function simulateDisasters(
   let responseLoad = 0;
   for (const disaster of disasters) {
     const affected = affectedTilesFor(grid, disaster, allTiles);
-    let affectedTiles = affected.length;
+    const affectedTiles = affected.length;
     responseLoad += disaster.severity * disaster.remainingDays;
     for (const tile of affected) {
       const distanceFactor = Math.max(0.2, 1 - Math.hypot(tile.x - disaster.centerX, tile.y - disaster.centerY) / (disaster.radius + 1));

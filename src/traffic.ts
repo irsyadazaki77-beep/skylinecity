@@ -79,7 +79,7 @@ function deriveSignalState(
   axis: RoadNode['signalPhase'],
   cycleSeconds: number,
   timeOfDay: number,
-  previous?: SignalPhaseState,
+  _previous?: SignalPhaseState,
 ): SignalPhaseState {
   if (cycleSeconds <= 0 || axis === 'ALL') return createPermissiveSignalState();
 
@@ -137,7 +137,7 @@ function deriveSignalState(
 export function advanceIntersectionSignalStates(
   roadGraph: RoadGraph,
   previousStates: Record<string, SignalPhaseState> = {},
-  timeOfDay = 12,
+  _timeOfDay = 12,
   tickSeconds = SIGNAL_TICK_SECONDS,
 ): Record<string, SignalPhaseState> {
   const nextStates: Record<string, SignalPhaseState> = {};
@@ -157,6 +157,21 @@ export function advanceIntersectionSignalStates(
     };
   }
   return nextStates;
+}
+
+/** Applies the serializable signal envelope to an already-built graph. */
+export function applySignalStatesToRoadGraph(
+  roadGraph: RoadGraph,
+  signalStates: Record<string, SignalPhaseState>,
+): void {
+  for (const node of roadGraph.nodes.values()) {
+    const signal = signalStates[node.key];
+    if (!signal) continue;
+    node.signalState = { ...signal };
+    node.signalStage = signal.stage;
+    node.signalGreenSeconds = signal.greenSeconds;
+    node.pedestrianCrossing = signal.pedestrianCrossing;
+  }
 }
 
 /**

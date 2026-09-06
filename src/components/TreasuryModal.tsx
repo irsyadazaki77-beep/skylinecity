@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { CityState, TileType, MAINTENANCE_COSTS } from '../types';
 import { FreightCommodity } from '../logistics';
-import { X, DollarSign, TrendingUp, TrendingDown, Percent, Landmark, Coins } from 'lucide-react';
+import { X, TrendingUp, Percent, Landmark } from 'lucide-react';
 import { useModalFocus } from './ui/useModalFocus';
 
 interface TreasuryModalProps {

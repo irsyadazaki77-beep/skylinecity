@@ -1,18 +1,12 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   X, 
   TrendingUp, 
   Users, 
   DollarSign, 
   Shield, 
-  Activity, 
   Car, 
   Leaf, 
-  Zap,
-  Droplet,
-  Trash2,
-  GraduationCap,
-  HeartPulse,
   MapPinned,
   Route,
 } from 'lucide-react';

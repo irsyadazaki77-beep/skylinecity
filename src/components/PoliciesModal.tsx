@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
-import { POLICIES, Policy, MILESTONES } from '../progression';
-import { X, Landmark, Check, Lock, DollarSign, ShieldAlert } from 'lucide-react';
+import { POLICIES, MILESTONES } from '../progression';
+import { X, Landmark, Check, Lock } from 'lucide-react';
 import { POLICY_CONTRACTS } from '../policyConsequences';
 import { createLocalizationCatalog, SupportedLanguage, translate } from '../localization';
 import { useModalFocus } from './ui/useModalFocus';

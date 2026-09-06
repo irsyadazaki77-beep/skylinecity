@@ -3,10 +3,13 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite --configLoader runner --port=3002 --host=0.0.0.0",
     "build": "vite build --configLoader runner",
-    "preview": "vite preview",
+    "preview": "node scripts/serveDist.mjs",
     "clean": "rm -rf dist server.js",
     "lint": "eslint src && tsc --noEmit",
     "test": "vitest run --configLoader runner",

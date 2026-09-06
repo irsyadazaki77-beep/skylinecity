@@ -1,27 +1,35 @@
-import { simulateTick, getLastSimulationPhaseTimings } from './engine';
-import { createSimulationSchedulerState, observeSimulationTick, SimulationSchedulerTelemetry } from './simulationScheduler';
-import { CityState, GameSettings, SimulationCommand } from './types';
+import { simulateTick, getLastSimulationPhaseTimings, getLastSimulationRenderRevisions } from './engine';
+import { createSimulationSchedulerState, observeSimulationTick } from './simulationScheduler';
 import { queueSimulationCommand } from './simulationCommands';
-
-export type WorkerInMessage =
-  | { type: 'INIT'; state: CityState; settings: GameSettings }
-  | { type: 'TICK'; requestedTicks: number; speed: number; settings: GameSettings }
-  | { type: 'RESET_STATE'; state: CityState }
-  | { type: 'ENQUEUE_COMMAND'; command: SimulationCommand };
-
-export type WorkerOutMessage =
-  | {
-      type: 'TICK_COMPLETED';
-      nextState: CityState;
-      elapsedMs: number;
-      phaseTimings: Record<string, number>;
-      telemetry: SimulationSchedulerTelemetry;
-    }
-  | { type: 'STATE_RESET_CONFIRMED'; state: CityState }
-  | { type: 'COMMAND_QUEUED' };
+import { CityState } from './types';
+import { WorkerInMessage, WorkerOutMessage } from './simulationWorkerProtocol';
 
 let authoritativeState: CityState | null = null;
+let authoritativeGeneration = -1;
+let authoritativeRevision = -1;
+let authoritativeTickId = -1;
 let simulationScheduler = createSimulationSchedulerState();
+
+function post(message: WorkerOutMessage): void {
+  self.postMessage(message);
+}
+
+function reject(message: WorkerInMessage, reason: 'NOT_INITIALIZED' | 'STALE_STATE'): void {
+  post({
+    type: 'WORKER_REJECTED',
+    workerGeneration: message.workerGeneration,
+    requestId: message.requestId,
+    stateRevision: authoritativeRevision,
+    tickId: authoritativeTickId,
+    reason,
+  });
+}
+
+function acceptsCurrentState(message: WorkerInMessage): boolean {
+  return authoritativeState !== null
+    && message.workerGeneration === authoritativeGeneration
+    && message.stateRevision === authoritativeRevision;
+}
 
 self.onmessage = (event: MessageEvent<WorkerInMessage>) => {
   const message = event.data;
@@ -30,27 +38,63 @@ self.onmessage = (event: MessageEvent<WorkerInMessage>) => {
   switch (message.type) {
     case 'INIT': {
       authoritativeState = message.state;
+      authoritativeGeneration = message.workerGeneration;
+      authoritativeRevision = message.stateRevision;
+      authoritativeTickId = message.tickId;
       simulationScheduler = createSimulationSchedulerState();
+      post({
+        type: 'INIT_ACK',
+        workerGeneration: authoritativeGeneration,
+        requestId: message.requestId,
+        stateRevision: authoritativeRevision,
+        tickId: authoritativeTickId,
+      });
       break;
     }
     case 'RESET_STATE': {
       authoritativeState = message.state;
-      const response: WorkerOutMessage = {
+      authoritativeGeneration = message.workerGeneration;
+      authoritativeRevision = message.stateRevision;
+      authoritativeTickId = message.tickId;
+      simulationScheduler = createSimulationSchedulerState();
+      post({
         type: 'STATE_RESET_CONFIRMED',
+        workerGeneration: authoritativeGeneration,
+        requestId: message.requestId,
+        stateRevision: authoritativeRevision,
+        tickId: authoritativeTickId,
         state: authoritativeState,
-      };
-      self.postMessage(response);
+      });
       break;
     }
     case 'ENQUEUE_COMMAND': {
-      if (authoritativeState) {
-        authoritativeState = queueSimulationCommand(authoritativeState, message.command);
+      if (!authoritativeState) {
+        reject(message, 'NOT_INITIALIZED');
+        break;
       }
-      self.postMessage({ type: 'COMMAND_QUEUED' } as WorkerOutMessage);
+      if (!acceptsCurrentState(message)) {
+        reject(message, 'STALE_STATE');
+        break;
+      }
+      authoritativeState = queueSimulationCommand(authoritativeState, message.command);
+      post({
+        type: 'COMMAND_QUEUED',
+        workerGeneration: authoritativeGeneration,
+        requestId: message.requestId,
+        stateRevision: authoritativeRevision,
+        tickId: authoritativeTickId,
+      });
       break;
     }
     case 'TICK': {
-      if (!authoritativeState) return;
+      if (!authoritativeState) {
+        reject(message, 'NOT_INITIALIZED');
+        return;
+      }
+      if (!acceptsCurrentState(message)) {
+        reject(message, 'STALE_STATE');
+        return;
+      }
       const startedAt = performance.now();
       let next = authoritativeState;
       const requestedTicks = Math.max(1, message.requestedTicks);
@@ -67,15 +111,21 @@ self.onmessage = (event: MessageEvent<WorkerInMessage>) => {
       );
       simulationScheduler = scheduled.state;
       authoritativeState = next;
+      authoritativeRevision += requestedTicks;
+      authoritativeTickId = message.tickId;
 
-      const response: WorkerOutMessage = {
+      post({
         type: 'TICK_COMPLETED',
+        workerGeneration: authoritativeGeneration,
+        requestId: message.requestId,
+        stateRevision: authoritativeRevision,
+        tickId: authoritativeTickId,
         nextState: next,
         elapsedMs,
         phaseTimings,
         telemetry: scheduled.telemetry,
-      };
-      self.postMessage(response);
+        renderRevisions: getLastSimulationRenderRevisions(),
+      });
       break;
     }
   }

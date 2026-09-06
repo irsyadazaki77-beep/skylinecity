@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { TECH_NODES, MILESTONES, TechNode } from '../progression';
+import { TECH_NODES, MILESTONES } from '../progression';
 import { X, Cpu, Check, Lock, Zap, Layers, DollarSign, Trees, Grid, Coins } from 'lucide-react';
 import { createLocalizationCatalog, SupportedLanguage, translate } from '../localization';
 import { useModalFocus } from './ui/useModalFocus';

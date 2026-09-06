@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
-import { CityState, TileType } from '../types';
-import { AlertTriangle, ZapOff, Droplets, Factory, ShieldAlert, HeartPulse } from 'lucide-react';
+import { CityState } from '../types';
+import { AlertTriangle, ZapOff, Droplets, Factory, ShieldAlert } from 'lucide-react';
 import type { SupportedLanguage } from '../localization';
 
 interface NotificationToastProps {
