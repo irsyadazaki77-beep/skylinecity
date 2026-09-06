@@ -165,14 +165,16 @@ export function calculateCausalDiagnostics(state: CityState): CausalDiagnostic[]
       category: 'TRAFFIC',
       severity: 'CRITICAL',
       title: 'Koridor metropolitan jenuh',
-      cause: 'Volume kendaraan melebihi kapasitas koridor jalan utama',
+      cause: 'Volume kendaraan melebihi kapasitas koridor jalan utama akibat lonjakan perjalanan harian dan angkutan logistik',
       explanation: 'Kemacetan sudah memengaruhi perjalanan, angkutan barang, dan waktu respons layanan.',
-      recommendation: 'Aktifkan lapisan lalu lintas dan tangani simpang dengan beban lajur tertinggi.',
+      locationName: `Koridor Arteri (${loc.x + 1}, ${loc.y + 1})`,
+      recommendation: 'Tingkatkan menjadi jalan arteri bertingkat atau sediakan jalur transit terpisah.',
+      tradeoff: 'Memerlukan biaya konstruksi dan pemeliharaan lebih tinggi serta potensi kebisingan lokal.',
       value: state.congestionIndex ?? 0,
       threshold: 50,
       location: loc,
       estimatedCost: 300,
-      projectedImpact: 'Mengurangi kemacetan dan memperlancar arus kendaraan',
+      projectedImpact: 'Mengurangi kemacetan koridor utama dan mempercepat waktu tanggap darurat',
     });
   }
 

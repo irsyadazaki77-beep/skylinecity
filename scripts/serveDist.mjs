@@ -50,3 +50,11 @@ const server = createServer(async (request, response) => {
 server.listen(port, host, () => {
   console.log(`Serving dist on http://${host}:${port}`);
 });
+
+const shutdown = () => {
+  server.closeIdleConnections?.();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 1000).unref();
+};
+process.once('SIGINT', shutdown);
+process.once('SIGTERM', shutdown);

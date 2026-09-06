@@ -51,6 +51,8 @@ import type { TrafficBeforeAfter } from './trafficInsights';
 import { RendererFailureBoundary, WebGLFallback } from './components/ReleaseBoundary';
 import { getRendererFallbackKind } from './rendererStatus';
 import { getNextActionModel, NextActionModel } from './nextAction';
+import { deriveCitizenProfile } from './citizenIdentity';
+import { CitizenProfileModal } from './components/ui/CitizenProfileModal';
 
 const City3DCanvas = lazy(() => import('./components/world/City3DCanvas').then((module) => ({ default: module.City3DCanvas })));
 const CityInformationPanel = lazy(() => import('./components/ui/CityInformationPanel').then((module) => ({ default: module.CityInformationPanel })));
@@ -228,6 +230,7 @@ export default function App() {
   const [webglAvailable] = useState(() => hasWebGLSupport());
   const [cityPulseDelta, setCityPulseDelta] = useState<CityPulseDelta>({ population: 0, money: 0, income: 0, expenses: 0, happiness: 0, congestion: 0, commute: 0 });
   const [trafficComparison, setTrafficComparison] = useState<TrafficBeforeAfter | null>(null);
+  const [selectedCitizenId, setSelectedCitizenId] = useState<string | null>(null);
 
   const nightFactor = useMemo(() => {
     if (settings.dayNightCycle === 'locked_night') return 1;
@@ -1471,6 +1474,13 @@ export default function App() {
     setNotificationOpen(false);
   }, [gameState.grid]);
   const selected = selectedTile ? gameState.grid[selectedTile.y]?.[selectedTile.x] ?? null : null;
+  const selectedCitizenProfile = useMemo(() => {
+    if (!selectedCitizenId) return null;
+    const citizen = gameState.citizenState?.citizens?.find((candidate) => candidate.id === selectedCitizenId);
+    if (!citizen) return null;
+    const household = gameState.citizenState?.households?.find((candidate) => candidate.id === citizen.householdId);
+    return deriveCitizenProfile(citizen, household);
+  }, [gameState.citizenState, selectedCitizenId]);
   const selectedServiceKey = selected ? `${selected.x},${selected.y}` : '';
   const selectedDepotCondition = selected ? gameState.serviceDepotCondition?.[selectedServiceKey] ?? 100 : undefined;
   const selectedMaintenanceOrderActive = selected
@@ -1765,6 +1775,8 @@ export default function App() {
           activeOverlay={activeOverlay}
           speed={speed}
           timeOfDay={gameState.timeOfDay ?? 6}
+          weather={gameState.weather}
+          precipitation={gameState.precipitation ?? 1}
           activeTrips={gameState.activeTrips}
           transitLines={gameState.transitLines}
           transitVehicles={gameState.transitVehicles}
@@ -1796,6 +1808,7 @@ export default function App() {
           onCameraRotationChange={setCameraRotation}
           tutorialHighlight={tutorialHighlight}
           onRendererReady={() => setRendererReady(true)}
+          onSelectCitizen={setSelectedCitizenId}
         />
             </Suspense>
           </RendererFailureBoundary>
@@ -2006,7 +2019,23 @@ export default function App() {
         />
       </div>
 
-      <MilestoneBanner milestone={milestoneCelebration === null ? null : MILESTONES[milestoneCelebration] ?? null} onClose={() => setMilestoneCelebration(null)} />
+      <MilestoneBanner
+        milestone={milestoneCelebration === null ? null : MILESTONES[milestoneCelebration] ?? null}
+        onClose={() => setMilestoneCelebration(null)}
+        onFocusOverview={() => {
+          setCameraFocus([30, 30]);
+          setCameraZoom(0.75);
+          setCameraRotation((rot) => rot + Math.PI / 4);
+        }}
+      />
+      <CitizenProfileModal
+        profile={selectedCitizenProfile}
+        onClose={() => setSelectedCitizenId(null)}
+        onFollowCitizen={(coords) => {
+          setCameraFocus([coords.x, coords.y]);
+          setSelectedCitizenId(null);
+        }}
+      />
       <Suspense fallback={null}>
       <CityInformationPanel {...cityInfoProps} />
       <TreasuryModal 

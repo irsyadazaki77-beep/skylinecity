@@ -94,15 +94,27 @@ function DiagnosticCard({ diagnostic, onFocusLocation, onOpenInfo, language }: {
             <span className={`truncate text-[11px] font-semibold ${severityColor}`}>{diagnostic.title}</span>
             <span className="shrink-0 font-mono text-[8px] uppercase text-slate-500">{diagnostic.category}</span>
           </div>
-          <p className="mt-1 text-[10px] leading-relaxed text-slate-300">{diagnostic.explanation}</p>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-300">
+            <span className="font-semibold text-slate-400">WHAT: </span>{diagnostic.explanation}
+          </p>
           {diagnostic.cause && (
-            <p className="mt-1 text-[9px] text-slate-400 italic">
-              Penyebab: {diagnostic.cause}
+            <p className="mt-0.5 text-[9px] text-amber-300/90 leading-snug">
+              <span className="font-semibold text-amber-400">WHY: </span>{diagnostic.cause}
+            </p>
+          )}
+          {diagnostic.locationName && (
+            <p className="mt-0.5 text-[9px] text-sky-300/90 leading-snug">
+              <span className="font-semibold text-sky-400">WHERE: </span>{diagnostic.locationName}
             </p>
           )}
           {diagnostic.recommendation && (
-            <p className="mt-1 rounded-md border border-white/10 bg-black/10 px-2 py-1 text-[9px] leading-relaxed text-cyan-100">
-              {translate(catalog, 'pulse.next')}: {diagnostic.recommendation}
+            <p className="mt-1 rounded-md border border-cyan-500/20 bg-cyan-950/30 px-2 py-1 text-[9px] leading-relaxed text-cyan-100">
+              <span className="font-semibold text-cyan-300">ACTION: </span>{diagnostic.recommendation}
+            </p>
+          )}
+          {diagnostic.tradeoff && (
+            <p className="mt-0.5 rounded-md border border-rose-500/20 bg-rose-950/30 px-2 py-1 text-[9px] leading-relaxed text-rose-200">
+              <span className="font-semibold text-rose-300">TRADEOFF: </span>{diagnostic.tradeoff}
             </p>
           )}
           {(diagnostic.estimatedCost !== undefined || diagnostic.projectedImpact) && (

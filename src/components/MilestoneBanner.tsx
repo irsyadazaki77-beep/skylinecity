@@ -6,15 +6,16 @@ import { useModalFocus } from './ui/useModalFocus';
 interface MilestoneBannerProps {
   milestone: CityMilestone | null;
   onClose: () => void;
+  onFocusOverview?: () => void;
 }
 
-export function MilestoneBanner({ milestone, onClose }: MilestoneBannerProps) {
+export function MilestoneBanner({ milestone, onClose, onFocusOverview }: MilestoneBannerProps) {
   if (!milestone) return null;
 
-  return <MilestoneDialog milestone={milestone} onClose={onClose} />;
+  return <MilestoneDialog milestone={milestone} onClose={onClose} onFocusOverview={onFocusOverview} />;
 }
 
-function MilestoneDialog({ milestone, onClose }: { milestone: CityMilestone; onClose: () => void }) {
+function MilestoneDialog({ milestone, onClose, onFocusOverview }: { milestone: CityMilestone; onClose: () => void; onFocusOverview?: () => void }) {
   const dialogRef = useModalFocus<HTMLDivElement>(true);
 
   useEffect(() => {
@@ -54,6 +55,15 @@ function MilestoneDialog({ milestone, onClose }: { milestone: CityMilestone; onC
 
         <p className="text-xs text-gray-300 leading-relaxed mb-4">{milestone.description}</p>
 
+        {milestone.mechanicSummary && (
+          <div className="bg-white/5 p-3 rounded-xl border border-white/10 text-left mb-4">
+            <span className="text-[9px] uppercase font-mono tracking-wider text-amber-400 block mb-1">
+              Sistem Baru Aktif:
+            </span>
+            <p className="text-[11px] text-slate-300 leading-relaxed">{milestone.mechanicSummary}</p>
+          </div>
+        )}
+
         {milestone.unlockedBuildingTypes.length > 0 && (
           <div className="bg-white/5 p-3 rounded-xl border border-white/10 text-left mb-6">
             <span className="text-[9px] uppercase font-mono tracking-wider text-gray-400 block mb-1">
@@ -72,13 +82,27 @@ function MilestoneDialog({ milestone, onClose }: { milestone: CityMilestone; onC
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full py-3 bg-[#D4AF37] text-black font-mono font-bold text-xs uppercase tracking-wider rounded-xl hover:bg-[#c29f2e] transition-colors shadow-lg"
-        >
-          Lanjutkan membangun
-        </button>
+        <div className="flex gap-2">
+          {onFocusOverview && (
+            <button
+              type="button"
+              onClick={() => {
+                onFocusOverview();
+                onClose();
+              }}
+              className="flex-1 py-3 bg-white/10 text-slate-200 font-mono font-bold text-xs uppercase tracking-wider rounded-xl hover:bg-white/20 transition-colors border border-white/20"
+            >
+              Panorama Kota
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-3 bg-[#D4AF37] text-black font-mono font-bold text-xs uppercase tracking-wider rounded-xl hover:bg-[#c29f2e] transition-colors shadow-lg"
+          >
+            Lanjut Membangun
+          </button>
+        </div>
       </div>
     </div>
   );

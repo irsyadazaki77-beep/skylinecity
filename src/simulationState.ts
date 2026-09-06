@@ -3,7 +3,7 @@ import { CityState, TileData } from './types';
 function cloneTile(tile: TileData): TileData {
   return {
     ...tile,
-    laneStates: tile.laneStates?.map((lane) => ({ ...lane })),
+    laneStates: tile.laneStates ? tile.laneStates.map((lane) => ({ ...lane })) : undefined,
     prohibitedTurns: tile.prohibitedTurns ? [...tile.prohibitedTurns] : undefined,
     serviceUpgrades: tile.serviceUpgrades ? [...tile.serviceUpgrades] : undefined,
     serviceResponseTimes: tile.serviceResponseTimes ? { ...tile.serviceResponseTimes } : undefined,
@@ -11,26 +11,56 @@ function cloneTile(tile: TileData): TileData {
 }
 
 function cloneGrid(grid: TileData[][]): TileData[][] {
-  return grid.map((row) => row.map(cloneTile));
+  const height = grid.length;
+  const nextGrid = new Array(height);
+  for (let y = 0; y < height; y += 1) {
+    const row = grid[y];
+    const width = row.length;
+    const nextRow = new Array(width);
+    for (let x = 0; x < width; x += 1) {
+      nextRow[x] = cloneTile(row[x]);
+    }
+    nextGrid[y] = nextRow;
+  }
+  return nextGrid;
+}
+
+function fastCloneValue<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    const len = value.length;
+    const res = new Array(len);
+    for (let i = 0; i < len; i += 1) {
+      res[i] = fastCloneValue(value[i]);
+    }
+    return res as unknown as T;
+  }
+  if (value instanceof Map) {
+    const map = new Map();
+    for (const [k, v] of value.entries()) {
+      map.set(fastCloneValue(k), fastCloneValue(v));
+    }
+    return map as unknown as T;
+  }
+  if (value instanceof Set) {
+    const set = new Set();
+    for (const v of value.values()) {
+      set.add(fastCloneValue(v));
+    }
+    return set as unknown as T;
+  }
+  const output: Record<string, unknown> = {};
+  const keys = Object.keys(value);
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = keys[i];
+    output[key] = fastCloneValue((value as Record<string, unknown>)[key]);
+  }
+  return output as T;
 }
 
 function cloneStructured<T>(value: T | undefined): T | undefined {
   if (value === undefined) return undefined;
-  try {
-    return structuredClone(value);
-  } catch {
-    return clonePlainValue(value) as T;
-  }
-}
-
-function clonePlainValue(value: unknown): unknown {
-  if (value === null || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map(clonePlainValue);
-  if (value instanceof Map) return new Map([...value.entries()].map(([key, entry]) => [clonePlainValue(key), clonePlainValue(entry)]));
-  if (value instanceof Set) return new Set([...value].map(clonePlainValue));
-  const output: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value)) output[key] = clonePlainValue(entry);
-  return output;
+  return fastCloneValue(value);
 }
 
 /**

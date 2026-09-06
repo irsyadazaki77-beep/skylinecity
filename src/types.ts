@@ -206,6 +206,8 @@ export interface CausalDiagnostic {
   location?: { x: number; y: number };
   recommendation?: string;
   cause?: string;
+  locationName?: string;
+  tradeoff?: string;
   estimatedCost?: number;
   projectedImpact?: string;
   day: number;

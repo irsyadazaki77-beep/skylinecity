@@ -20,7 +20,7 @@ export default defineConfig({
     // E2E validates the same production bundle that is released. Local runs
     // may reuse an already-started server, while CI always starts a fresh
     // preview after building.
-    command: 'npm run build && npm run preview -- --host 0.0.0.0 --port 3002',
+    command: 'npm run build && node scripts/serveDist.mjs --host 0.0.0.0 --port 3002',
     port: 3002,
     reuseExistingServer: !isCI,
     timeout: 30000,

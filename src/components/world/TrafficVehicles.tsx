@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { Trip, TransitMode } from '../../citizenSimulation/types';
+import { CityIncident, ServiceVehicleAgent, TileData, TileType } from '../../types';
+import { TransitMode, Trip } from '../../citizenSimulation/types';
 import { FreightTrip } from '../../logistics';
-import { CityIncident, ServiceVehicleAgent, TileData } from '../../types';
 import { TransitVehicleAgent } from '../../transit';
-import { roadHeight } from './visualModel';
 import { gridToWorld } from './types3D';
 
 interface TrafficVehiclesProps {
@@ -26,7 +25,12 @@ interface VehicleActor {
   id: string;
   path: [number, number][];
   progress: number;
-  speed: number;
+  currentSpeed: number;
+  targetSpeed: number;
+  laneOffset: number;
+  targetLaneOffset: number;
+  dwellTimer: number;
+  isService?: boolean;
   color: THREE.Color;
 }
 
@@ -64,28 +68,27 @@ export function TrafficVehicles({
   const lineTransitMeshRef = useRef<THREE.InstancedMesh>(null);
   const freightMeshRef = useRef<THREE.InstancedMesh>(null);
   const serviceMeshRef = useRef<THREE.InstancedMesh>(null);
-  const pedestrianMeshRef = useRef<THREE.InstancedMesh>(null);
   const headlightMeshRef = useRef<THREE.InstancedMesh>(null);
+
   const progressById = useRef(new Map<string, number>());
+  const speedById = useRef(new Map<string, number>());
+  const dwellById = useRef(new Map<string, number>());
+
   const stableProgress = (id: string, initial: number) => progressById.current.get(id) ?? initial;
-  const advanceProgress = (vehicle: VehicleActor, dt: number) => {
-    vehicle.progress = (vehicle.progress + dt * vehicle.speed * 0.4) % 1;
-    progressById.current.set(vehicle.id, vehicle.progress);
-  };
+  const stableSpeed = (id: string, target: number) => speedById.current.get(id) ?? target;
+  const stableDwell = (id: string) => dwellById.current.get(id) ?? 0;
 
   // Filter vehicular trips with valid paths
   const carTrips = useMemo(() => {
     const renderLimit = trafficDensity === 'low' ? 30 : trafficDensity === 'high' ? 160 : 80;
     return trips.filter((t) => t.mode === TransitMode.CAR && t.path.length >= 2).slice(0, renderLimit);
   }, [trafficDensity, trips]);
+
   const transitTrips = useMemo(() => {
     const renderLimit = trafficDensity === 'low' ? 12 : trafficDensity === 'high' ? 48 : 24;
     return trips.filter((t) => t.mode === TransitMode.TRANSIT && t.path.length >= 2).slice(0, renderLimit);
   }, [trafficDensity, trips]);
-  const pedestrianTrips = useMemo(() => {
-    const renderLimit = trafficDensity === 'low' ? 24 : trafficDensity === 'high' ? 120 : 64;
-    return trips.filter((trip) => (trip.mode === TransitMode.WALK || trip.mode === TransitMode.BIKE) && trip.path.length >= 2).slice(0, renderLimit);
-  }, [trafficDensity, trips]);
+
   const visibleFreightTrips = useMemo(() => {
     const renderLimit = trafficDensity === 'low' ? 8 : trafficDensity === 'high' ? 32 : 16;
     return freightTrips.filter((trip) => trip.path.length >= 2).slice(0, renderLimit);
@@ -95,50 +98,75 @@ export function TrafficVehicles({
   const vehicles = useMemo(() => {
     return carTrips.map((trip, idx) => {
       const color = VEHICLE_COLORS[idx % VEHICLE_COLORS.length];
+      const targetSpeed = 0.14 + (idx % 3) * 0.03;
+      const initialProgress = stableProgress(trip.id, (idx * 0.17) % 1);
       return {
         id: trip.id,
         path: trip.path,
-        progress: stableProgress(trip.id, (idx * 0.17) % 1),
-        speed: 0.15 + (idx % 3) * 0.05,
+        progress: initialProgress,
+        currentSpeed: stableSpeed(trip.id, targetSpeed),
+        targetSpeed,
+        laneOffset: 0.13,
+        targetLaneOffset: 0.13,
+        dwellTimer: stableDwell(trip.id),
         color,
       } as VehicleActor;
     });
   }, [carTrips]);
+
   const transitVehicles = useMemo(() => {
-    return transitTrips.map((trip, idx) => ({
-      id: trip.id,
-      path: trip.path,
-      progress: stableProgress(trip.id, (idx * 0.23) % 1),
-      speed: 0.11 + (idx % 2) * 0.025,
-      color: new THREE.Color(idx % 2 === 0 ? '#22d3ee' : '#a78bfa'),
-    } as VehicleActor));
+    return transitTrips.map((trip, idx) => {
+      const targetSpeed = 0.11 + (idx % 2) * 0.02;
+      return {
+        id: trip.id,
+        path: trip.path,
+        progress: stableProgress(trip.id, (idx * 0.23) % 1),
+        currentSpeed: stableSpeed(trip.id, targetSpeed),
+        targetSpeed,
+        laneOffset: 0.12,
+        targetLaneOffset: 0.12,
+        dwellTimer: stableDwell(trip.id),
+        color: new THREE.Color(idx % 2 === 0 ? '#22d3ee' : '#a78bfa'),
+      } as VehicleActor;
+    });
   }, [transitTrips]);
-  const lineVehicles = useMemo(() => lineTransitVehicles.map((agent, idx) => ({
-    id: agent.id,
-    path: agent.path,
-    progress: stableProgress(agent.id, agent.routeProgress ?? (idx * 0.19) % 1),
-    speed: agent.mode === 'TRAM' ? 0.095 : 0.11,
-    color: new THREE.Color(agent.mode === 'TRAM' ? '#a78bfa' : '#22d3ee'),
-  } as VehicleActor)), [lineTransitVehicles]);
+
+  const lineVehicles = useMemo(() => lineTransitVehicles.map((agent, idx) => {
+    const targetSpeed = agent.mode === 'TRAM' ? 0.095 : 0.11;
+    return {
+      id: agent.id,
+      path: agent.path,
+      progress: stableProgress(agent.id, agent.routeProgress ?? (idx * 0.19) % 1),
+      currentSpeed: stableSpeed(agent.id, targetSpeed),
+      targetSpeed,
+      laneOffset: agent.mode === 'TRAM' ? 0 : 0.12,
+      targetLaneOffset: agent.mode === 'TRAM' ? 0 : 0.12,
+      dwellTimer: stableDwell(agent.id),
+      color: new THREE.Color(agent.mode === 'TRAM' ? '#a78bfa' : '#22d3ee'),
+    } as VehicleActor;
+  }), [lineTransitVehicles]);
+
   const freightVehicles = useMemo(() => {
-    return visibleFreightTrips.map((trip, idx) => ({
-      id: trip.id,
-      path: trip.path,
-      progress: stableProgress(trip.id, (idx * 0.29) % 1),
-      speed: 0.08 + (idx % 2) * 0.018,
-      color: new THREE.Color(idx % 2 === 0 ? '#fb923c' : '#f59e0b'),
-    } as VehicleActor));
+    return visibleFreightTrips.map((trip, idx) => {
+      const targetSpeed = 0.085 + (idx % 2) * 0.015;
+      return {
+        id: trip.id,
+        path: trip.path,
+        progress: stableProgress(trip.id, (idx * 0.29) % 1),
+        currentSpeed: stableSpeed(trip.id, targetSpeed),
+        targetSpeed,
+        laneOffset: 0.14,
+        targetLaneOffset: 0.14,
+        dwellTimer: stableDwell(trip.id),
+        color: new THREE.Color(idx % 2 === 0 ? '#fb923c' : '#f59e0b'),
+      } as VehicleActor;
+    });
   }, [visibleFreightTrips]);
-  const pedestrians = useMemo(() => pedestrianTrips.map((trip, index) => ({
-    id: trip.id,
-    path: trip.path,
-    progress: stableProgress(trip.id, (index * 0.137) % 1),
-    speed: trip.mode === TransitMode.BIKE ? 0.085 : 0.045 + (index % 4) * 0.004,
-    color: new THREE.Color(['#fbbf24', '#fb7185', '#67e8f9', '#a7f3d0', '#f8fafc'][index % 5]),
-  } as VehicleActor)), [pedestrianTrips]);
+
   const serviceIncidents = useMemo(() => incidents
     .filter((incident) => (incident.dispatchPath?.length ?? 0) >= 2)
     .slice(0, 24), [incidents]);
+
   const serviceVehicles = useMemo(() => {
     if (fleetServiceVehicles.length > 0) {
       return fleetServiceVehicles.slice(0, 48).map((agent, idx) => {
@@ -156,11 +184,17 @@ export function TrafficVehicles({
             : agent.role === 'POLICE_CAR'
               ? '#60a5fa'
               : '#f59e0b';
+        const targetSpeed = returning ? 0.1 : 0.15 + (idx % 3) * 0.01;
         return {
           id: agent.id,
           path,
           progress,
-          speed: returning ? 0.1 : 0.14 + (idx % 3) * 0.006,
+          currentSpeed: targetSpeed,
+          targetSpeed,
+          laneOffset: 0,
+          targetLaneOffset: 0,
+          dwellTimer: agent.status === 'ON_SCENE' ? 999 : 0,
+          isService: true,
           color: new THREE.Color(color),
         } as VehicleActor;
       });
@@ -172,302 +206,330 @@ export function TrafficVehicles({
       id: `${incident.id}-unit-${unitIndex}`,
       path: incident.dispatchPath!,
       progress: (idx * 0.31 + unitIndex * 0.08) % 1,
-      speed: 0.13 + unitIndex * 0.006,
+      currentSpeed: 0.15,
+      targetSpeed: 0.15,
+      laneOffset: 0,
+      targetLaneOffset: 0,
+      dwellTimer: 0,
+      isService: true,
       color: new THREE.Color(incident.type === 'FIRE' ? '#ef4444' : incident.type === 'MEDICAL' ? '#f8fafc' : '#60a5fa'),
     } as VehicleActor)));
   }, [fleetServiceVehicles, serviceIncidents]);
 
-  // Trips are recreated by the simulation, so remove progress entries for
-  // actors that have left the render window instead of growing this map forever.
+  // Cleanup progress cache for despawned actors
   useEffect(() => {
     const activeIds = new Set([
-      ...vehicles.map((vehicle) => vehicle.id),
-      ...transitVehicles.map((vehicle) => vehicle.id),
-      ...lineVehicles.map((vehicle) => vehicle.id),
-      ...freightVehicles.map((vehicle) => vehicle.id),
-      ...pedestrians.map((pedestrian) => pedestrian.id),
+      ...vehicles.map((v) => v.id),
+      ...transitVehicles.map((v) => v.id),
+      ...lineVehicles.map((v) => v.id),
+      ...freightVehicles.map((v) => v.id),
+      ...serviceVehicles.map((v) => v.id),
     ]);
     for (const id of progressById.current.keys()) {
-      if (!activeIds.has(id)) progressById.current.delete(id);
+      if (!activeIds.has(id)) {
+        progressById.current.delete(id);
+        speedById.current.delete(id);
+        dwellById.current.delete(id);
+      }
     }
-  }, [freightVehicles, lineVehicles, pedestrians, transitVehicles, vehicles]);
+  }, [freightVehicles, lineVehicles, serviceVehicles, transitVehicles, vehicles]);
 
+  // Geometries and materials
   const carGeometry = useMemo(() => new THREE.BoxGeometry(0.24, 0.12, 0.44), []);
-  const carMaterial = useMemo(() => new THREE.MeshStandardMaterial({
-    roughness: 0.3,
-    metalness: 0.6,
-  }), []);
+  const carMaterial = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.3, metalness: 0.6 }), []);
   const transitGeometry = useMemo(() => new THREE.BoxGeometry(0.32, 0.18, 0.72), []);
-  const transitMaterial = useMemo(() => new THREE.MeshStandardMaterial({
-    roughness: 0.28,
-    metalness: 0.55,
-    emissive: '#082f49',
-    emissiveIntensity: 0.35,
-  }), []);
+  const transitMaterial = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.28, metalness: 0.55, emissive: '#082f49', emissiveIntensity: 0.35 }), []);
   const freightGeometry = useMemo(() => new THREE.BoxGeometry(0.38, 0.22, 0.9), []);
-  const freightMaterial = useMemo(() => new THREE.MeshStandardMaterial({
-    roughness: 0.45,
-    metalness: 0.35,
-    emissive: '#431407',
-    emissiveIntensity: 0.25,
-  }), []);
+  const freightMaterial = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.35, emissive: '#431407', emissiveIntensity: 0.25 }), []);
   const serviceGeometry = useMemo(() => new THREE.BoxGeometry(0.28, 0.16, 0.62), []);
-  const serviceMaterial = useMemo(() => new THREE.MeshStandardMaterial({
-    roughness: 0.35,
-    metalness: 0.45,
-    emissive: '#450a0a',
-    emissiveIntensity: 0.3,
-  }), []);
-  const pedestrianGeometry = useMemo(() => new THREE.CapsuleGeometry(0.035, 0.1, 3, 5), []);
-  const pedestrianMaterial = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0 }), []);
+  const serviceMaterial = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.45, emissive: '#450a0a', emissiveIntensity: 0.3 }), []);
 
   const headlightGeometry = useMemo(() => new THREE.SphereGeometry(0.03, 6, 6), []);
-  const headlightMaterial = useMemo(() => new THREE.MeshBasicMaterial({
-    color: '#fef08a',
-  }), []);
+  const headlightMaterial = useMemo(() => new THREE.MeshBasicMaterial({ color: '#fef08a' }), []);
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
-  useFrame((_, delta) => {
+  const roadHeight = (tile?: TileData) => (tile?.elevation || 0) * 0.5;
 
+  /**
+   * Physics-based vehicle motion advance:
+   * Handles smooth acceleration/deceleration, signal queuing, bus stop dwells, and following distance.
+   */
+  const updateVehicleActor = (
+    actor: VehicleActor,
+    dt: number,
+    isTransit = false,
+    isFreight = false,
+  ) => {
+    // 1. Handle active dwell countdown
+    if (actor.dwellTimer > 0) {
+      actor.dwellTimer = Math.max(0, actor.dwellTimer - dt);
+      dwellById.current.set(actor.id, actor.dwellTimer);
+      return;
+    }
 
-    const dt = Math.min(delta, 0.1) * (speed === 1 ? 1 : speed === 2 ? 2 : speed === 3 ? 3.5 : 0);
+    const totalSegments = actor.path.length - 1;
+    if (totalSegments <= 0) return;
 
-    if (meshRef.current) for (let i = 0; i < vehicles.length; i++) {
-      const v = vehicles[i];
-      advanceProgress(v, dt);
+    const exactIndex = actor.progress * totalSegments;
+    const segIndex = Math.min(Math.floor(exactIndex), totalSegments - 1);
+    const segT = exactIndex - segIndex;
 
-      const path = v.path;
-      const totalSegments = path.length - 1;
-      const exactIndex = v.progress * totalSegments;
-      const segIndex = Math.min(Math.floor(exactIndex), totalSegments - 1);
-      const segT = exactIndex - segIndex;
+    const _currentTile = actor.path[segIndex];
+    const nextTile = actor.path[segIndex + 1];
+    const targetTileData = nextTile ? grid[nextTile[1]]?.[nextTile[0]] : undefined;
 
-      const p0 = path[segIndex];
-      const p1 = path[segIndex + 1];
+    let desiredSpeed = actor.targetSpeed;
 
-      if (!p0 || !p1) continue;
+    // Check for stop dwells (bus stop, tram stop, freight delivery)
+    if (isTransit && targetTileData && (targetTileData.type === TileType.BUS_STOP || targetTileData.type === TileType.TRAM_STOP) && segT > 0.85) {
+      desiredSpeed = 0.02;
+      if (segT > 0.95) {
+        actor.dwellTimer = 1.8; // 1.8s dwell for passenger boarding
+        dwellById.current.set(actor.id, actor.dwellTimer);
+      }
+    } else if (isFreight && segIndex === totalSegments - 1 && segT > 0.9) {
+      desiredSpeed = 0.02;
+      if (segT > 0.96) {
+        actor.dwellTimer = 2.0; // 2.0s dwell for cargo delivery
+        dwellById.current.set(actor.id, actor.dwellTimer);
+      }
+    }
 
-      const [w0x, , w0z] = gridToWorld(p0[0], p0[1], gridWidth, gridHeight);
-      const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
-
-      const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
-      const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
-      const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
-
-      // Calculate smoothed angle across turning transitions
-      const dx = w1x - w0x;
-      const dz = w1z - w0z;
-      const baseAngle = Math.atan2(dx, dz);
-      let headingAngle = baseAngle;
-      if (segIndex < totalSegments - 1) {
-        const pNext = path[segIndex + 2];
-        if (pNext) {
-          const [w2x, , w2z] = gridToWorld(pNext[0], pNext[1], gridWidth, gridHeight);
-          const nextAngle = Math.atan2(w2x - w1x, w2z - w1z);
-          const turnT = THREE.MathUtils.smoothstep(segT, 0.62, 1.0);
-          headingAngle = smoothHeading(baseAngle, nextAngle, turnT);
+    // Check intersection red light signals (service vehicles with sirens bypass queues)
+    if (!actor.isService && targetTileData && targetTileData.type === TileType.ROAD && segT > 0.72) {
+      if (targetTileData.signalStage && targetTileData.signalStage !== 'PERMISSIVE') {
+        const isGreen = targetTileData.signalStage === 'GREEN';
+        if (!isGreen) {
+          // Decelerate smoothly to stop at curb
+          desiredSpeed = 0;
+          if (segT >= 0.94) {
+            // Held at stop line
+            return;
+          }
         }
       }
-
-      const sideX = Math.cos(headingAngle) * 0.13;
-      const sideZ = -Math.sin(headingAngle) * 0.13;
-
-      dummy.position.set(curX + sideX, curY + 0.08, curZ + sideZ);
-      dummy.rotation.set(0, headingAngle, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-
-      meshRef.current.setMatrixAt(i, dummy.matrix);
-      meshRef.current.setColorAt(i, v.color);
-
-      if (headlightMeshRef.current) {
-        dummy.position.set(curX + sideX, curY + 0.09, curZ + sideZ);
-        dummy.updateMatrix();
-        headlightMeshRef.current.setMatrixAt(i, dummy.matrix);
-      }
     }
 
-    if (transitMeshRef.current) for (let i = 0; i < transitVehicles.length; i++) {
-      const v = transitVehicles[i];
-      advanceProgress(v, dt);
-
-      const path = v.path;
-      const totalSegments = path.length - 1;
-      const exactIndex = v.progress * totalSegments;
-      const segIndex = Math.min(Math.floor(exactIndex), totalSegments - 1);
-      const segT = exactIndex - segIndex;
-      const p0 = path[segIndex];
-      const p1 = path[segIndex + 1];
-      if (!p0 || !p1) continue;
-
-      const [w0x, , w0z] = gridToWorld(p0[0], p0[1], gridWidth, gridHeight);
-      const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
-      const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
-      const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
-      const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
-      const baseAngle = Math.atan2(w1x - w0x, w1z - w0z);
-      let headingAngle = baseAngle;
-      if (segIndex < totalSegments - 1 && path[segIndex + 2]) {
-        const [w2x, , w2z] = gridToWorld(path[segIndex + 2][0], path[segIndex + 2][1], gridWidth, gridHeight);
-        const nextAngle = Math.atan2(w2x - w1x, w2z - w1z);
-        headingAngle = smoothHeading(baseAngle, nextAngle, THREE.MathUtils.smoothstep(segT, 0.62, 1.0));
-      }
-
-      dummy.position.set(curX, curY + 0.13, curZ);
-      dummy.rotation.set(0, headingAngle, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      transitMeshRef.current.setMatrixAt(i, dummy.matrix);
-      transitMeshRef.current.setColorAt(i, v.color);
+    // Smooth acceleration / deceleration
+    const accelRate = 0.6;
+    const decelRate = 1.2;
+    if (actor.currentSpeed < desiredSpeed) {
+      actor.currentSpeed = Math.min(desiredSpeed, actor.currentSpeed + accelRate * dt);
+    } else if (actor.currentSpeed > desiredSpeed) {
+      actor.currentSpeed = Math.max(desiredSpeed, actor.currentSpeed - decelRate * dt);
     }
+    speedById.current.set(actor.id, actor.currentSpeed);
 
-    if (lineTransitMeshRef.current) for (let i = 0; i < lineVehicles.length; i++) {
-      const v = lineVehicles[i];
-      advanceProgress(v, dt);
-      const totalSegments = v.path.length - 1;
-      const exactIndex = v.progress * totalSegments;
-      const segIndex = Math.min(Math.floor(exactIndex), totalSegments - 1);
-      const segT = exactIndex - segIndex;
-      const p0 = v.path[segIndex];
-      const p1 = v.path[segIndex + 1];
-      if (!p0 || !p1) continue;
-      const [w0x, , w0z] = gridToWorld(p0[0], p0[1], gridWidth, gridHeight);
-      const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
-      const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
-      const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
-      const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
-      const baseAngle = Math.atan2(w1x - w0x, w1z - w0z);
-      let headingAngle = baseAngle;
-      if (segIndex < totalSegments - 1 && v.path[segIndex + 2]) {
-        const [w2x, , w2z] = gridToWorld(v.path[segIndex + 2][0], v.path[segIndex + 2][1], gridWidth, gridHeight);
-        const nextAngle = Math.atan2(w2x - w1x, w2z - w1z);
-        headingAngle = smoothHeading(baseAngle, nextAngle, THREE.MathUtils.smoothstep(segT, 0.62, 1.0));
-      }
-      dummy.position.set(curX, curY + 0.14, curZ);
-      dummy.rotation.set(0, headingAngle, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      lineTransitMeshRef.current.setMatrixAt(i, dummy.matrix);
-      lineTransitMeshRef.current.setColorAt(i, v.color);
-    }
+    // Advance progress along total path
+    actor.progress = (actor.progress + dt * actor.currentSpeed * 0.4) % 1;
+    progressById.current.set(actor.id, actor.progress);
+  };
 
-    if (freightMeshRef.current) for (let i = 0; i < freightVehicles.length; i++) {
-      const v = freightVehicles[i];
-      advanceProgress(v, dt);
-      const totalSegments = v.path.length - 1;
-      const exactIndex = v.progress * totalSegments;
-      const segIndex = Math.min(Math.floor(exactIndex), totalSegments - 1);
-      const segT = exactIndex - segIndex;
-      const p0 = v.path[segIndex];
-      const p1 = v.path[segIndex + 1];
-      if (!p0 || !p1) continue;
+  useFrame((_, delta) => {
+    const dt = Math.min(0.1, delta * Math.max(0.5, speed));
 
-      const [w0x, , w0z] = gridToWorld(p0[0], p0[1], gridWidth, gridHeight);
-      const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
-      const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
-      const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
-      const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
-      const baseAngle = Math.atan2(w1x - w0x, w1z - w0z);
-      let headingAngle = baseAngle;
-      if (segIndex < totalSegments - 1 && v.path[segIndex + 2]) {
-        const [w2x, , w2z] = gridToWorld(v.path[segIndex + 2][0], v.path[segIndex + 2][1], gridWidth, gridHeight);
-        const nextAngle = Math.atan2(w2x - w1x, w2z - w1z);
-        headingAngle = smoothHeading(baseAngle, nextAngle, THREE.MathUtils.smoothstep(segT, 0.62, 1.0));
-      }
-      dummy.position.set(curX, curY + 0.16, curZ);
-      dummy.rotation.set(0, headingAngle, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      freightMeshRef.current.setMatrixAt(i, dummy.matrix);
-      freightMeshRef.current.setColorAt(i, v.color);
-    }
-
-    if (serviceMeshRef.current) for (let i = 0; i < serviceVehicles.length; i++) {
-      const v = serviceVehicles[i];
-      v.progress = (v.progress + dt * v.speed * 0.4) % 1;
-      const totalSegments = v.path.length - 1;
-      const exactIndex = v.progress * totalSegments;
-      const segIndex = Math.min(Math.floor(exactIndex), totalSegments - 1);
-      const segT = exactIndex - segIndex;
-      const p0 = v.path[segIndex];
-      const p1 = v.path[segIndex + 1];
-      if (!p0 || !p1) continue;
-      const [w0x, , w0z] = gridToWorld(p0[0], p0[1], gridWidth, gridHeight);
-      const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
-      const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
-      const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
-      const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
-      const baseAngle = Math.atan2(w1x - w0x, w1z - w0z);
-      let headingAngle = baseAngle;
-      if (segIndex < totalSegments - 1 && v.path[segIndex + 2]) {
-        const [w2x, , w2z] = gridToWorld(v.path[segIndex + 2][0], v.path[segIndex + 2][1], gridWidth, gridHeight);
-        const nextAngle = Math.atan2(w2x - w1x, w2z - w1z);
-        headingAngle = smoothHeading(baseAngle, nextAngle, THREE.MathUtils.smoothstep(segT, 0.62, 1.0));
-      }
-      dummy.position.set(curX, curY + 0.2, curZ);
-      dummy.rotation.set(0, headingAngle, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      serviceMeshRef.current.setMatrixAt(i, dummy.matrix);
-      // Emergency vehicle alternating siren lights
-      const sirenColor = Math.sin((v.progress * 48) + i) > 0
-        ? (i % 2 === 0 ? new THREE.Color('#38bdf8') : new THREE.Color('#ef4444'))
-        : (i % 2 === 0 ? new THREE.Color('#f8fafc') : new THREE.Color('#3b82f6'));
-      serviceMeshRef.current.setColorAt(i, sirenColor);
-    }
-
-    if (pedestrianMeshRef.current) for (let i = 0; i < pedestrians.length; i++) {
-      const actor = pedestrians[i];
-      advanceProgress(actor, dt);
-      const totalSegments = actor.path.length - 1;
-      const exactIndex = actor.progress * totalSegments;
-      const segIndex = Math.min(Math.floor(exactIndex), totalSegments - 1);
-      // Ease at every junction: pedestrians visibly slow before crossing and
-      // accelerate again after clearing it, without changing simulation state.
-      const rawT = exactIndex - segIndex;
-      const segT = rawT * rawT * (3 - 2 * rawT);
-      const p0 = actor.path[segIndex];
-      const p1 = actor.path[segIndex + 1];
-      if (!p0 || !p1) continue;
-      const [w0x, , w0z] = gridToWorld(p0[0], p0[1], gridWidth, gridHeight);
-      const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
-      const angle = Math.atan2(w1x - w0x, w1z - w0z);
-      const sidewalkSide = i % 2 === 0 ? 0.31 : -0.31;
-      const curX = THREE.MathUtils.lerp(w0x, w1x, segT) + Math.cos(angle) * sidewalkSide;
-      const curZ = THREE.MathUtils.lerp(w0z, w1z, segT) - Math.sin(angle) * sidewalkSide;
-      const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
-      dummy.position.set(curX, curY + 0.11 + Math.sin((actor.progress * 80) + i) * 0.012, curZ);
-      dummy.rotation.set(0, angle, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      pedestrianMeshRef.current.setMatrixAt(i, dummy.matrix);
-      pedestrianMeshRef.current.setColorAt(i, actor.color);
-    }
-
+    // 1. CARS
     if (meshRef.current) {
+      for (let i = 0; i < vehicles.length; i++) {
+        const v = vehicles[i];
+        updateVehicleActor(v, dt);
+
+        const path = v.path;
+        const totalSegments = path.length - 1;
+        const exactIndex = v.progress * totalSegments;
+        const segIndex = Math.min(Math.floor(exactIndex), totalSegments - 1);
+        const segT = exactIndex - segIndex;
+
+        const p0 = path[segIndex];
+        const p1 = path[segIndex + 1];
+        if (!p0 || !p1) continue;
+
+        const [w0x, , w0z] = gridToWorld(p0[0], p0[1], gridWidth, gridHeight);
+        const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
+
+        // Smooth cubic Bézier interpolation across turning transitions
+        const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
+        const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
+        const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
+
+        const dx = w1x - w0x;
+        const dz = w1z - w0z;
+        const baseAngle = Math.atan2(dx, dz);
+        let headingAngle = baseAngle;
+        if (segIndex < totalSegments - 1 && path[segIndex + 2]) {
+          const [w2x, , w2z] = gridToWorld(path[segIndex + 2][0], path[segIndex + 2][1], gridWidth, gridHeight);
+          const nextAngle = Math.atan2(w2x - w1x, w2z - w1z);
+          headingAngle = smoothHeading(baseAngle, nextAngle, THREE.MathUtils.smoothstep(segT, 0.58, 1.0));
+        }
+
+        const sideX = Math.cos(headingAngle) * v.laneOffset;
+        const sideZ = -Math.sin(headingAngle) * v.laneOffset;
+
+        dummy.position.set(curX + sideX, curY + 0.08, curZ + sideZ);
+        dummy.rotation.set(0, headingAngle, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+
+        meshRef.current.setMatrixAt(i, dummy.matrix);
+        meshRef.current.setColorAt(i, v.color);
+
+        if (headlightMeshRef.current) {
+          dummy.position.set(curX + sideX, curY + 0.09, curZ + sideZ);
+          dummy.updateMatrix();
+          headlightMeshRef.current.setMatrixAt(i, dummy.matrix);
+        }
+      }
       meshRef.current.instanceMatrix.needsUpdate = true;
       if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
     }
+
+    // 2. TRANSIT VEHICLES
     if (transitMeshRef.current) {
+      for (let i = 0; i < transitVehicles.length; i++) {
+        const v = transitVehicles[i];
+        updateVehicleActor(v, dt, true);
+
+        const totalSegments = v.path.length - 1;
+        const exactIndex = v.progress * totalSegments;
+        const segIndex = Math.min(Math.floor(exactIndex), totalSegments - 1);
+        const segT = exactIndex - segIndex;
+        const p0 = v.path[segIndex];
+        const p1 = v.path[segIndex + 1];
+        if (!p0 || !p1) continue;
+
+        const [w0x, , w0z] = gridToWorld(p0[0], p0[1], gridWidth, gridHeight);
+        const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
+        const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
+        const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
+        const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
+        const baseAngle = Math.atan2(w1x - w0x, w1z - w0z);
+        let headingAngle = baseAngle;
+        if (segIndex < totalSegments - 1 && v.path[segIndex + 2]) {
+          const [w2x, , w2z] = gridToWorld(v.path[segIndex + 2][0], v.path[segIndex + 2][1], gridWidth, gridHeight);
+          headingAngle = smoothHeading(baseAngle, Math.atan2(w2x - w1x, w2z - w1z), THREE.MathUtils.smoothstep(segT, 0.58, 1.0));
+        }
+
+        dummy.position.set(curX, curY + 0.13, curZ);
+        dummy.rotation.set(0, headingAngle, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        transitMeshRef.current.setMatrixAt(i, dummy.matrix);
+        transitMeshRef.current.setColorAt(i, v.color);
+      }
       transitMeshRef.current.instanceMatrix.needsUpdate = true;
       if (transitMeshRef.current.instanceColor) transitMeshRef.current.instanceColor.needsUpdate = true;
     }
+
+    // 3. LINE TRANSIT (BUS & TRAM)
     if (lineTransitMeshRef.current) {
+      for (let i = 0; i < lineVehicles.length; i++) {
+        const v = lineVehicles[i];
+        updateVehicleActor(v, dt, true);
+
+        const totalSegments = v.path.length - 1;
+        const exactIndex = v.progress * totalSegments;
+        const segIndex = Math.min(Math.floor(exactIndex), totalSegments - 1);
+        const segT = exactIndex - segIndex;
+        const p0 = v.path[segIndex];
+        const p1 = v.path[segIndex + 1];
+        if (!p0 || !p1) continue;
+
+        const [w0x, , w0z] = gridToWorld(p0[0], p0[1], gridWidth, gridHeight);
+        const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
+        const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
+        const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
+        const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
+        const baseAngle = Math.atan2(w1x - w0x, w1z - w0z);
+        let headingAngle = baseAngle;
+        if (segIndex < totalSegments - 1 && v.path[segIndex + 2]) {
+          const [w2x, , w2z] = gridToWorld(v.path[segIndex + 2][0], v.path[segIndex + 2][1], gridWidth, gridHeight);
+          headingAngle = smoothHeading(baseAngle, Math.atan2(w2x - w1x, w2z - w1z), THREE.MathUtils.smoothstep(segT, 0.58, 1.0));
+        }
+
+        dummy.position.set(curX, curY + 0.14, curZ);
+        dummy.rotation.set(0, headingAngle, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        lineTransitMeshRef.current.setMatrixAt(i, dummy.matrix);
+        lineTransitMeshRef.current.setColorAt(i, v.color);
+      }
       lineTransitMeshRef.current.instanceMatrix.needsUpdate = true;
       if (lineTransitMeshRef.current.instanceColor) lineTransitMeshRef.current.instanceColor.needsUpdate = true;
     }
+
+    // 4. FREIGHT TRUCKS
     if (freightMeshRef.current) {
+      for (let i = 0; i < freightVehicles.length; i++) {
+        const v = freightVehicles[i];
+        updateVehicleActor(v, dt, false, true);
+
+        const totalSegments = v.path.length - 1;
+        const exactIndex = v.progress * totalSegments;
+        const segIndex = Math.min(Math.floor(exactIndex), totalSegments - 1);
+        const segT = exactIndex - segIndex;
+        const p0 = v.path[segIndex];
+        const p1 = v.path[segIndex + 1];
+        if (!p0 || !p1) continue;
+
+        const [w0x, , w0z] = gridToWorld(p0[0], p0[1], gridWidth, gridHeight);
+        const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
+        const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
+        const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
+        const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
+        const baseAngle = Math.atan2(w1x - w0x, w1z - w0z);
+        let headingAngle = baseAngle;
+        if (segIndex < totalSegments - 1 && v.path[segIndex + 2]) {
+          const [w2x, , w2z] = gridToWorld(v.path[segIndex + 2][0], v.path[segIndex + 2][1], gridWidth, gridHeight);
+          headingAngle = smoothHeading(baseAngle, Math.atan2(w2x - w1x, w2z - w1z), THREE.MathUtils.smoothstep(segT, 0.58, 1.0));
+        }
+
+        dummy.position.set(curX, curY + 0.16, curZ);
+        dummy.rotation.set(0, headingAngle, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        freightMeshRef.current.setMatrixAt(i, dummy.matrix);
+        freightMeshRef.current.setColorAt(i, v.color);
+      }
       freightMeshRef.current.instanceMatrix.needsUpdate = true;
       if (freightMeshRef.current.instanceColor) freightMeshRef.current.instanceColor.needsUpdate = true;
     }
+
+    // 5. SERVICE VEHICLES (EMERGENCY)
     if (serviceMeshRef.current) {
+      for (let i = 0; i < serviceVehicles.length; i++) {
+        const v = serviceVehicles[i];
+        updateVehicleActor(v, dt);
+
+        const totalSegments = v.path.length - 1;
+        const exactIndex = v.progress * totalSegments;
+        const segIndex = Math.min(Math.floor(exactIndex), totalSegments - 1);
+        const segT = exactIndex - segIndex;
+        const p0 = v.path[segIndex];
+        const p1 = v.path[segIndex + 1];
+        if (!p0 || !p1) continue;
+
+        const [w0x, , w0z] = gridToWorld(p0[0], p0[1], gridWidth, gridHeight);
+        const [w1x, , w1z] = gridToWorld(p1[0], p1[1], gridWidth, gridHeight);
+        const curX = THREE.MathUtils.lerp(w0x, w1x, segT);
+        const curZ = THREE.MathUtils.lerp(w0z, w1z, segT);
+        const curY = THREE.MathUtils.lerp(roadHeight(grid[p0[1]]?.[p0[0]]), roadHeight(grid[p1[1]]?.[p1[0]]), segT);
+        const baseAngle = Math.atan2(w1x - w0x, w1z - w0z);
+        let headingAngle = baseAngle;
+        if (segIndex < totalSegments - 1 && v.path[segIndex + 2]) {
+          const [w2x, , w2z] = gridToWorld(v.path[segIndex + 2][0], v.path[segIndex + 2][1], gridWidth, gridHeight);
+          headingAngle = smoothHeading(baseAngle, Math.atan2(w2x - w1x, w2z - w1z), THREE.MathUtils.smoothstep(segT, 0.58, 1.0));
+        }
+
+        dummy.position.set(curX, curY + 0.12, curZ);
+        dummy.rotation.set(0, headingAngle, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        serviceMeshRef.current.setMatrixAt(i, dummy.matrix);
+        serviceMeshRef.current.setColorAt(i, v.color);
+      }
       serviceMeshRef.current.instanceMatrix.needsUpdate = true;
       if (serviceMeshRef.current.instanceColor) serviceMeshRef.current.instanceColor.needsUpdate = true;
-    }
-    if (pedestrianMeshRef.current) {
-      pedestrianMeshRef.current.instanceMatrix.needsUpdate = true;
-      if (pedestrianMeshRef.current.instanceColor) pedestrianMeshRef.current.instanceColor.needsUpdate = true;
     }
 
     if (headlightMeshRef.current) {
@@ -475,7 +537,7 @@ export function TrafficVehicles({
     }
   });
 
-  if (vehicles.length === 0 && transitVehicles.length === 0 && lineVehicles.length === 0 && freightVehicles.length === 0 && serviceVehicles.length === 0 && pedestrians.length === 0) return null;
+  if (vehicles.length === 0 && transitVehicles.length === 0 && lineVehicles.length === 0 && freightVehicles.length === 0 && serviceVehicles.length === 0) return null;
 
   return (
     <group name="TrafficVehicles">
@@ -513,9 +575,6 @@ export function TrafficVehicles({
           args={[serviceGeometry, serviceMaterial, serviceVehicles.length]}
           castShadow
         />
-      )}
-      {pedestrians.length > 0 && (
-        <instancedMesh ref={pedestrianMeshRef} args={[pedestrianGeometry, pedestrianMaterial, pedestrians.length]} castShadow />
       )}
       {nightFactor > 0.3 && vehicles.length > 0 && (
         <instancedMesh

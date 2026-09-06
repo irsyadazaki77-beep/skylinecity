@@ -22,6 +22,7 @@ import { NetworkOverlays } from './NetworkOverlays';
 import { computeRoadRecommendations } from '../../tutorialPathfinder';
 import type { SimulationRenderRevisions } from '../../simulationContext';
 import { WeatherEffects } from './WeatherEffects';
+import { PedestrianRenderer } from './PedestrianRenderer';
 
 interface City3DCanvasProps {
   grid: TileData[][];
@@ -65,6 +66,7 @@ interface City3DCanvasProps {
   tutorialHighlight?: 'highway' | 'zoning' | 'utilities' | 'mission' | null;
   onRendererReady?: () => void;
   renderRevisions?: SimulationRenderRevisions;
+  onSelectCitizen?: (citizenId: string) => void;
 }
 
 const BUILDING_CHUNK_SIZE = 10;
@@ -93,15 +95,15 @@ function BuildingLodController({ qualityTier, children }: { qualityTier: 'balanc
 
   useFrame((_, delta) => {
     elapsedRef.current += delta;
-    // A low-frequency check keeps LOD responsive to camera movement while
-    // avoiding a React update or a per-building frame callback.
     if (elapsedRef.current < 0.12 || !rootRef.current) return;
     elapsedRef.current = 0;
-    const farDistance = qualityTier === 'reduced' ? 38 : 58;
+    const nearDistance = qualityTier === 'reduced' ? 24 : 36;
+    const farDistance = qualityTier === 'reduced' ? 42 : 62;
+    const nearDistanceSq = nearDistance * nearDistance;
     const farDistanceSq = farDistance * farDistance;
     const camPos = camera.position;
 
-    // Fast 2-tier iteration over chunk groups avoiding full scene-graph recursive traversal
+    // Fast 2-tier iteration over chunk groups
     const chunkGroups = rootRef.current.children;
     for (let i = 0; i < chunkGroups.length; i++) {
       const chunk = chunkGroups[i];
@@ -111,9 +113,23 @@ function BuildingLodController({ qualityTier, children }: { qualityTier: 'balanc
         if (b.name === 'BuildingRenderRoot') {
           b.getWorldPosition(worldPosition.current);
           const distanceSq = worldPosition.current.distanceToSquared(camPos);
+
           const detail = b.children[0]?.name === 'BuildingDetail' ? b.children[0] : b.getObjectByName('BuildingDetail');
-          if (detail) {
-            detail.visible = distanceSq <= farDistanceSq;
+          const mid = b.getObjectByName('BuildingMid');
+          const far = b.getObjectByName('BuildingFar');
+
+          if (distanceSq <= nearDistanceSq) {
+            if (detail) detail.visible = true;
+            if (mid) mid.visible = false;
+            if (far) far.visible = false;
+          } else if (distanceSq <= farDistanceSq) {
+            if (detail) detail.visible = false;
+            if (mid) mid.visible = true;
+            if (far) far.visible = false;
+          } else {
+            if (detail) detail.visible = false;
+            if (mid) mid.visible = false;
+            if (far) far.visible = true;
           }
         }
       }
@@ -165,6 +181,7 @@ export function City3DCanvas({
   tutorialHighlight = null,
   onRendererReady,
   renderRevisions,
+  onSelectCitizen,
 }: City3DCanvasProps) {
   const height = grid.length;
   const width = grid[0]?.length ?? 0;
@@ -390,6 +407,14 @@ export function City3DCanvas({
         speed={speed}
         nightFactor={nightFactor}
         trafficDensity={effectiveTrafficDensity}
+      />
+      <PedestrianRenderer
+        grid={grid}
+        trips={activeTrips}
+        timeOfDay={timeOfDay}
+        population={activeTrips?.length ? activeTrips.length * 6 : 60}
+        qualityTier={qualityTier}
+        onSelectCitizen={onSelectCitizen}
       />
       <NetworkOverlays
         activeOverlay={activeOverlay}

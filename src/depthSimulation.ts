@@ -76,13 +76,14 @@ export function simulateCityDepthAndEnvironment(
   const hasRecycling = unlockedUpgrades.includes('recycling');
   const hasGreenRoofs = unlockedUpgrades.includes('green_roofs');
 
-  // Initialize depth maps
-  const pollutionMap = Array.from({ length: height }, () => Array(width).fill(0));
-  const noiseMap = Array.from({ length: height }, () => Array(width).fill(0));
+  // Initialize depth maps with flat typed buffers
+  const size = height * width;
+  const pollutionMap = new Float32Array(size);
+  const noiseMap = new Float32Array(size);
   // The park radius is used both for absorption and land-value uplift. Build
   // the influence map while visiting parks so the per-tile pass does not
   // rescan a 7x7 neighbourhood for every tile.
-  const parkInfluence = Array.from({ length: height }, () => Array(width).fill(false));
+  const parkInfluence = new Uint8Array(size);
 
   // 1. Calculate Pollution & Noise sources
   for (let y = 0; y < height; y++) {
@@ -131,8 +132,9 @@ export function simulateCityDepthAndEnvironment(
           const nx = x + dx;
           const ny = y + dy;
           if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-            pollutionMap[ny][nx] += pollSource * decay;
-            noiseMap[ny][nx] += noiseSource * decay;
+            const idx = ny * width + nx;
+            pollutionMap[idx] += pollSource * decay;
+            noiseMap[idx] += noiseSource * decay;
           }
         }
       }
@@ -165,9 +167,10 @@ export function simulateCityDepthAndEnvironment(
             const nx = x + dx;
             const ny = y + dy;
             if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-              parkInfluence[ny][nx] = true;
-              pollutionMap[ny][nx] = Math.max(0, pollutionMap[ny][nx] - 12);
-              noiseMap[ny][nx] = Math.max(0, noiseMap[ny][nx] - 10);
+              const idx = ny * width + nx;
+              parkInfluence[idx] = 1;
+              pollutionMap[idx] = Math.max(0, pollutionMap[idx] - 12);
+              noiseMap[idx] = Math.max(0, noiseMap[idx] - 10);
             }
           }
         }
@@ -178,10 +181,11 @@ export function simulateCityDepthAndEnvironment(
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const tile = grid[y][x];
+      const idx = y * width + x;
 
       const disasterImpact = tile.disasterImpact ?? 0;
-      const pVal = Math.min(100, Math.round(pollutionMap[y][x] + disasterImpact * 0.2));
-      const nVal = Math.min(100, Math.round(noiseMap[y][x] + disasterImpact * 0.1));
+      const pVal = Math.min(100, Math.round(pollutionMap[idx] + disasterImpact * 0.2));
+      const nVal = Math.min(100, Math.round(noiseMap[idx] + disasterImpact * 0.1));
 
       tile.pollution = pVal;
       tile.noise = nVal;
@@ -213,7 +217,7 @@ export function simulateCityDepthAndEnvironment(
       if (tile.healthCovered) lv += 10;
       if (tile.schoolCovered) lv += 10;
 
-      if (parkInfluence[y][x]) lv += 25;
+      if (parkInfluence[idx] === 1) lv += 25;
 
       lv -= (pVal * 0.35) + (nVal * 0.25) + (crime * 0.3) + disasterImpact * 0.3;
       lv = Math.max(0, Math.min(100, Math.round(lv)));
