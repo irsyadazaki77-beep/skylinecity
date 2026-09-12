@@ -2,6 +2,7 @@ import { CityDistrict } from './districts';
 import { CityState, TileData, TileType } from './types';
 
 export type NeighborhoodIdentityType = 'FAMILY_QUARTER' | 'BUSINESS_CORE' | 'INDUSTRIAL_HUB' | 'WATERFRONT' | 'GREEN_DISTRICT' | 'TRANSIT_CORRIDOR' | 'RESILIENT_QUARTER';
+export type DistrictVisualTheme = 'OLD_TOWN' | 'GARDEN_RESIDENTIAL' | 'COMMERCIAL_CORE' | 'LOGISTICS_INDUSTRIAL' | 'WATERFRONT' | 'CIVIC_CENTER' | 'MODERN_DOWNTOWN';
 
 export interface NeighborhoodIdentity {
   districtId: string;
@@ -10,7 +11,18 @@ export interface NeighborhoodIdentity {
   evidence: Record<string, number>;
   reasons: string[];
   effects: { demand: number; landValue: number; happiness: number; traffic: number; serviceNeed: number };
+  visualTheme?: DistrictVisualTheme;
   derivedDay: number;
+}
+
+function visualThemeFor(type: NeighborhoodIdentityType, density: number, district: CityDistrict): DistrictVisualTheme {
+  if (type === 'INDUSTRIAL_HUB') return 'LOGISTICS_INDUSTRIAL';
+  if (type === 'WATERFRONT') return 'WATERFRONT';
+  if (type === 'BUSINESS_CORE') return density >= 0.58 ? 'MODERN_DOWNTOWN' : 'COMMERCIAL_CORE';
+  if (type === 'TRANSIT_CORRIDOR') return density >= 0.5 ? 'MODERN_DOWNTOWN' : 'COMMERCIAL_CORE';
+  if (type === 'RESILIENT_QUARTER' || district.policy === 'COMMUNITY_SERVICES') return 'CIVIC_CENTER';
+  if (type === 'GREEN_DISTRICT') return 'GARDEN_RESIDENTIAL';
+  return density <= 0.28 ? 'OLD_TOWN' : 'GARDEN_RESIDENTIAL';
 }
 
 export interface NeighborhoodIdentityState { identities: NeighborhoodIdentity[] }
@@ -62,7 +74,7 @@ export function deriveNeighborhoodIdentity(state: CityState, district: CityDistr
   const reasons = Object.entries({ residential, commercial, industrial, transit, green, services, waterfront, resilience })
     .sort(([a, av], [b, bv]) => bv - av || a.localeCompare(b)).slice(0, 3)
     .map(([key, value]) => `${key} ${Math.round(value * 100)}%`);
-  return { districtId: district.id, type, confidence: Math.min(100, Math.round(score)), evidence: Object.fromEntries(Object.entries(scores).map(([key, value]) => [key, Math.round(value)])), reasons: [`${LABELS[type]} muncul dari data kawasan`, ...reasons], effects: EFFECTS[type], derivedDay: state.day };
+  return { districtId: district.id, type, visualTheme: visualThemeFor(type, density, district), confidence: Math.min(100, Math.round(score)), evidence: Object.fromEntries(Object.entries(scores).map(([key, value]) => [key, Math.round(value)])), reasons: [`${LABELS[type]} muncul dari data kawasan`, ...reasons], effects: EFFECTS[type], derivedDay: state.day };
 }
 
 export function advanceNeighborhoodIdentities(state: CityState): NeighborhoodIdentityState {

@@ -22,8 +22,9 @@ export interface RenderBenchmarkResult {
 }
 
 /**
- * Accurately simulates Three.js WebGL scene traversal, LOD culling, and
- * geometry aggregation to evaluate draw calls, triangle counts, and frame time.
+ * Deterministically inventories the Three.js scene shape, LOD culling, and
+ * geometry aggregation. Frame time/FPS below are synthetic budget estimates,
+ * not browser measurements; a real-browser capture must remain a separate gate.
  */
 export function evaluateCitySceneMetrics(
   state: CityState,
@@ -168,6 +169,10 @@ export function runOfficialRenderBenchmark(): RenderBenchmarkResult[] {
     { name: '10K City (Industrial City)', setup: () => createBenchmarkState('INDUSTRIAL_CITY') },
     { name: '50K City (Congested Corridor)', setup: () => createBenchmarkState('CONGESTED_CORRIDOR') },
     { name: '100K City (Metropolis 100K)', setup: () => createBenchmarkState('PERFORMANCE_100K') },
+    { name: 'Dense City', setup: () => createBenchmarkState('DENSE_CITY') },
+    { name: 'Transit Stress', setup: () => createBenchmarkState('TRANSIT_STRESS') },
+    { name: 'Night City', setup: () => createBenchmarkState('NIGHT_CITY') },
+    { name: 'Disaster City', setup: () => createBenchmarkState('DISASTER_CITY') },
   ];
 
   return scenarios.map(({ name, setup }) => {

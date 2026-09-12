@@ -155,8 +155,9 @@ export function DistrictsModal({ isOpen, onClose, districts, onStartPlacement, o
                       {definition.name} · Pusat ({district.center[0]}, {district.center[1]}) · {district.tiles.length} petak
                     </div>
                     {identity && (
-                      <div className="mt-1 text-xs text-cyan-300 font-medium">
-                        <b>{identity.type.replaceAll('_', ' ')}</b> · Kepercayaan {identity.confidence}% · {identity.reasons.slice(1).join(' · ')}
+                      <div className="mt-1 space-y-0.5 text-xs text-cyan-300 font-medium">
+                        <div><b>{identity.visualTheme?.replaceAll('_', ' ') ?? identity.type.replaceAll('_', ' ')}</b> · Kepercayaan {identity.confidence}%</div>
+                        <div className="text-slate-400 font-normal">Bukti: {identity.reasons.slice(1).join(' · ')}</div>
                       </div>
                     )}
                   </div>

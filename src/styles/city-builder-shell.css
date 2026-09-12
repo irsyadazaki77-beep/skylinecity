@@ -1,0 +1,109 @@
+/* Final structural shell. This layer owns hierarchy and responsive placement. */
+:root {
+  --ui-space-1: 4px; --ui-space-2: 8px; --ui-space-3: 12px; --ui-space-4: 16px;
+  --ui-panel: rgba(11, 18, 31, .92); --ui-panel-solid: #0b121f;
+  --ui-border: rgba(226, 232, 240, .13); --ui-shadow: 0 12px 32px rgba(2, 6, 23, .28);
+  --ui-radius: 12px; --ui-radius-sheet: 18px;
+  --ui-success: #5ee0a0; --ui-warning: #f4c15d; --ui-danger: #fb7185; --ui-active: #66d9e8;
+}
+
+.app-shell :is(.game-hud-left,.game-hud-center,.camera-toolbar,.simulation-toolbar-main,.tool-rail,.tool-drawer,.context-panel,.city-information-panel,.tutorial-sheet,.next-action-chip) {
+  background: var(--ui-panel); border-color: var(--ui-border); box-shadow: var(--ui-shadow); backdrop-filter: blur(10px);
+}
+.app-shell button { border-radius: 9px; }
+.app-shell button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--ui-active); }
+.app-shell button[aria-pressed="true"]::after { display: none; }
+
+/* One quiet top lane, not three competing floating cards. */
+.app-shell .game-hud { padding: 10px 12px; align-items: center; grid-template-columns: minmax(150px,1fr) auto minmax(190px,1fr); }
+.app-shell .game-hud-left { padding: 7px 10px; border: 0; border-radius: var(--ui-radius); }
+.app-shell .game-hud-left > div > div { display: none; }
+.app-shell .game-hud-center { min-height: 48px; padding: 4px 12px; gap: 12px; border-radius: var(--ui-radius); }
+.app-shell .hud-metric { min-width: 68px; gap: 0; }
+.app-shell .hud-trend { display: none; }
+.app-shell .game-hud-right { gap: 6px; }
+.app-shell .game-hud-right > div:first-child { min-height: 44px; border: 0; border-radius: var(--ui-radius); box-shadow: none; }
+.app-shell .game-hud-right > button { border-color: transparent; background: var(--ui-panel); box-shadow: none; }
+
+/* Compact build rail; labels are revealed by hover/focus, contextual tools stay in one drawer. */
+.app-shell .tool-rail-container { top: 68px; bottom: 82px; }
+.app-shell .tool-rail { width: 60px; padding: 6px 4px; gap: 3px; border: 1px solid var(--ui-border); border-left: 0; border-radius: 0 var(--ui-radius) var(--ui-radius) 0; }
+.app-shell .tool-rail button { width: 50px; min-width: 50px; min-height: 48px; border: 1px solid transparent; }
+.app-shell .tool-rail button span { font-size: 9px; }
+.app-shell .tool-drawer { width: 296px; margin-left: 6px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); }
+
+/* Camera: only dimension + zoom + overflow are persistent. */
+.app-shell .camera-toolbar { top: 68px; right: 12px; padding: 4px; gap: 4px; border-radius: var(--ui-radius); }
+.app-shell .camera-toolbar > .h-6 { display: none; }
+.app-shell .camera-toolbar-secondary { position: absolute; top: calc(100% + 6px); right: 0; display: flex; align-items: center; gap: 4px; padding: 5px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); background: var(--ui-panel-solid); box-shadow: var(--ui-shadow); animation: ui-pop .16s ease-out; }
+.app-shell .camera-preset { white-space: nowrap; }
+
+/* Advisor is a small anchored card; long content remains disclosed by its existing states. */
+.app-shell .next-action-card { top: 68px; left: 68px; width: min(300px,calc(100vw - 148px)); padding: 11px; max-height: 35vh; border-color: var(--ui-border); }
+.app-shell .next-action-chip { top: 70px; left: 68px; max-width: 300px; border-color: var(--ui-border); }
+.app-shell .tutorial-sheet-content { font-size: 12px; }
+
+/* Context belongs on the right and never competes with the advisor. */
+.app-shell .context-panel { left: auto; right: 12px; bottom: 82px; width: 340px; max-height: calc(100dvh - 160px); border-radius: var(--ui-radius-sheet); padding: 14px; }
+.app-shell .city-information-panel { top: 68px; left: auto; right: 12px; bottom: 82px; width: min(390px,calc(100vw - 24px)); border-radius: var(--ui-radius-sheet); }
+.app-shell .city-information-panel [role="tablist"] { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.app-shell .city-information-panel [role="tab"] { flex: 0 0 auto; }
+.app-shell .performance-overlay { opacity: .72; border: 0; box-shadow: none; }
+
+.app-shell .simulation-toolbar { bottom: 10px; }
+.app-shell .simulation-toolbar-main { padding: 4px; border-radius: var(--ui-radius); }
+.app-shell .simulation-toolbar-main > .h-6 { display: none; }
+
+@keyframes ui-pop { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+.app-shell.reduced-motion * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+@media (prefers-reduced-motion: reduce) { .app-shell * { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
+
+@media (max-width: 768px) {
+  .app-shell .game-hud { grid-template-columns: 1fr auto; grid-template-areas: "identity actions" "metrics metrics"; padding: var(--safe-top) 8px 4px; gap: 4px; }
+  .app-shell .game-hud-left { grid-area: identity; background: transparent; padding-left: 4px; box-shadow: none; }
+  .app-shell .game-hud-center { grid-area: metrics; width: 100%; min-height: 42px; padding: 3px 5px; gap: 2px; }
+  .app-shell .game-hud-right { grid-area: actions; }
+  .app-shell .game-hud-right > div:first-child { display: none; }
+  .app-shell .game-hud-center .hud-metric > span:first-child { font-size: 8px; }
+  .app-shell .game-hud-center .hud-metric { display: flex !important; min-width: 0; }
+  .app-shell .game-hud-center > .w-px { display: block !important; height: 22px; }
+
+  .app-shell .camera-toolbar { top: calc(102px + var(--safe-top)); left: auto; right: 8px; width: auto; max-width: calc(100vw - 16px); }
+  .app-shell .camera-toolbar .camera-toolbar-secondary { right: 0; max-width: calc(100vw - 16px); flex-wrap: wrap; justify-content: flex-end; }
+  .app-shell .camera-toolbar .camera-preset { display: none; }
+
+  /* The category rail becomes the requested expandable bottom dock. */
+  .app-shell .tool-rail-container { top: auto; left: 8px; right: 8px; bottom: calc(70px + var(--safe-bottom)); height: 56px; display: block; }
+  .app-shell .tool-rail { width: 100%; height: 56px; padding: 3px; flex-direction: row; justify-content: flex-start; overflow-x: auto; overflow-y: hidden; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); scrollbar-width: none; }
+  .app-shell .tool-rail button { flex: 0 0 48px; width: 48px; min-width: 48px; min-height: 48px; }
+  .app-shell .tool-rail button span { display: none; }
+  .app-shell .tool-drawer { position: fixed; inset: auto 8px calc(132px + var(--safe-bottom)) 8px; width: auto; max-height: min(52dvh,430px); margin: 0; border-radius: var(--ui-radius-sheet); box-shadow: 0 -12px 34px rgba(2,6,23,.4); }
+  .app-shell .tool-drawer-backdrop { display: block; position: fixed; inset: 102px 0 calc(126px + var(--safe-bottom)); background: rgba(2,6,23,.18); }
+  .app-shell .tutorial-sheet { top: auto; left: 8px; right: 8px; bottom: calc(132px + var(--safe-bottom)); width: auto; }
+  .app-shell .tutorial-sheet[data-sheet-state="collapsed"] { height: 56px; }
+  .app-shell .next-action-chip { left: 8px; top: auto; bottom: calc(132px + var(--safe-bottom)); max-width: calc(100vw - 16px); }
+  .app-shell .simulation-toolbar { bottom: var(--safe-bottom); }
+  .app-shell .context-panel,.app-shell .city-information-panel { position: fixed; inset: auto 8px calc(70px + var(--safe-bottom)) 8px; width: auto; max-height: min(62dvh,560px); border-radius: var(--ui-radius-sheet) var(--ui-radius-sheet) 10px 10px; }
+  .app-shell .context-panel::before,.app-shell .city-information-panel::before { content: ''; display: block; width: 38px; height: 4px; margin: -7px auto 8px; border-radius: 999px; background: #718096; }
+  .app-ui:has(.context-panel) .tool-rail-container,.app-ui:has(.city-information-panel) .tool-rail-container { display: none; }
+}
+
+@media (min-width: 769px) and (max-width: 900px) and (max-height: 500px) {
+  .app-shell .tool-rail-container { top: auto; left: 8px; right: 8px; bottom: 8px; height: 54px; display: block; }
+  .app-shell .tool-rail { width: min(470px,calc(100vw - 330px)); height: 54px; padding: 3px; flex-direction: row; overflow-x: auto; overflow-y: hidden; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); scrollbar-width: none; }
+  .app-shell .tool-rail button { flex: 0 0 46px; width: 46px; min-width: 46px; min-height: 46px; }
+  .app-shell .tool-rail button span { display: none; }
+  .app-shell .tool-drawer { position: fixed; inset: auto 8px 68px 8px; width: min(430px,calc(100vw - 16px)); max-height: 68dvh; margin: 0; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sheet); }
+  .app-shell .simulation-toolbar { left: auto; right: 8px; bottom: 8px; transform: none; }
+  .app-shell .tutorial-sheet,.app-shell .next-action-chip { top: auto; left: auto; right: 8px; bottom: 70px; width: min(300px,calc(100vw - 16px)); }
+  .app-shell .tutorial-sheet { max-height: 45dvh; }
+  .app-shell .camera-toolbar { top: 68px; right: 8px; max-width: calc(100vw - 16px); }
+}
+
+@media (max-width: 420px) {
+  .app-shell .game-hud-left h1 { font-size: 14px; }
+  .app-shell .game-hud-center .hud-metric > span:first-child { display: none; }
+  .app-shell .game-hud-center { min-height: 38px; }
+  .app-shell .camera-toolbar { top: calc(96px + var(--safe-top)); }
+  .app-shell .camera-toolbar > div[role="group"]:nth-of-type(2) span { min-width: 34px; }
+}

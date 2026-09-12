@@ -144,6 +144,8 @@ export function RoadMesh({ grid, nightFactor, tutorialHighlight = false, targetH
   const poleGeo = useMemo(() => new THREE.CylinderGeometry(0.018, 0.022, 0.8), []);
   const armGeo = useMemo(() => new THREE.CylinderGeometry(0.012, 0.012, 0.22), []);
   const bulbGeo = useMemo(() => new THREE.SphereGeometry(0.045, 8, 8), []);
+  const stopRoofGeo = useMemo(() => new THREE.BoxGeometry(0.32, 0.035, 0.16), []);
+  const stopSignGeo = useMemo(() => new THREE.BoxGeometry(0.035, 0.22, 0.035), []);
 
   // Materials
   const asphaltMat = useMemo(() => new THREE.MeshStandardMaterial({
@@ -196,6 +198,7 @@ export function RoadMesh({ grid, nightFactor, tutorialHighlight = false, targetH
   const streetlightBulbMat = useMemo(() => new THREE.MeshBasicMaterial({
     color: '#fef08a',
   }), []);
+  const stopMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#8b735a', roughness: 0.76 }), []);
 
   // Every asphalt slab shares the same geometry and material. Upload the
   // per-tile transforms to one instanced mesh to keep road rendering cheap as
@@ -206,7 +209,10 @@ export function RoadMesh({ grid, nightFactor, tutorialHighlight = false, targetH
     roadData.forEach((road, index) => {
       const [wx, , wz] = gridToWorld(road.x, road.y, width, height);
       const wy = (grid[road.y][road.x].elevation || 0) * 0.15 + (road.roadStructure === 'BRIDGE' ? 0.22 : road.roadStructure === 'TUNNEL' ? -0.08 : 0);
-      dummy.position.set(wx, wy - 0.03, wz);
+      // Keep the asphalt skin a few millimetres above the terrain surface.
+      // A flush top face causes the striped moire/z-fighting that is most
+      // visible on long highways at an isometric camera angle.
+      dummy.position.set(wx, wy - 0.02, wz);
       dummy.rotation.set(0, 0, 0);
       const widthScale = roadVisual(road.roadClass).width;
       dummy.scale.set(widthScale, 1, widthScale);
@@ -353,6 +359,13 @@ export function RoadMesh({ grid, nightFactor, tutorialHighlight = false, targetH
 
             {isIntersection && intersectionControl === 'ROUNDABOUT' && (
               <mesh geometry={roundaboutGeo} material={roundaboutMat} position={[0, 0.055, 0]} rotation={[-Math.PI / 2, 0, 0]} />
+            )}
+
+            {roadClass === 'ARTERIAL' && (road.x + road.y) % 5 === 0 && (
+              <group position={[0.5, 0.06, 0.18]}>
+                <mesh geometry={stopSignGeo} material={stopMat} position={[0, 0.16, 0]} castShadow />
+                <mesh geometry={stopRoofGeo} material={stopMat} position={[0, 0.28, 0]} castShadow />
+              </group>
             )}
 
             {/* Street Lamp on Intersections and select straight road corners */}

@@ -60,6 +60,10 @@ function fastCloneValue<T>(value: T): T {
 
 function cloneStructured<T>(value: T | undefined): T | undefined {
   if (value === undefined) return undefined;
+  // Native structuredClone is implemented in the runtime and avoids the
+  // recursive JS allocator hot path for large citizen/trip collections. Keep
+  // the deterministic fallback for older browser/worker runtimes.
+  if (typeof structuredClone === 'function') return structuredClone(value);
   return fastCloneValue(value);
 }
 
@@ -98,10 +102,14 @@ export function cloneCityStateForSimulation(input: CityState): CityState {
     transitVehicles: cloneStructured(input.transitVehicles),
     activeTrips: cloneStructured(input.activeTrips),
     activeFreightTrips: cloneStructured(input.activeFreightTrips),
-    warehouseInventory: cloneStructured(input.warehouseInventory),
-    regions: cloneStructured(input.regions),
-    citizenState: cloneStructured(input.citizenState),
-    demographics: cloneStructured(input.demographics),
+    // These values are consumed as immutable inputs and replaced with fresh
+    // values before the tick returns. Avoid cloning large sampled-population
+    // payloads here; hydrateCitizenSimulation already materializes its own
+    // mutable maps at the population boundary.
+    warehouseInventory: input.warehouseInventory,
+    regions: input.regions,
+    citizenState: input.citizenState,
+    demographics: input.demographics,
     citizenStoryState: cloneStructured(input.citizenStoryState),
     neighborhoodIdentityState: cloneStructured(input.neighborhoodIdentityState),
     disasterPreparationState: cloneStructured(input.disasterPreparationState),

@@ -1,19 +1,21 @@
 import React from 'react';
-import { sharedBuildingMats, sharedBuildingGeos, BuildingRoofKit, BuildingLod } from './sharedKits';
+import { sharedBuildingMats, sharedBuildingGeos, BuildingRoofKit, BuildingLod, FacadeRhythmKit } from './sharedKits';
 
 interface ResidentialKitProps {
   level: number;
   abandoned?: boolean;
   lod?: BuildingLod;
+  variant?: number;
 }
 
 export function ResidentialKit({
   level,
   abandoned = false,
   lod = 'NEAR',
+  variant = 0,
 }: ResidentialKitProps) {
   const safeLevel = Math.max(1, Math.min(5, level));
-  const baseHeight = 0.35 + safeLevel * 0.28;
+  const baseHeight = (0.35 + safeLevel * 0.28) * (0.94 + (variant % 4) * 0.035);
 
   const matMain = abandoned
     ? safeLevel === 1
@@ -71,8 +73,8 @@ export function ResidentialKit({
     return (
       <group>
         {/* Main bungalow body */}
-        <mesh material={matMain} position={[0, 0.2, 0]} castShadow receiveShadow>
-          <boxGeometry args={[0.74, 0.38, 0.68]} />
+        <mesh material={matMain} position={[(variant & 1) ? -0.05 : 0.04, 0.2, 0]} castShadow receiveShadow>
+          <boxGeometry args={[(variant & 2) ? 0.66 : 0.74, 0.38, (variant & 2) ? 0.76 : 0.68]} />
         </mesh>
         {/* Sloped roof */}
         <mesh material={sharedBuildingMats.roof} position={[0, 0.44, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
@@ -86,6 +88,7 @@ export function ResidentialKit({
         <mesh material={abandoned ? sharedBuildingMats.windowDark : sharedBuildingMats.resGlassBlue} position={[0.2, 0.22, 0.35]}>
           <planeGeometry args={[0.18, 0.18]} />
         </mesh>
+        {(variant & 1) === 1 && <mesh material={sharedBuildingMats.resDarkMetal} position={[-0.28, 0.2, 0.35]}><boxGeometry args={[0.08, 0.26, 0.035]} /></mesh>}
       </group>
     );
   }
@@ -117,6 +120,7 @@ export function ResidentialKit({
         <mesh material={matMain} position={[0, 0.55, 0]} castShadow receiveShadow>
           <boxGeometry args={[0.82, 1.08, 0.8]} />
         </mesh>
+        <FacadeRhythmKit height={1.03} floors={4} variant={variant} abandoned={abandoned} accent="WARM" />
         {/* Window bands */}
         {[-0.2, 0.1, 0.4].map((y) => (
           <mesh
@@ -145,6 +149,7 @@ export function ResidentialKit({
         <mesh material={matMain} position={[0, 0.8, 0]} castShadow receiveShadow>
           <boxGeometry args={[0.84, 1.58, 0.82]} />
         </mesh>
+        <FacadeRhythmKit height={1.52} floors={6} variant={variant} abandoned={abandoned} />
         {/* Glass corner feature */}
         <mesh material={sharedBuildingMats.resGlassDark} position={[0.26, 0.82, 0.26]}>
           <boxGeometry args={[0.34, 1.52, 0.34]} />
@@ -165,6 +170,7 @@ export function ResidentialKit({
       <mesh material={matMain} position={[0, 1.25, 0]} castShadow receiveShadow>
         <boxGeometry args={[0.74, 1.9, 0.74]} />
       </mesh>
+      <FacadeRhythmKit height={2.14} floors={7} variant={variant} abandoned={abandoned} />
       {/* Sky terrace at mid-height */}
       <mesh material={sharedBuildingMats.roofGreen} position={[0, 1.25, 0.38]}>
         <boxGeometry args={[0.5, 0.06, 0.14]} />

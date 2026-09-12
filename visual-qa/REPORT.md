@@ -1,4 +1,78 @@
-# Skyline Simulator — baseline visual, 6 September 2026
+# Skyline Simulator — visual upgrade verification, 10 September 2026
+
+## Total UI/UX shell redesign — 10 September 2026
+
+Redesign ini mengubah hierarchy dan struktur layout, bukan hanya warna. HUD disatukan menjadi satu top lane tenang; build categories menjadi rail ringkas di desktop dan horizontal expandable dock di mobile/844 landscape; subtools tetap berada dalam satu contextual drawer/bottom sheet. Camera toolbar sekarang hanya menampilkan 2D/3D, zoom, dan satu overflow secara persisten, sedangkan rotation, focus, reset, clean view, dan presets berada di disclosure sekunder.
+
+Advisor desktop dipangkas menjadi objective aktif + Location/Later/primary action. Alasan, biaya, dampak, recovery, dan petunjuk dipindahkan ke tombol `Detail`. Inspector dan City Information menempati right contextual lane pada desktop serta bottom sheet dengan drag-handle visual pada mobile. Performance/debug tetap tertiary. Tokens layout, surface, spacing, status, radius, shadow, motion, serta responsive lanes dipusatkan di `src/styles/city-builder-shell.css`.
+
+QA terbaru memperbarui empat capture utama dan gameplay captures. 393×851 menggunakan compact top HUD, camera group kecil, collapsed advisor, horizontal build dock, dan speed dock terpisah. 844×390 menggunakan dock landscape serta advisor di kanan bawah. Tidak ada horizontal overflow atau page error; pesan GPU 1440×900 tetap hanya warning screenshot `ReadPixels`.
+
+| Gate redesign ballot | Hasil |
+| --- | --- |
+| `npm run lint` | PASS |
+| `npm test -- --run` | PASS — 76 file, 311 test |
+| `npm run build` | PASS |
+| `npm run smoke` | PASS — save/load + deterministic replay hash `5be7d3c6` |
+| Gameplay capture | PASS — new city, tutorial, contextual road drawer, 2D/3D, mobile sheet; tanpa page error |
+
+### Final refinement audit — 11 September 2026
+
+Ditambahkan `visual-qa/verify-ui-redesign.mjs` untuk memeriksa perilaku yang tidak cukup dibuktikan oleh screenshot statis. Verifier membuka camera overflow, menguji Detail/Ringkas advisor, membuka build drawer pada viewport kecil, mengukur bounding box terhadap viewport, memeriksa document overflow, dan memastikan reduced-motion media rule tersedia.
+
+- 1440×900, 1280×720, 844×390, 393×851: seluruhnya `cameraContained: true`, `detailDisclosure: true`, `horizontalOverflow: false`, `reducedMotionRule: true`, tanpa console/page error.
+- Lint/typecheck PASS; 76 file / 311 test PASS; build PASS; smoke PASS dengan replay hash `5be7d3c6`.
+- Benchmark terisolasi PASS: PERFORMANCE_100K p50 36,4 ms, p95 49,7 ms, budget 120 ms. Run paralel sebelumnya sengaja tidak dipakai karena terkontaminasi build dan unit test bersamaan.
+- Seluruh 18 workflow Playwright mencetak `ok` pada desktop/mobile. Seperti run sebelumnya, proses runner tidak menutup setelah web-server teardown sehingga dihentikan manual setelah test ke-18 selesai; tidak ada test failure.
+
+## Frontage-aware streetscape pass — 10 September 2026
+
+Layer `PremiumCityLayer` kini menurunkan seluruh detail parcel dari adjacency jalan aktual. Access path dan curb menghadap road frontage terdekat; street tree, lamp, bin/signage, parked car, industrial storage yard, dan waterfront promenade ditempatkan deterministik dari koordinat serta `parcelSeed`. Semua keluarga prop memakai `InstancedMesh`, shared geometry/material, bounding sphere, dan budget desktop/mobile yang berbeda. Tidak ada data `TileData` atau state simulasi yang ditulis oleh layer ini.
+
+Capture `after-1440x900.png`, `after-1280x720.png`, `after-844x390.png`, dan `after-393x851.png` diperbarui dari aplikasi aktual. Capture menunjukkan frontage paths, pohon jalan, lampu, serta parked vehicle muncul pada sisi jalan yang sesuai; mobile tetap mempertahankan city view dominan. Tidak ada page error. Warning 1440×900 terbatas pada `GPU stall due to ReadPixels` dari screenshot headless.
+
+| Pemeriksaan akhir | Hasil |
+| --- | --- |
+| `npm run lint` | PASS |
+| `npm test -- --run` | PASS — 76 file, 311 test |
+| `npm run build` | PASS — City3DCanvas 108,64 kB (33,16 kB gzip) |
+| `npm run smoke` | PASS — replay hash `5be7d3c6` |
+| `npm run benchmark` | PASS — 100K p50 46,2 ms, p95 58,8 ms, budget 120 ms |
+| `npm run render-benchmark` | PASS — 100K inventory 1.640 building, 85 draw calls, synthetic p95 2,82 ms |
+
+### Acceptance closure audit
+
+- Camera toolbar sekarang memiliki preset `Overview` dan `Skyline`, di samping focus selected, orbit, zoom, rotasi, reset, dan clean-city view.
+- Tombol `R` mengaktifkan kembali tool pembangunan terakhir; `Escape` tetap menjadi cancel yang konsisten. Shortcut baru juga didokumentasikan pada Settings.
+- Capture empat viewport diulang setelah perubahan kontrol kamera. Tidak ada page error atau overlap kritis pada 1440×900, 1280×720, 844×390, dan 393×851.
+- Regression gate terakhir: lint PASS, 76/76 test file dan 311/311 test PASS, build PASS, smoke PASS dengan replay hash `5be7d3c6`, benchmark 100K PASS (p50 69,3 ms, p95 89,6 ms; budget 120 ms).
+- Seluruh 18 workflow Playwright lulus pada desktop dan mobile. Runner kembali tidak menutup proses web-server setelah test ke-18, sehingga dihentikan manual setelah seluruh hasil `ok` tercetak; tidak ada test failure.
+
+## Hasil upgrade terbaru
+
+Audit dilanjutkan di atas worktree visual-upgrade yang sudah berisi perubahan lokal besar. Kontrak simulation, reducer, command queue, TileData, koordinat, save/migration, seed, dan deterministic replay tidak diubah.
+
+- Render building sekarang memakai spesifikasi deterministik per parcel dengan 14 archetype: detached house, villa, townhouse row, courtyard/apartment block, corner shop, retail strip, mixed-use block, office mid-rise, glass/civic tower, warehouse, factory, dan industrial campus.
+- Archetype menentukan massing, podium/tower/wing, jumlah balkon, canopy, fire escape, crown, shopfront, side facade, rooftop equipment, dan industrial yard. NEAR/MID/FAR tetap berbagi satu visual spec sehingga silhouette tidak berubah acak saat LOD berganti.
+- Facade windows memakai InstancedMesh dan shared geometry/material; jendela samping ditambahkan tanpa geometry baru per frame.
+- Bug z-fighting jalan yang terlihat sebagai garis hitam/moire pada highway diperbaiki dengan offset render skin 0,01 world unit. Elevasi simulation dan hit-testing tidak berubah.
+- Script capture kini secara eksplisit memilih 3D. Pada desktop tutorial diminimalkan agar komposisi kota dapat dinilai; pada mobile state awal bottom sheet tetap collapsed.
+
+### Verifikasi setelah perubahan
+
+| Pemeriksaan | Hasil |
+| --- | --- |
+| `npm run lint` | PASS |
+| `npm test -- --run` | PASS — 76 file, 311 test |
+| `npm run build` | PASS — City3DCanvas 105,84 kB (32,16 kB gzip) |
+| `npm run smoke` | PASS — 7/7, replay hash `5be7d3c6` |
+| `npm run benchmark` | PASS — stress 100K p50 34,8 ms, p95 46,6 ms (budget 120 ms) |
+| `npm run render-benchmark` | PASS inventory — 100K: 1.640 building, 43.104 triangles, 85 draw calls, synthetic p95 2,82 ms |
+| Playwright desktop/mobile | 18/18 test cases melaporkan `ok`; proses runner tidak keluar setelah teardown web server dan dihentikan manual |
+
+Capture terbaru: `after-1440x900.png`, `after-1280x720.png`, `after-844x390.png`, dan `after-393x851.png`. Tidak ada page error. Chromium software WebGL hanya mencatat warning `GPU stall due to ReadPixels` pada capture 1440×900; ini berasal dari screenshot readback, bukan exception aplikasi. Pemeriksaan visual memastikan artefak z-fighting highway hilang dan mobile 393×851 mempertahankan area kota dominan dengan tutorial collapsed setinggi 66 px.
+
+## Baseline awal (6 September 2026)
 
 Status: FASE 0 belum lolos performance gate. FASE 1–8 belum diimplementasikan. Tidak ada klaim visual acceptance atau pekerjaan selesai.
 

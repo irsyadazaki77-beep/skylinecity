@@ -125,6 +125,10 @@ export function MissionsModal({
               {MISSIONS.map((m) => {
                 const isFulfilled = m.check(gameState);
                 const isClaimed = gameState.completedMissions.includes(m.id);
+                const missionProgress = m.progress(gameState);
+                const progressPercent = Math.max(0, Math.min(100, missionProgress.target > 0
+                  ? missionProgress.current / missionProgress.target * 100
+                  : 0));
 
                 return (
                   <div
@@ -137,7 +141,7 @@ export function MissionsModal({
                         : 'bg-white/[0.03] border-white/10 text-slate-300'
                     }`}
                   >
-                    <div className="space-y-1">
+                    <div className="space-y-2 min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <h3 className="text-sm font-bold text-white">{m.title}</h3>
                         <span className="text-xs font-mono text-amber-300 font-semibold flex items-center gap-1">
@@ -146,6 +150,21 @@ export function MissionsModal({
                         </span>
                       </div>
                       <p className="text-xs text-slate-400">{m.description}</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-slate-400">
+                        <span><strong className="text-slate-300">Lokasi:</strong> {m.locationLabel}</span>
+                        <span><strong className="text-slate-300">Biaya estimasi:</strong> ${m.estimatedCost.toLocaleString()}</span>
+                        <span><strong className="text-slate-300">Dampak:</strong> {m.impact}</span>
+                        <span><strong className="text-slate-300">Jika gagal:</strong> {m.recoveryPath}</span>
+                      </div>
+                      <div className="space-y-1" aria-label={`Progress ${m.title}`}>
+                        <div className="flex items-center justify-between text-[11px] font-medium text-slate-300">
+                          <span>Progress</span>
+                          <span className="font-mono">{Math.round(missionProgress.current)} / {missionProgress.target} {missionProgress.unit}</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-black/40">
+                          <div className="h-full rounded-full bg-[var(--accent-cyan)] transition-[width]" style={{ width: `${progressPercent}%` }} />
+                        </div>
+                      </div>
                     </div>
 
                     <div className="shrink-0 self-end sm:self-center">

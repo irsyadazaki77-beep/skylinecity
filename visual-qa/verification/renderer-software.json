@@ -1,0 +1,32 @@
+{
+  "mode": "software",
+  "events": [],
+  "metrics": {
+    "text": "Skyline Simulator\nDesa\nPopulasi\n0\n• stabil\nKas Kota\n$8.000\n+$0\n↗ naik\nKebahagiaan\n50%\n• perhatian\nHari 1 · 06:00\n1\nPilih\nHapus\nJalan\nZonasi\nUtilitas\nMedan\n2D\n3D\n125%\nReset\nLANGKAH 1 DARI 5\nLewati\nHubungkan Jalan ke Tol Regional\n\nJalan lokal menghubungkan kota ke jalan tol kuning agar migran dan truk suplai dapat masuk.\n\nBiaya: ~$60 - $120\nDampak: Membuka akses kendaraan dan jalur migrasi warga.\nLokasi\nNanti\nLakukan Sekarang\n1×\n2×\n3×",
+    "perf": {
+      "frameTimeMs": 0,
+      "frameTimeP95Ms": 0,
+      "simulationTickMs": 0,
+      "workerMessageLatencyMs": 0,
+      "reactCommitMs": 0,
+      "threeFrameMs": 1347.6000000089407,
+      "gpuTimerAvailable": true,
+      "drawCalls": 777,
+      "triangles": 165244,
+      "visibleObjects": 998,
+      "lodTransitions": 0,
+      "gcCount": 0,
+      "soakElapsedMs": 3086.0999999940395,
+      "jsHeapMb": 9.5367431640625,
+      "soakHeapStartMb": 9.5367431640625,
+      "soakHeapDeltaMb": 0
+    },
+    "canvases": [
+      {
+        "width": 896,
+        "height": 503
+      }
+    ]
+  },
+  "failure": null
+}

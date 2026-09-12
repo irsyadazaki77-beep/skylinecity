@@ -169,7 +169,7 @@ export function BottomToolbar({
         <div className="w-px h-6 bg-white/10 mx-0.5" aria-hidden="true" />
 
         {/* Undo / Redo */}
-        <div className="flex items-center gap-0.5 bg-black/40 p-0.5 rounded-xl border border-white/5">
+        {showToolsContext && <div className="secondary-sim-control flex items-center gap-0.5 bg-black/40 p-0.5 rounded-xl border border-white/5" aria-label="Riwayat aksi">
           <button 
             type="button" 
             aria-label="Batalkan aksi (Undo)" 
@@ -190,7 +190,7 @@ export function BottomToolbar({
           >
             <Redo2 size={16} aria-hidden="true" />
           </button>
-        </div>
+        </div>}
 
         <div className="w-px h-6 bg-white/10 mx-0.5" aria-hidden="true" />
 

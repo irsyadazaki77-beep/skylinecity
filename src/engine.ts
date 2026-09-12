@@ -494,7 +494,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   const grid = state.grid;
   const context = createSimulationTickContext(grid);
 
-  markPhase('INPUT');
+  markPhase('COMMANDS');
   state.simulationPhase = 'INPUT';
   const appliedCommands = applySimulationCommands(state, state.commandQueue ?? []);
   state.commandQueue = [];
@@ -518,6 +518,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
     payload: { commandId: command.id, commandType: command.type },
   }));
 
+  markPhase('RECONCILIATION');
   const initialParcels = reconcileParcels(state.grid);
   state.parcelCount = initialParcels.parcelCount;
   state.developedParcelCount = initialParcels.developedParcelCount;
@@ -563,6 +564,7 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
 
   // Surface water is simulated after disaster decay so persistent floodwater
   // can continue to affect terrain, buildings, and recovery on each tick.
+  markPhase('HYDROLOGY');
   const hydrology = simulateHydrology(state.grid, climate.precipitation);
   state.floodedTiles = hydrology.floodedTiles;
   state.averageWaterDepth = hydrology.averageDepth;

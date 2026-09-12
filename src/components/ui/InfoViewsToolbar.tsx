@@ -139,6 +139,23 @@ export function InfoViewsToolbar({ activeOverlay, onSelectOverlay, language = 'i
         </div>
       )}
 
+      {['WASTE', 'HEALTH', 'FIRE', 'NOISE'].includes(activeOverlay) && (
+        <div className="mt-2 max-w-44 rounded-lg border border-white/10 bg-slate-800 p-2 text-xs text-slate-200 space-y-2" aria-label="Legenda layanan kota">
+          <p className="font-semibold">{activeOverlay === 'NOISE' ? 'Tingkat kebisingan' : 'Cakupan layanan'}</p>
+          <p><span aria-hidden="true" className="inline-block h-3 w-3 rounded-full bg-green-500 mr-2" />{activeOverlay === 'NOISE' ? 'Rendah · ≤ 30' : '✓ Terlayani'}</p>
+          {activeOverlay === 'NOISE' && <p><span aria-hidden="true" className="inline-block h-3 w-3 rounded bg-yellow-500 mr-2" />Sedang · 31–60</p>}
+          <p><span aria-hidden="true" className="inline-block h-3 w-3 rotate-45 bg-red-500 mr-2" />{activeOverlay === 'NOISE' ? 'Tinggi · > 60' : '! Belum terlayani'}</p>
+          <p className="text-slate-400">Pilih bangunan untuk memeriksa kondisi dan aksesnya.</p>
+        </div>
+      )}
+      {activeOverlay === 'HAPPINESS' && <div className="mt-2 max-w-44 rounded-lg border border-white/10 bg-slate-800 p-2 text-xs text-slate-200 space-y-2" aria-label="Legenda kebahagiaan">
+        <p className="font-semibold">Kepuasan penghuni</p>
+        <p><span className="text-green-400">●</span> Puas · ≥ 60</p>
+        <p><span className="text-yellow-400">■</span> Perlu perhatian · 35–59</p>
+        <p><span className="text-red-400">◆</span> Tidak puas · &lt; 35</p>
+        <p className="text-slate-400">Abu-abu: belum ada data penghuni. Rata-rata ditimbang menurut jumlah warga.</p>
+      </div>}
+
       {activeOverlay === 'TRANSIT_ROUTES' && (
         <div className="mt-2 rounded-lg border border-white/10 bg-[#1e293b]/90 p-2 text-[10px] text-slate-300 space-y-1">
           <div className="font-bold text-slate-200">{translate(catalog, 'infoViews.transitRouteNetwork')}</div>

@@ -9,6 +9,14 @@ for (const item of report.reports) {
   const budgetStatus = item.budgetExceeded ? `OVER budget ${item.budgetMs}ms` : `within budget ${item.budgetMs}ms`;
   const regressionStatus = item.regressionExceeded ? 'REGRESSION' : 'baseline-stable';
   console.log(`${item.scenario}: p50 ${item.tickMs.p50.toFixed(1)}ms · p95 ${item.tickMs.p95.toFixed(1)}ms · p99 ${item.tickMs.p99.toFixed(1)}ms · ${budgetStatus} · ${regressionStatus} · ${item.population.toLocaleString()} represented pop · ${item.gridPopulation.toLocaleString()} grid pop · ${item.citizenAgents.toLocaleString()} agents ×${item.populationScale} · ${item.entities} entities · hash ${item.stateHash}`);
+  if (item.budgetExceeded || item.regressionExceeded) {
+    const phases = Object.entries(item.phaseMs)
+      .sort(([, left], [, right]) => right.p95 - left.p95)
+      .slice(0, 5)
+      .map(([phase, timing]) => `${phase} p95 ${timing.p95.toFixed(1)}ms`)
+      .join(' · ');
+    if (phases) console.log(`  phase diagnosis: ${phases}`);
+  }
 }
 if (!report.integrityGate.passed) {
   console.error(`Benchmark integrity gate failed: ${report.integrityGate.failures.join('; ')}.`);

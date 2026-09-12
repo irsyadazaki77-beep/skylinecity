@@ -1,0 +1,38 @@
+[
+  {
+    "width": 1440,
+    "height": 900,
+    "errors": [],
+    "cameraContained": true,
+    "detailDisclosure": true,
+    "horizontalOverflow": false,
+    "reducedMotionRule": true
+  },
+  {
+    "width": 1280,
+    "height": 720,
+    "errors": [],
+    "cameraContained": true,
+    "detailDisclosure": true,
+    "horizontalOverflow": false,
+    "reducedMotionRule": true
+  },
+  {
+    "width": 844,
+    "height": 390,
+    "errors": [],
+    "cameraContained": true,
+    "detailDisclosure": true,
+    "horizontalOverflow": false,
+    "reducedMotionRule": true
+  },
+  {
+    "width": 393,
+    "height": 851,
+    "errors": [],
+    "cameraContained": true,
+    "detailDisclosure": true,
+    "horizontalOverflow": false,
+    "reducedMotionRule": true
+  }
+]

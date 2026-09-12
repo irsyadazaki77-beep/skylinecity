@@ -38,6 +38,10 @@ export const DEFAULT_BALANCE_TICKS: Record<BenchmarkScenario, number> = {
   INDUSTRIAL_CITY: 90,
   FLOOD_RECOVERY: 90,
   PERFORMANCE_100K: 10,
+  DENSE_CITY: 10,
+  TRANSIT_STRESS: 90,
+  NIGHT_CITY: 90,
+  DISASTER_CITY: 90,
 };
 
 function sampleState(state: CityState): BalanceSample {

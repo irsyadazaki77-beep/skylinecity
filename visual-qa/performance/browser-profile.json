@@ -1,0 +1,206 @@
+{
+  "capturedAt": "2026-09-11T06:10:31.117Z",
+  "baseURL": "http://127.0.0.1:3003",
+  "rows": [
+    {
+      "name": "1440x900",
+      "width": 1440,
+      "height": 900,
+      "navigationError": null,
+      "screenshotError": "TimeoutError: page.screenshot: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m  - fonts loaded\u001b[22m\n",
+      "pageErrors": [],
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "perf": {
+        "frameTimeMs": 2463.2999999970198,
+        "frameTimeP50Ms": 1724.699999988079,
+        "frameTimeP95Ms": 2626.5,
+        "frameTimeP99Ms": 2626.5,
+        "fps": 0.5798109816239995,
+        "simulationTickMs": 0,
+        "workerMessageLatencyMs": 0,
+        "reactCommitMs": 0.09999999403953552,
+        "threeFrameMs": 2463.2999999970198,
+        "gpuTimerAvailable": false,
+        "drawCalls": 342,
+        "triangles": 165430,
+        "visibleObjects": 642,
+        "geometries": 86,
+        "textures": 4,
+        "materials": 52,
+        "mountedBuildings": 6,
+        "mountedProps": 6,
+        "activeVehicles": 0,
+        "activePedestrians": 0,
+        "lodNear": 6,
+        "lodMid": 0,
+        "lodFar": 0,
+        "lodTransitions": 0,
+        "reactCommitCount": 16,
+        "gcCount": 0,
+        "soakElapsedMs": 19348,
+        "jsHeapMb": 22.029876708984375,
+        "soakHeapStartMb": 22.029876708984375,
+        "soakHeapDeltaMb": 0
+      },
+      "navigation": [
+        {
+          "type": "navigate",
+          "duration": 448.30000001192093
+        }
+      ]
+    },
+    {
+      "name": "1280x720",
+      "width": 1280,
+      "height": 720,
+      "navigationError": null,
+      "screenshotError": null,
+      "pageErrors": [],
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "perf": {
+        "frameTimeMs": 830.1000000089407,
+        "frameTimeP50Ms": 1294.4000000059605,
+        "frameTimeP95Ms": 2811.8999999910593,
+        "frameTimeP99Ms": 2811.8999999910593,
+        "fps": 0.7725587144587417,
+        "simulationTickMs": 0,
+        "workerMessageLatencyMs": 0,
+        "reactCommitMs": 0.09999999403953552,
+        "threeFrameMs": 830.1000000089407,
+        "gpuTimerAvailable": false,
+        "drawCalls": 364,
+        "triangles": 165512,
+        "visibleObjects": 642,
+        "geometries": 86,
+        "textures": 4,
+        "materials": 52,
+        "mountedBuildings": 6,
+        "mountedProps": 6,
+        "activeVehicles": 0,
+        "activePedestrians": 0,
+        "lodNear": 6,
+        "lodMid": 0,
+        "lodFar": 0,
+        "lodTransitions": 0,
+        "reactCommitCount": 16,
+        "gcCount": 0,
+        "soakElapsedMs": 21082.20000000298,
+        "jsHeapMb": 22.029876708984375,
+        "soakHeapStartMb": 22.029876708984375,
+        "soakHeapDeltaMb": 0
+      },
+      "navigation": [
+        {
+          "type": "navigate",
+          "duration": 417
+        }
+      ]
+    },
+    {
+      "name": "844x390",
+      "width": 844,
+      "height": 390,
+      "navigationError": null,
+      "screenshotError": null,
+      "pageErrors": [],
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "perf": {
+        "frameTimeMs": 412.1000000089407,
+        "frameTimeP50Ms": 710.1000000089407,
+        "frameTimeP95Ms": 3241.800000011921,
+        "frameTimeP99Ms": 3241.800000011921,
+        "fps": 1.40825235880497,
+        "simulationTickMs": 0,
+        "workerMessageLatencyMs": 0,
+        "reactCommitMs": 0.09999999403953552,
+        "threeFrameMs": 412.1000000089407,
+        "gpuTimerAvailable": false,
+        "drawCalls": 384,
+        "triangles": 165612,
+        "visibleObjects": 642,
+        "geometries": 86,
+        "textures": 4,
+        "materials": 52,
+        "mountedBuildings": 6,
+        "mountedProps": 6,
+        "activeVehicles": 0,
+        "activePedestrians": 0,
+        "lodNear": 6,
+        "lodMid": 0,
+        "lodFar": 0,
+        "lodTransitions": 0,
+        "reactCommitCount": 16,
+        "gcCount": 0,
+        "soakElapsedMs": 17880.30000001192,
+        "jsHeapMb": 22.029876708984375,
+        "soakHeapStartMb": 22.029876708984375,
+        "soakHeapDeltaMb": 0
+      },
+      "navigation": [
+        {
+          "type": "navigate",
+          "duration": 496.40000000596046
+        }
+      ]
+    },
+    {
+      "name": "393x851",
+      "width": 393,
+      "height": 851,
+      "navigationError": null,
+      "screenshotError": null,
+      "pageErrors": [],
+      "viewport": {
+        "width": 393,
+        "height": 851
+      },
+      "perf": {
+        "frameTimeMs": 118.70000000298023,
+        "frameTimeP50Ms": 249.20000000298023,
+        "frameTimeP95Ms": 1849.4000000059605,
+        "frameTimeP99Ms": 2334.2999999970198,
+        "fps": 4.012841091444787,
+        "simulationTickMs": 0,
+        "workerMessageLatencyMs": 0,
+        "reactCommitMs": 0.09999999403953552,
+        "threeFrameMs": 118.70000000298023,
+        "gpuTimerAvailable": false,
+        "drawCalls": 182,
+        "triangles": 43702,
+        "visibleObjects": 642,
+        "geometries": 83,
+        "textures": 4,
+        "materials": 52,
+        "mountedBuildings": 6,
+        "mountedProps": 6,
+        "activeVehicles": 0,
+        "activePedestrians": 0,
+        "lodNear": 6,
+        "lodMid": 0,
+        "lodFar": 0,
+        "lodTransitions": 0,
+        "reactCommitCount": 15,
+        "gcCount": 0,
+        "soakElapsedMs": 14350.10000000894,
+        "jsHeapMb": 22.029876708984375,
+        "soakHeapStartMb": 22.029876708984375,
+        "soakHeapDeltaMb": 0
+      },
+      "navigation": [
+        {
+          "type": "navigate",
+          "duration": 364.40000000596046
+        }
+      ]
+    }
+  ]
+}

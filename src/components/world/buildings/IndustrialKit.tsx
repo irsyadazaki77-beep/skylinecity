@@ -1,19 +1,21 @@
 import React from 'react';
-import { sharedBuildingMats, sharedBuildingGeos, BuildingRoofKit, BuildingLod } from './sharedKits';
+import { sharedBuildingMats, sharedBuildingGeos, BuildingRoofKit, BuildingLod, FacadeRhythmKit } from './sharedKits';
 
 interface IndustrialKitProps {
   level: number;
   abandoned?: boolean;
   lod?: BuildingLod;
+  variant?: number;
 }
 
 export function IndustrialKit({
   level,
   abandoned = false,
   lod = 'NEAR',
+  variant = 0,
 }: IndustrialKitProps) {
   const safeLevel = Math.max(1, Math.min(5, level));
-  const baseHeight = 0.35 + safeLevel * 0.22;
+  const baseHeight = (0.35 + safeLevel * 0.22) * (0.92 + (variant % 4) * 0.045);
 
   const matMain = abandoned
     ? safeLevel <= 2
@@ -74,6 +76,7 @@ export function IndustrialKit({
         <mesh material={sharedBuildingMats.indSafety} position={[0, 0.18, 0.4]}>
           <boxGeometry args={[0.42, 0.28, 0.03]} />
         </mesh>
+        {(variant & 1) === 1 && <mesh material={sharedBuildingMats.indFacadeSteel} position={[-0.3, 0.24, -0.28]} castShadow><cylinderGeometry args={[0.08, 0.08, 0.44, 8]} /></mesh>}
       </group>
     );
   }
@@ -127,6 +130,7 @@ export function IndustrialKit({
       <mesh material={sharedBuildingMats.indGlass} position={[0, 0.45, 0.43]}>
         <boxGeometry args={[0.74, 0.3, 0.03]} />
       </mesh>
+      <FacadeRhythmKit height={0.82} floors={3} variant={variant} abandoned={abandoned} />
       <BuildingRoofKit height={0.9} hasSolar={true} hasHVAC={true} lod="NEAR" />
     </group>
   );

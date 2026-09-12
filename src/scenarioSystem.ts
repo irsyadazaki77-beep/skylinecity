@@ -1,4 +1,4 @@
-import { CityState, ScenarioDefinition } from './types';
+import { CityState, ScenarioDefinition, TileType } from './types';
 
 export interface ScenarioProgress {
   id: string;
@@ -21,6 +21,7 @@ export function evaluateScenario(state: CityState, scenario: ScenarioDefinition)
     balance: Math.min(state.happiness, Math.max(0, 100 - state.unemploymentRate)),
     affordability: Math.round(state.demographics?.householdStats?.averageSatisfaction ?? state.happiness ?? 65),
     income: Math.round((state.income ?? 0) - (state.expenses ?? 0)),
+    landmarks: state.grid.flat().filter((tile) => tile.type === TileType.PARK).length,
   };
   const completed = scenario.objectives.every((objective) => {
     const value = objectiveValues[objective.id] ?? 0;

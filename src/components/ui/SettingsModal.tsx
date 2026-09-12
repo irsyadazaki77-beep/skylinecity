@@ -82,7 +82,15 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings, gam
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 p-2 bg-black/10 border-b border-white/10 overflow-x-auto" role="tablist">
+        <div className="flex gap-1 p-2 bg-black/10 border-b border-white/10 overflow-x-auto" role="tablist" aria-label={translate(catalog, 'settings.title')} onKeyDown={(event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+          const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+          event.preventDefault();
+          tabs[next]?.focus();
+          tabs[next]?.click();
+        }}>
           <TabButton active={activeTab === 'gameplay'} onClick={() => setActiveTab('gameplay')} label={translate(catalog, 'settings.gameplay')} icon={<Shield size={16} />} />
           <TabButton active={activeTab === 'graphics'} onClick={() => setActiveTab('graphics')} label={translate(catalog, 'settings.graphics')} icon={<Laptop size={16} />} />
           <TabButton active={activeTab === 'audio'} onClick={() => setActiveTab('audio')} label={translate(catalog, 'settings.audio')} icon={<Sliders size={16} />} />
@@ -119,6 +127,21 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings, gam
           {activeTab === 'graphics' && (
             <div className="space-y-4">
               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">{translate(catalog, 'settings.graphicsTitle')}</h3>
+              <fieldset className="quality-presets">
+                <legend>{localSettings.language === 'en' ? 'Quick quality setup' : 'Preset kualitas cepat'}</legend>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { id: 'mobile', label: localSettings.language === 'en' ? 'Efficient' : 'Hemat', detail: '75% · Low', scale: 75, shadow: 'low', density: 'low' },
+                    { id: 'balanced', label: localSettings.language === 'en' ? 'Balanced' : 'Seimbang', detail: '100% · Medium', scale: 100, shadow: 'medium', density: 'medium' },
+                    { id: 'cinematic', label: 'Cinematic', detail: '120% · High', scale: 120, shadow: 'high', density: 'high' },
+                  ] as const).map((preset) => <button key={preset.id} type="button"
+                    aria-pressed={localSettings.renderScale === preset.scale && localSettings.shadowQuality === preset.shadow && localSettings.trafficDensity === preset.density && localSettings.vegetationDensity === preset.density}
+                    onClick={() => saveSettings({ ...localSettings, renderScale: preset.scale, shadowQuality: preset.shadow, trafficDensity: preset.density, vegetationDensity: preset.density, adaptiveQuality: true })}>
+                    <strong>{preset.label}</strong><span>{preset.detail}</span>
+                  </button>)}
+                </div>
+                <p>{localSettings.language === 'en' ? 'Applies immediately. Adaptive quality stays on; individual controls remain available below.' : 'Langsung diterapkan. Kualitas adaptif tetap aktif; sesuaikan detail di bawah.'}</p>
+              </fieldset>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <SelectField
                   label={translate(catalog, 'settings.shadowQuality')}
@@ -217,8 +240,20 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings, gam
                 <div className="text-gray-400">Roda Mouse</div>
                 <div className="text-white text-right">Perbesar / Perkecil</div>
                 
-                <div className="text-gray-400">Klik Tengah / Q-E</div>
+                <div className="text-gray-400">Drag kiri (mode pilih) / tengah</div>
+                <div className="text-white text-right">Geser kamera</div>
+
+                <div className="text-gray-400">Q / E</div>
                 <div className="text-white text-right">Putar Sudut Pandang</div>
+
+                <div className="text-gray-400">Dua jari</div>
+                <div className="text-white text-right">Cubit untuk zoom, geser untuk rotasi</div>
+
+                <div className="text-gray-400">J / Z / C / I</div>
+                <div className="text-white text-right">Jalan / hunian / usaha / industri</div>
+
+                <div className="text-gray-400">Ctrl+Z / Ctrl+Shift+Z</div>
+                <div className="text-white text-right">Urungkan / ulangi pembangunan</div>
 
                 <div className="text-gray-400">Toolbar Kamera</div>
                 <div className="text-white text-right">2D/3D, zoom, fokus, reset</div>
@@ -246,6 +281,9 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings, gam
                 
                 <div className="text-gray-400">Tombol B</div>
                 <div className="text-white text-right">Aktifkan Alat Gusur</div>
+
+                <div className="text-gray-400">Tombol R</div>
+                <div className="text-white text-right">Ulangi alat pembangunan terakhir</div>
                 
                 <div className="text-gray-400">Escape</div>
                 <div className="text-white text-right">Tutup Dialog / Batal Pilih</div>
@@ -343,6 +381,7 @@ function TabButton({ active, onClick, label, icon }: { active: boolean; onClick:
       type="button"
       onClick={onClick}
       role="tab"
+      tabIndex={active ? 0 : -1}
       aria-selected={active}
       className={`min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-lg text-sm whitespace-nowrap transition-all ${
         active
@@ -386,9 +425,11 @@ function ToggleField({ label, checked, onChange }: { label: string; checked: boo
         aria-pressed={checked}
         aria-label={`${label}: ${checked ? 'aktif' : 'nonaktif'}`}
         onClick={() => onChange(!checked)}
-        className={`w-11 h-6 rounded-full p-0.5 transition-colors ${checked ? 'bg-blue-500' : 'bg-gray-700'}`}
+        className="settings-toggle w-11 min-h-[44px] shrink-0 flex items-center rounded-lg"
       >
-        <div className={`w-5 h-5 rounded-full bg-white transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
+        <span aria-hidden="true" className={`block w-11 h-6 rounded-full p-0.5 transition-colors ${checked ? 'bg-blue-500' : 'bg-gray-700'}`}>
+          <span className={`block w-5 h-5 rounded-full bg-white transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
+        </span>
       </button>
     </div>
   );

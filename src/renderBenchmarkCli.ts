@@ -1,7 +1,7 @@
 import { runOfficialRenderBenchmark } from './renderBenchmark';
 
 console.log('========================================================================================');
-console.log(' SKYLINE CITY — THREE.JS RENDER PERFORMANCE BENCHMARK (PRIORITAS 5)');
+console.log(' SKYLINE CITY — THREE.JS RENDER INVENTORY (SYNTHETIC BUDGET ESTIMATE)');
 console.log('========================================================================================');
 
 const results = runOfficialRenderBenchmark();
@@ -14,7 +14,7 @@ console.log(
   'DrawCalls'.padEnd(12) +
   'Peds'.padEnd(8) +
   'Vehs'.padEnd(8) +
-  'FPS'.padEnd(8) +
+  'Synth FPS'.padEnd(10) +
   'p95 Frame'
 );
 console.log('-'.repeat(100));
@@ -34,4 +34,5 @@ for (const res of results) {
 }
 
 console.log('========================================================================================');
-console.log('All render benchmarks completed with modularized kits & shared materials.');
+console.log('Geometry/draw-call inventory completed with modularized kits & shared materials.');
+console.log('FPS and p95 are synthetic estimates; real-browser FPS is not claimed by this command.');

@@ -10,11 +10,13 @@ import {
   MapPinned,
   Route,
 } from 'lucide-react';
+import type { DisasterPreparationState, PreparationAction } from '../../disasterPreparation';
 import { CausalDiagnostic, CityDisaster, CityIncident, CityState, HistoryRecord, RegionState, RecoveryProject, ServiceVehicleAgent, TradeContract, TransitLine } from '../../types';
 import { DemographicBreakdown } from '../../citizenSimulation/types';
 import type { TransitLineInsight } from '../../transitInsights';
 import type { TransitVehicleAgent } from '../../transit';
 import type { ServiceDispatchInsight } from '../../serviceDispatchInsights';
+import type { TrafficBottleneckInsight, TrafficBeforeAfter } from '../../trafficInsights';
 import { deriveIncidentDispatchLifecycle, getReturningServiceVehicles } from '../../serviceDispatchLifecycle';
 import { calculateTransitMapBounds, deriveTransitRouteGeometry, projectTransitMapPoint } from '../../transitRouteMap';
 import { createLocalizationCatalog, SupportedLanguage, translate } from '../../localization';
@@ -86,6 +88,9 @@ interface CityInformationPanelProps {
   averageCommuteTime: number;
   congestionIndex: number;
   averageQueuePressure?: number;
+  trafficBottlenecks?: TrafficBottleneckInsight[];
+  trafficComparison?: TrafficBeforeAfter | null;
+  onFocusTrafficLocation?: (location: { x: number; y: number }) => void;
   transitCapacity?: number;
   transitRidership?: number;
   transitCoverage?: number;
@@ -182,6 +187,8 @@ interface CityInformationPanelProps {
   activeScenarioId?: string;
   scenarioCompleted?: boolean;
   specialization?: CityState['specialization'];
+  disasterPreparation?: DisasterPreparationState;
+  onPreparationAction?: (action: PreparationAction, enabled: boolean) => void;
 }
 
 type TabType = 'OVERVIEW' | 'POPULATION' | 'ECONOMY' | 'SERVICES' | 'TRAFFIC' | 'ENVIRONMENT';
@@ -603,6 +610,7 @@ function ServicesTab(props: CityInformationPanelProps) {
 function TrafficTab(props: CityInformationPanelProps) {
   const demo = props.demographics;
   const catalog = createLocalizationCatalog(props.language ?? 'id');
+  const leadStory = props.trafficBottlenecks?.[0];
   return (
     <div className="space-y-4">
       <Section title="Arus Lalu Lintas & Komuter">
@@ -611,6 +619,20 @@ function TrafficTab(props: CityInformationPanelProps) {
         <MetricRow label="Tekanan Antrean Rata-Rata" value={`${(props.averageQueuePressure ?? 0).toFixed(1)}%`} color={(props.averageQueuePressure ?? 0) > 25 ? 'text-rose-300' : 'text-amber-300'} />
         <MetricRow label="Waktu Komuter Rata-Rata" value={`${props.averageCommuteTime.toFixed(1)} mnt`} />
       </Section>
+
+      <Section title={panelCopy(props.language, 'Traffic Story · Perjalanan Nyata', 'Traffic Story · Observed Trips')}>
+        {leadStory ? (
+          <TrafficStoryCard story={leadStory} language={props.language} onFocusLocation={props.onFocusTrafficLocation} />
+        ) : (
+          <div className="rounded-lg border border-dashed border-white/10 px-3 py-3 text-[10px] leading-relaxed text-slate-500">
+            {panelCopy(props.language, 'Belum ada perjalanan mobil yang melewati ruas macet. Cerita lalu lintas akan muncul dari trip aktif, bukan dari tebakan lokasi.', 'No observed car trip crosses a congested road yet. Traffic stories are derived from active trips, not guessed locations.')}
+          </div>
+        )}
+      </Section>
+
+      {props.trafficComparison && <Section title={panelCopy(props.language, 'Hasil Intervensi Aktual', 'Observed Intervention Result')}>
+        <TrafficComparisonCard comparison={props.trafficComparison} language={props.language} />
+      </Section>}
 
       <Section title="Ruang Parkir & Tepi Jalan">
         <MetricRow label="Kebutuhan Parkir" value={`${(props.parkingDemand ?? 0).toFixed(1)} ruang`} />
@@ -720,9 +742,94 @@ function TrafficTab(props: CityInformationPanelProps) {
   );
 }
 
+function TrafficStoryCard({ story, language, onFocusLocation }: {
+  story: TrafficBottleneckInsight;
+  language?: SupportedLanguage;
+  onFocusLocation?: (location: { x: number; y: number }) => void;
+}) {
+  const focus = (location: { x: number; y: number }) => onFocusLocation?.(location);
+  const routePreview = story.route.slice(0, 8).map(([x, y]) => `(${x + 1},${y + 1})`).join(' → ');
+  const routeSuffix = story.route.length > 8 ? ` … +${story.route.length - 8}` : '';
+  const confidenceLabel = story.confidence === 'HIGH' ? ['Tinggi', 'High'] : story.confidence === 'MEDIUM' ? ['Sedang', 'Medium'] : ['Rendah', 'Low'];
+  return (
+    <article className="rounded-xl border border-amber-300/20 bg-amber-400/[0.06] p-2.5 text-[10px]">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="font-semibold text-amber-100">{story.originDesc} → {story.destinationDesc}</div>
+          <div className="mt-0.5 text-[9px] text-slate-400">
+            {story.tripCount}/{story.sampleSize} {panelCopy(language, 'trip mobil teramati', 'observed car trips')} · {panelCopy(language, 'keyakinan', 'confidence')} {panelCopy(language, confidenceLabel[0], confidenceLabel[1])}
+          </div>
+        </div>
+        <span className="shrink-0 rounded-full border border-amber-300/25 px-1.5 py-0.5 font-mono text-[8px] text-amber-200">{story.trafficPercent}%</span>
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-1.5">
+        <TrafficFocusButton label={panelCopy(language, 'Asal', 'Origin')} value={story.originDesc} onClick={() => focus(story.origin)} />
+        <TrafficFocusButton label={panelCopy(language, 'Bottleneck', 'Bottleneck')} value={`(${story.x + 1}, ${story.y + 1})`} onClick={() => focus({ x: story.x, y: story.y })} />
+        <TrafficFocusButton label={panelCopy(language, 'Tujuan', 'Destination')} value={story.destinationDesc} onClick={() => focus(story.destination)} />
+      </div>
+      <p className="mt-2 leading-relaxed text-slate-300"><b className="text-slate-400">WHAT:</b> {story.sharePercent}% dari perjalanan yang melewati ruas ini adalah kelompok OD tersebut.</p>
+      <p className="mt-1 leading-relaxed text-amber-100/90"><b className="text-amber-300">WHY:</b> {story.cause}</p>
+      <p className="mt-1 rounded-md border border-cyan-400/20 bg-cyan-950/30 px-2 py-1 leading-relaxed text-cyan-100"><b className="text-cyan-300">ACTION:</b> {story.recommendation}</p>
+      <p className="mt-1 rounded-md border border-rose-400/15 bg-rose-950/20 px-2 py-1 leading-relaxed text-rose-100"><b className="text-rose-300">TRADE-OFF:</b> ~${story.estimatedCost.toLocaleString()} indikatif · {story.projectedImpact}</p>
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-slate-500">
+        <span>Antrean {story.queuePressure}%</span>
+        <span>Mobil {story.cohortCounts.privateCars}</span>
+        <span>Kargo {story.cohortCounts.freight}</span>
+        <span>Layanan {story.cohortCounts.emergency}</span>
+        <span>Transit {story.cohortCounts.transit}</span>
+      </div>
+      <div className="mt-1 truncate text-[9px] text-slate-500" title={story.route.map(([x, y]) => `(${x + 1},${y + 1})`).join(' → ')}>
+        {panelCopy(language, 'Rute teramati', 'Observed route')}: {routePreview}{routeSuffix}
+      </div>
+    </article>
+  );
+}
+
+function TrafficFocusButton({ label, value, onClick }: { label: string; value: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="min-w-0 rounded-md border border-white/10 bg-black/15 px-1.5 py-1 text-left hover:border-cyan-300/35 hover:bg-cyan-400/[0.08]">
+      <span className="block text-[8px] uppercase tracking-wide text-slate-500">{label}</span>
+      <span className="mt-0.5 block truncate text-[9px] text-slate-200">{value}</span>
+    </button>
+  );
+}
+
+function TrafficComparisonCard({ comparison, language }: { comparison: TrafficBeforeAfter; language?: SupportedLanguage }) {
+  const rows = [
+    ['Kemacetan', 'Congestion', comparison.before.congestion, comparison.after.congestion, '%', true],
+    ['Waktu commute', 'Commute time', comparison.before.commute, comparison.after.commute, ' mnt', true],
+    ['Antrean', 'Queue pressure', comparison.before.queue, comparison.after.queue, '%', true],
+    ['Trip mobil aktif', 'Active car trips', comparison.before.carTrips, comparison.after.carTrips, '', false],
+  ] as const;
+  return (
+    <div className="rounded-xl border border-emerald-300/15 bg-emerald-400/[0.04] p-2.5 text-[10px]">
+      <div className="flex items-center justify-between gap-2 text-slate-400">
+        <span>{comparison.intervention}</span>
+        <span className="font-mono text-[9px]">Hari {comparison.day}</span>
+      </div>
+      <div className="mt-2 grid grid-cols-[1fr_auto_auto_auto] gap-x-2 gap-y-1 text-[9px]">
+        <span className="text-slate-500">Metrik</span><span className="text-slate-500">Sebelum</span><span className="text-slate-500">Sesudah</span><span className="text-slate-500">Δ</span>
+        {rows.map(([id, en, before, after, suffix, inverse]) => {
+          const delta = after - before;
+          const favorable = inverse ? delta < 0 : false;
+          const color = delta === 0 ? 'text-slate-400' : favorable ? 'text-emerald-300' : inverse ? 'text-rose-300' : 'text-slate-300';
+          return <React.Fragment key={en}>
+            <span className="text-slate-300">{panelCopy(language, id, en)}</span>
+            <span className="font-mono text-slate-400">{before.toFixed(1)}{suffix}</span>
+            <span className="font-mono text-slate-200">{after.toFixed(1)}{suffix}</span>
+            <span className={`font-mono ${color}`}>{delta > 0 ? '+' : ''}{delta.toFixed(1)}</span>
+          </React.Fragment>;
+        })}
+      </div>
+      <div className="mt-2 text-[9px] leading-relaxed text-slate-500">{panelCopy(language, 'Ini adalah hasil tick setelah intervensi terakhir; bukan proyeksi.', 'Measured on the tick after the latest intervention; this is not a projection.')}</div>
+    </div>
+  );
+}
+
 function EnvironmentTab(props: CityInformationPanelProps) {
   return (
     <div className="space-y-4">
+      <DisasterReadinessCard preparation={props.disasterPreparation} onAction={props.onPreparationAction} language={props.language} />
       <MetricRow label="Nilai Tanah Rata-Rata" value={`$${props.landValueAverage.toFixed(0)} /m²`} color="text-emerald-400" />
       <MetricRow label="Daya Tarik Wilayah" value={`${props.desirability.toFixed(1)}%`} />
       <MetricRow label="Polusi Tanah" value={`${props.pollutionAverage.toFixed(1)}%`} color={props.pollutionAverage > 20 ? 'text-red-400' : 'text-gray-300'} />
@@ -734,6 +841,35 @@ function EnvironmentTab(props: CityInformationPanelProps) {
       <MetricRow label="Tanggul Banjir" value={`${props.floodBarrierCount ?? 0}`} color="text-sky-300" />
       <MetricRow label="Penyimpanan Waduk" value={`${(props.reservoirStorage ?? 0).toFixed(2)} m³`} color="text-blue-300" />
     </div>
+  );
+}
+
+function DisasterReadinessCard({ preparation, onAction, language }: { preparation?: DisasterPreparationState; onAction?: (action: PreparationAction, enabled: boolean) => void; language?: SupportedLanguage }) {
+  const state = preparation ?? { phase: 'MONITORING' as const, actions: [], preparedness: 0, avoidedDamage: 0, recoveryCost: 0 };
+  const actions: Array<[PreparationAction, string, string]> = [
+    ['OPEN_SHELTERS', 'Buka shelter', 'Open shelters'],
+    ['PREPOSITION_UNITS', 'Siagakan unit', 'Pre-position units'],
+    ['REINFORCE_BARRIERS', 'Perkuat tanggul', 'Reinforce barriers'],
+  ];
+  return (
+    <section className="rounded-2xl border border-blue-400/20 bg-blue-950/20 p-3 space-y-3" aria-label="Disaster readiness">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-bold text-blue-100"><Shield size={15} aria-hidden="true" /> {panelCopy(language, 'Kesiapsiagaan bencana', 'Disaster readiness')}</div>
+          <div className="text-xs text-slate-400 mt-1">{panelCopy(language, 'Fase', 'Phase')}: {state.phase}</div>
+        </div>
+        <span className="text-lg font-black text-cyan-300">{state.preparedness}%</span>
+      </div>
+      <div className="h-2 rounded-full bg-black/30 overflow-hidden"><div className="h-full bg-gradient-to-r from-cyan-400 to-blue-500" style={{ width: `${Math.min(100, state.preparedness)}%` }} /></div>
+      {state.forecast && <div className="rounded-xl bg-black/20 p-2 text-xs text-slate-300">{state.forecast.type} · {state.forecast.riskTiles} {panelCopy(language, 'petak berisiko', 'risk tiles')} · {state.forecast.daysRemaining.toFixed(1)} {panelCopy(language, 'hari', 'days')}</div>}
+      <div className="grid grid-cols-1 gap-1.5">
+        {actions.map(([action, id, en]) => {
+          const checked = state.actions.includes(action);
+          return <button key={action} type="button" disabled={!onAction} aria-pressed={checked} onClick={() => onAction?.(action, !checked)} className={`min-h-[44px] rounded-xl px-3 py-2 text-left text-xs font-semibold transition-colors ${checked ? 'bg-cyan-400/20 text-cyan-200 border border-cyan-300/40' : 'bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10'}`}>{panelCopy(language, id, en)} <span className="float-right">{checked ? '✓' : '+'}</span></button>;
+        })}
+      </div>
+      {(state.avoidedDamage > 0 || state.recoveryCost > 0) && <div className="text-xs text-slate-400">{panelCopy(language, 'Kerugian terhindar', 'Avoided damage')}: ${state.avoidedDamage.toLocaleString()} · {panelCopy(language, 'Biaya pemulihan', 'Recovery cost')}: ${state.recoveryCost.toLocaleString()}</div>}
+    </section>
   );
 }
 

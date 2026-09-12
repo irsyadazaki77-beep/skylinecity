@@ -1,6 +1,6 @@
 import React from 'react';
 import { Bell, Smile, Target, Calendar } from 'lucide-react';
-import { MILESTONES } from '../../progression';
+import { getNextLivingCityUnlock, MILESTONES } from '../../progression';
 import { GameMenu } from './GameMenu';
 import type { SupportedLanguage } from '../../localization';
 
@@ -55,35 +55,40 @@ export function GameHUD({
   const safeNetIncome = isNaN(netIncome) || !isFinite(netIncome) ? 0 : netIncome;
   const currentMilestone = MILESTONES[milestoneLevel] || MILESTONES[0];
   const milestoneLabel = milestoneLevel === 0 ? 'Desa' : currentMilestone.name;
+  const nextUnlock = getNextLivingCityUnlock({ population: safePopulation });
 
   return (
-    <header className="game-hud absolute top-0 left-0 right-0 z-40 pointer-events-none p-3 md:p-4 flex justify-between items-start select-none">
+    <header className="game-hud" data-ui-layer="top-hud" data-city-day={day} data-city-population={safePopulation} aria-label="Ringkasan kota">
       
       {/* TOP LEFT: City Designation & Milestone */}
       <div className="game-hud-left pointer-events-auto flex flex-col gap-2">
         <div className="flex flex-col">
-          <h1 className="text-white font-bold text-base md:text-lg tracking-tight drop-shadow-sm">
-            Skyline Simulator
-          </h1>
+          <h1 className="text-white font-bold text-base tracking-tight">Skyline <span className="font-medium text-slate-400">/ {milestoneLabel}</span></h1>
           <div className="flex items-center gap-1.5 text-xs text-slate-300">
             <span className="inline-flex items-center gap-1 rounded-md bg-cyan-950/70 border border-cyan-500/30 px-2 py-0.5 text-[11px] font-semibold text-cyan-200">
               <Target size={12} className="text-cyan-400" />
-              <span>{milestoneLabel}</span>
+            <span>{milestoneLabel}</span>
+          </span>
+          {nextUnlock?.populationRequired && (
+            <span className="text-[10px] text-slate-400" title={nextUnlock.worldChange}>
+              Berikutnya: {nextUnlock.title} · {safePopulation.toLocaleString()}/{nextUnlock.populationRequired.toLocaleString()}
             </span>
+          )}
           </div>
         </div>
       </div>
 
       {/* TOP CENTER: Exactly 3 Primary Metrics */}
-      <div className="game-hud-center pointer-events-auto flex items-center bg-[#0c1424]/92 backdrop-blur-xl border border-white/10 rounded-xl px-4 py-2 gap-4 md:gap-8 shadow-xl">
+      <div className="game-hud-center pointer-events-auto" aria-label="Metrik utama kota">
         {/* Metric 1: Population */}
-        <div className="flex flex-col items-center">
+        <div className="hud-metric flex flex-col items-center" aria-label={`Populasi ${safePopulation.toLocaleString()}`}>
           <span className="text-[10px] md:text-[11px] text-slate-400 font-medium tracking-wide">
             Populasi
           </span>
           <span className="text-white font-bold font-mono text-sm md:text-base tabular-nums">
             {safePopulation.toLocaleString()}
           </span>
+          <span className="hud-trend hud-trend-neutral" aria-label="Tren populasi stabil">• stabil</span>
         </div>
         
         <div className="w-px h-7 bg-white/10" />
@@ -92,7 +97,7 @@ export function GameHUD({
         <button
           type="button"
           aria-label="Buka kas kota dan treasury"
-          className="flex flex-col items-center cursor-pointer hover:bg-white/5 px-2.5 py-1 rounded-lg transition-colors min-h-[38px] justify-center"
+          className="hud-metric flex flex-col items-center cursor-pointer hover:bg-white/5 px-2.5 py-1 rounded-lg transition-colors min-h-[38px] justify-center"
           onClick={onOpenEconomy}
           title="Klik untuk membuka laporan kas dan pajak"
         >
@@ -105,12 +110,15 @@ export function GameHUD({
               {safeNetIncome >= 0 ? '+' : ''}${safeNetIncome.toLocaleString()}
             </span>
           </div>
+          <span className={`hud-trend ${safeNetIncome >= 0 ? 'hud-trend-positive' : 'hud-trend-negative'}`} aria-label={`Tren kas ${safeNetIncome >= 0 ? 'naik' : 'turun'}`}>
+            {safeNetIncome >= 0 ? '↗ naik' : '↘ turun'}
+          </span>
         </button>
 
         <div className="w-px h-7 bg-white/10" />
         
         {/* Metric 3: Citizen Happiness */}
-        <div className="flex flex-col items-center">
+        <div className="hud-metric flex flex-col items-center" aria-label={`Kebahagiaan ${happiness}%`}>
           <span className="text-[10px] md:text-[11px] text-slate-400 font-medium tracking-wide">
             Kebahagiaan
           </span>
@@ -121,11 +129,14 @@ export function GameHUD({
             />
             <span className="text-white">{happiness}%</span>
           </div>
+          <span className={`hud-trend ${happiness >= 60 ? 'hud-trend-positive' : 'hud-trend-negative'}`} aria-label={`Tren kebahagiaan ${happiness >= 60 ? 'stabil positif' : 'perlu perhatian'}`}>
+            {happiness >= 60 ? '• stabil' : '• perhatian'}
+          </span>
         </div>
       </div>
 
       {/* TOP RIGHT: Simulation Calendar, Notifications, Menu */}
-      <div className="game-hud-right pointer-events-auto flex items-center gap-2">
+      <div className="game-hud-right pointer-events-auto" aria-label="Waktu, notifikasi, dan menu kota">
         {/* Calendar Badge */}
         <div className="flex items-center gap-1.5 bg-[#0c1424]/92 backdrop-blur-xl border border-white/10 rounded-xl px-3 py-2 text-xs font-semibold text-slate-200 shadow-md">
           <Calendar size={14} className="text-cyan-400" />

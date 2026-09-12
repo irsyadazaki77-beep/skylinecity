@@ -1,16 +1,14 @@
 import React from 'react';
 import { TileData, TileType } from '../../types';
-import { buildingVariant, buildingScale } from './visualModel';
+import { buildingVariant, buildingScale, buildingVisualSpec } from './visualModel';
 import { gridToWorld } from './types3D';
 import { getConstructionStage } from '../../constructionPresentation';
 import { BuildingFootprint } from '../../urbanForm';
-import { BuildingLod } from './buildings/sharedKits';
-import { ResidentialKit } from './buildings/ResidentialKit';
-import { CommercialKit } from './buildings/CommercialKit';
-import { OfficeKit } from './buildings/OfficeKit';
-import { IndustrialKit } from './buildings/IndustrialKit';
+import { BuildingLod, BuildingLotKit } from './buildings/sharedKits';
 import { ServiceKit } from './buildings/ServiceKit';
 import { ConstructionKit } from './buildings/ConstructionKit';
+import { ProceduralBuilding } from './buildings/ProceduralBuilding';
+import type { DistrictVisualTheme } from '../../neighborhoodIdentity';
 
 interface BuildingMeshProps {
   tile: TileData;
@@ -20,6 +18,8 @@ interface BuildingMeshProps {
   nightFactor?: number;
   gridWidth?: number;
   gridHeight?: number;
+  identityColor?: string;
+  districtTheme?: DistrictVisualTheme;
 }
 
 export function BuildingMesh({
@@ -27,15 +27,28 @@ export function BuildingMesh({
   footprint: _footprint,
   frontageRotation = 0,
   lod: _lod = 'NEAR',
+  nightFactor = 0,
+  gridWidth = 30,
+  gridHeight = 20,
+  identityColor,
+  districtTheme,
 }: BuildingMeshProps) {
   const { type, level = 1, abandoned, powered, watered } = tile;
   const safeLevel = Math.max(1, Math.min(5, level));
   const variant = buildingVariant(tile);
   const scale = buildingScale(tile);
-  const [worldX, , worldZ] = gridToWorld(tile.x, tile.y);
-  const elevation = (tile.elevation || 0) * 0.5;
+  const visualSpec = buildingVisualSpec(tile);
+  const [worldX, , worldZ] = gridToWorld(tile.x, tile.y, gridWidth, gridHeight);
+  const elevation = (tile.elevation || 0) * 0.15;
+  const footprintWidth = _footprint?.width ?? 1;
+  const footprintHeight = _footprint?.height ?? 1;
+  const footprintCenter = _footprint ? gridToWorld(_footprint.centerX, _footprint.centerY, gridWidth, gridHeight) : [worldX, 0, worldZ] as [number, number, number];
 
   const isZoned = [TileType.RESIDENTIAL, TileType.COMMERCIAL, TileType.OFFICE, TileType.INDUSTRIAL].includes(type);
+  const lotKind = type === TileType.RESIDENTIAL ? 'RESIDENTIAL'
+    : type === TileType.COMMERCIAL ? 'COMMERCIAL'
+      : type === TileType.OFFICE ? 'OFFICE'
+        : type === TileType.INDUSTRIAL ? 'INDUSTRIAL' : 'SERVICE';
   const constructionStage = getConstructionStage(tile);
   const isUnderConstruction = [
     'SITE_PREPARATION',
@@ -48,72 +61,64 @@ export function BuildingMesh({
     'RENOVATING',
   ].includes(constructionStage);
 
-  // Rotation: combine base quadrant rotation with frontage alignment
-  const rotationY = (variant * Math.PI) / 2 + frontageRotation;
+  // The procedural front (+Z) follows the closest road. Shape variation stays
+  // inside the parcel so it cannot rotate entrances away from their frontage.
+  const rotationY = frontageRotation;
 
   return (
     <group
       name="BuildingRenderRoot"
-      position={[worldX, elevation, worldZ]}
+      position={[footprintCenter[0], elevation, footprintCenter[2]]}
       rotation={[0, rotationY, 0]}
-      scale={[scale, scale, scale]}
+      scale={[scale * footprintWidth, scale, scale * footprintHeight]}
     >
       {/* 1. NEAR DETAIL TIER */}
-      <group name="BuildingDetail">
+      <group name="BuildingNearDetail">
+        <BuildingLotKit kind={lotKind} variant={variant} lod="NEAR" />
         {isUnderConstruction ? (
           <ConstructionKit stage={constructionStage} level={safeLevel} type={type} />
         ) : (
           <>
-            {type === TileType.RESIDENTIAL && (
-              <ResidentialKit level={safeLevel} abandoned={abandoned} lod="NEAR" />
-            )}
-            {type === TileType.COMMERCIAL && (
-              <CommercialKit level={safeLevel} abandoned={abandoned} lod="NEAR" />
-            )}
-            {type === TileType.OFFICE && (
-              <OfficeKit level={safeLevel} abandoned={abandoned} lod="NEAR" />
-            )}
-            {type === TileType.INDUSTRIAL && (
-              <IndustrialKit level={safeLevel} abandoned={abandoned} lod="NEAR" />
-            )}
-            {!isZoned && <ServiceKit type={type} />}
+            {isZoned && <ProceduralBuilding tile={tile} spec={visualSpec} lod="NEAR" nightFactor={nightFactor} districtTheme={districtTheme} />}
+            {!isZoned && <ServiceKit type={type} lod="NEAR" />}
+            {isZoned && districtTheme && <DistrictCharacterKit theme={districtTheme} type={type} />}
+          </>
+        )}
+        {isZoned && !isUnderConstruction && nightFactor !== undefined && nightFactor > 0.18 && (
+          <>
+            <mesh position={[-0.22, Math.min(1.25, 0.2 + safeLevel * 0.16), 0.43]}>
+              <planeGeometry args={[0.14, 0.1]} />
+              <meshBasicMaterial color="#ffd88a" toneMapped={false} transparent opacity={Math.min(0.92, nightFactor + 0.25)} />
+            </mesh>
+            <mesh position={[0.18, Math.min(1.45, 0.26 + safeLevel * 0.18), 0.43]}>
+              <planeGeometry args={[0.12, 0.09]} />
+              <meshBasicMaterial color="#f4b86a" toneMapped={false} transparent opacity={Math.min(0.8, nightFactor + 0.18)} />
+            </mesh>
           </>
         )}
       </group>
 
+      {isZoned && identityColor && !isUnderConstruction && (
+        <mesh name="DistrictIdentityAccent" position={[0, 0.035, 0.42]}>
+          <boxGeometry args={[0.34, 0.018, 0.018]} />
+          <meshBasicMaterial color={identityColor} toneMapped={false} transparent opacity={0.78} />
+        </mesh>
+      )}
+
       {/* 2. MID SIMPLIFIED TIER */}
-      {isZoned && !isUnderConstruction && (
+      {!isUnderConstruction && (
         <group name="BuildingMid" visible={false}>
-          {type === TileType.RESIDENTIAL && (
-            <ResidentialKit level={safeLevel} abandoned={abandoned} lod="MID" />
-          )}
-          {type === TileType.COMMERCIAL && (
-            <CommercialKit level={safeLevel} abandoned={abandoned} lod="MID" />
-          )}
-          {type === TileType.OFFICE && (
-            <OfficeKit level={safeLevel} abandoned={abandoned} lod="MID" />
-          )}
-          {type === TileType.INDUSTRIAL && (
-            <IndustrialKit level={safeLevel} abandoned={abandoned} lod="MID" />
-          )}
+          <BuildingLotKit kind={lotKind} variant={variant} lod="MID" />
+          {isZoned && <ProceduralBuilding tile={tile} spec={visualSpec} lod="MID" nightFactor={nightFactor} districtTheme={districtTheme} />}
+          {!isZoned && <ServiceKit type={type} lod="MID" />}
         </group>
       )}
 
       {/* 3. FAR GEOMETRIC PROXY MASS */}
-      {isZoned && (
+      {!isUnderConstruction && (
         <group name="BuildingFar" visible={false}>
-          {type === TileType.RESIDENTIAL && (
-            <ResidentialKit level={safeLevel} abandoned={abandoned} lod="FAR" />
-          )}
-          {type === TileType.COMMERCIAL && (
-            <CommercialKit level={safeLevel} abandoned={abandoned} lod="FAR" />
-          )}
-          {type === TileType.OFFICE && (
-            <OfficeKit level={safeLevel} abandoned={abandoned} lod="FAR" />
-          )}
-          {type === TileType.INDUSTRIAL && (
-            <IndustrialKit level={safeLevel} abandoned={abandoned} lod="FAR" />
-          )}
+          {isZoned && <ProceduralBuilding tile={tile} spec={visualSpec} lod="FAR" nightFactor={nightFactor} districtTheme={districtTheme} />}
+          {!isZoned && <ServiceKit type={type} lod="FAR" />}
         </group>
       )}
 
@@ -129,4 +134,25 @@ export function BuildingMesh({
       )}
     </group>
   );
+}
+
+function DistrictCharacterKit({ theme, type }: { theme: DistrictVisualTheme; type: TileType }) {
+  const color = theme === 'OLD_TOWN' ? '#8f5f42'
+    : theme === 'GARDEN_RESIDENTIAL' ? '#3f8f57'
+      : theme === 'COMMERCIAL_CORE' ? '#f59e0b'
+        : theme === 'LOGISTICS_INDUSTRIAL' ? '#f97316'
+          : theme === 'WATERFRONT' ? '#38bdf8'
+            : theme === 'CIVIC_CENTER' ? '#e2e8f0' : '#818cf8';
+  const isGarden = theme === 'GARDEN_RESIDENTIAL' || theme === 'WATERFRONT';
+  const isCommerce = theme === 'COMMERCIAL_CORE' || theme === 'MODERN_DOWNTOWN';
+  return <group name={`DistrictCharacter-${theme}`}>
+    {isGarden && <>
+      <mesh position={[-.34, .1, .34]}><cylinderGeometry args={[.055, .07, .18, 6]} /><meshStandardMaterial color="#526b3f" roughness={.9} /></mesh>
+      <mesh position={[-.34, .25, .34]}><icosahedronGeometry args={[.11, 1]} /><meshStandardMaterial color={color} roughness={.86} /></mesh>
+    </>}
+    {isCommerce && type !== TileType.RESIDENTIAL && <mesh position={[.31, .3, .44]}><boxGeometry args={[.2, .12, .025]} /><meshStandardMaterial color={color} emissive={color} emissiveIntensity={.18} /></mesh>}
+    {theme === 'LOGISTICS_INDUSTRIAL' && <mesh position={[.3, .11, .37]}><boxGeometry args={[.3, .18, .22]} /><meshStandardMaterial color={color} roughness={.72} /></mesh>}
+    {theme === 'CIVIC_CENTER' && <mesh position={[0, .08, .42]}><boxGeometry args={[.5, .04, .22]} /><meshStandardMaterial color={color} roughness={.82} /></mesh>}
+    {theme === 'OLD_TOWN' && <mesh position={[-.3, .22, .43]}><boxGeometry args={[.08, .28, .025]} /><meshStandardMaterial color={color} roughness={.9} /></mesh>}
+  </group>;
 }

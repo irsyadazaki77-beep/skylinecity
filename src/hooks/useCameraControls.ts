@@ -5,8 +5,10 @@ export function useCameraControls() {
   const [cameraViewMode, setCameraViewMode] = useState<'2D' | '3D'>('3D');
   const [cameraZoom, setCameraZoom] = useState(1.25);
   const [cameraRotation, setCameraRotation] = useState(0);
+  const [cameraResetRevision, setCameraResetRevision] = useState(0);
 
   const resetCamera = useCallback(() => {
+    setCameraResetRevision((value) => value + 1);
     setCameraFocus(null);
     setCameraViewMode('3D');
     setCameraZoom(1.25);
@@ -19,6 +21,7 @@ export function useCameraControls() {
 
   return {
     cameraFocus,
+    cameraResetRevision,
     setCameraFocus,
     cameraViewMode,
     setCameraViewMode,

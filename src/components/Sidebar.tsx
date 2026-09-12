@@ -180,7 +180,7 @@ export function Sidebar({
   return (
     <div className="tool-rail-container">
       {/* 1. LEFT COMPACT RAIL (68px) */}
-      <nav aria-label="Menu Alat Bangun" className="tool-rail">
+      <nav aria-label="Menu Bangun Kota" className="tool-rail" data-ui-layer="build-navigation">
         {/* Pointer / Select */}
         <RailButton
           icon={<MousePointer2 size={18} />}

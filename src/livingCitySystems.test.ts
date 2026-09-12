@@ -19,8 +19,21 @@ describe('living city systems', () => {
     const district = createDistrict(state.grid, [7, 7], { id: 'homes', name: 'Keluarga', policy: 'COMMUNITY_SERVICES', radius: 3, createdDay: 1 });
     const identity = deriveNeighborhoodIdentity(state, district);
     expect(identity.type).toBe('FAMILY_QUARTER');
+    expect(identity.visualTheme).toBe('CIVIC_CENTER');
     expect(identity.reasons.join(' ')).toContain('residential');
     expect(deriveNeighborhoodIdentity(state, district)).toEqual(identity);
+  });
+
+  it('turns land-use evidence into distinct 3D district themes', () => {
+    const state = createState(18);
+    state.milestoneLevel = 2;
+    for (let y = 10; y < 14; y += 1) for (let x = 10; x < 14; x += 1) Object.assign(state.grid[y][x], { type: TileType.INDUSTRIAL, jobs: 18, level: 2 });
+    const logistics = createDistrict(state.grid, [12, 12], { id: 'logistics', name: 'Logistics', policy: 'INDUSTRIAL_LOGISTICS', radius: 3, createdDay: 1 });
+    expect(deriveNeighborhoodIdentity(state, logistics).visualTheme).toBe('LOGISTICS_INDUSTRIAL');
+
+    for (let y = 16; y < 20; y += 1) for (let x = 16; x < 20; x += 1) Object.assign(state.grid[y][x], { type: TileType.OFFICE, jobs: 24, level: 4, transitCovered: true });
+    const downtown = createDistrict(state.grid, [18, 18], { id: 'downtown', name: 'Downtown', policy: 'TRANSIT_ORIENTED', radius: 3, createdDay: 1 });
+    expect(deriveNeighborhoodIdentity(state, downtown).visualTheme).toBe('MODERN_DOWNTOWN');
   });
 
   it('applies bounded gameplay effects from identity', () => {

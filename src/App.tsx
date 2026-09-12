@@ -1,4 +1,5 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { aggregateHomeSatisfaction } from './overlayModel';
+import React, { lazy, Profiler, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { City2DCanvas } from './components/world/City2DCanvas';
 import { Sidebar } from './components/Sidebar';
 import { GameHUD } from './components/ui/GameHUD';
@@ -22,7 +23,7 @@ import { MilestoneBanner } from './components/MilestoneBanner';
 import { ActiveTool, BUILD_COSTS, CityState, createTile, getRoadClass, GameSettings, IntersectionControl, ROAD_BUILD_COSTS, RoadClass, SignalTimingMode, TileData, TileType, TransitLine, TERRAFORM_COST, TUNNEL_BUILD_COST, TurnMovement, ZoneDensity } from './types';
 import { FreightCommodity } from './logistics';
 import { GAME_CONFIG } from './config';
-import { createInitialCityState, unlockRegion } from './engine';
+import { createInitialCityState, simulateTick, unlockRegion } from './engine';
 import { isTileInUnlockedRegion } from './mapGenerator';
 import { MILESTONES, TECH_NODES } from './progression';
 import { createStarterGrid } from './starterCity';
@@ -43,14 +44,17 @@ import { getServiceUpgrade } from './serviceUpgrades';
 import { calculateTransitLineInsights } from './transitInsights';
 import { calculateServiceDispatchInsights } from './serviceDispatchInsights';
 import { createRuntimeAuditScenario } from './runtimeAuditScenario';
+import { createBenchmarkState } from './metropolisBenchmarks';
 import { calculateBuildForecast } from './buildForecast';
 import { playUiSound, updateProceduralAmbience, type UiSound } from './audio';
 import { createLocalizationCatalog, translate } from './localization';
 import { hasWebGLSupport } from './releaseReadiness';
-import type { TrafficBeforeAfter } from './trafficInsights';
+import { findTrafficBottlenecks, type TrafficBeforeAfter } from './trafficInsights';
+import { deriveUiMode, UI_MODE_COPY } from './uiState';
 import { RendererFailureBoundary, WebGLFallback } from './components/ReleaseBoundary';
 import { getRendererFallbackKind } from './rendererStatus';
 import { getNextActionModel, NextActionModel } from './nextAction';
+import { recordReactCommit, startPerformanceObservers } from './performanceTelemetry';
 import { deriveCitizenProfile } from './citizenIdentity';
 import { CitizenProfileModal } from './components/ui/CitizenProfileModal';
 
@@ -65,14 +69,28 @@ const DistrictsModal = lazy(() => import('./components/DistrictsModal').then((mo
 
 function createNewState(difficulty: 'easy' | 'normal' | 'hard' = 'normal'): CityState {
   const state = createInitialCityState(createStarterGrid(), 2088, difficulty);
-  return isRuntimeAuditScenarioRequested() ? createRuntimeAuditScenario(state) : state;
+  const audit = getRuntimeAuditScenario();
+  if (audit === 'transit-dispatch') return createRuntimeAuditScenario(state);
+  if (audit === 'living-city') {
+    let metropolis = createBenchmarkState('PERFORMANCE_100K', 2088);
+    const requestedDay = getRuntimeAuditDay();
+    while (metropolis.day < requestedDay) metropolis = simulateTick(metropolis, { benchmarkMode: true });
+    return { ...metropolis, money: Math.max(250_000, metropolis.money), milestoneLevel: 5 };
+  }
+  return state;
 }
 
-function isRuntimeAuditScenarioRequested(): boolean {
-  if (typeof window === 'undefined') return false;
+function getRuntimeAuditDay(): number {
+  if (typeof window === 'undefined') return 1;
+  const requested = Number(new URLSearchParams(window.location.search).get('day') ?? 1);
+  return [1, 5, 10, 30].includes(requested) ? requested : 1;
+}
+
+function getRuntimeAuditScenario(): string | null {
+  if (typeof window === 'undefined') return null;
   const params = new URLSearchParams(window.location.search);
-  const debugEnabled = params.get('debug') === '1' || Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
-  return debugEnabled && params.get('audit') === 'transit-dispatch';
+  const auditEnabled = params.get('debug') === '1' || params.get('qa') === '1' || Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+  return auditEnabled ? params.get('audit') : null;
 }
 
 function cloneGrid(grid: TileData[][]): TileData[][] {
@@ -104,6 +122,7 @@ function zoningToolCost(tool: ActiveTool): number {
 }
 
 export default function App() {
+  useEffect(() => startPerformanceObservers(), []);
   const [settings, setSettings] = useState<GameSettings>(() => {
     try {
       const saved = localStorage.getItem('skyline_settings');
@@ -137,6 +156,7 @@ export default function App() {
     cameraRotation,
     setCameraRotation,
     resetCamera,
+    cameraResetRevision,
     rendererMode,
     setRendererMode,
     rendererReady,
@@ -153,6 +173,8 @@ export default function App() {
     setMilestoneCelebration,
     showStartScreen,
     setShowStartScreen,
+    cleanCityView,
+    setCleanCityView,
   } = usePanelState();
 
   const {
@@ -182,6 +204,11 @@ export default function App() {
     setSelectedTile,
     pendingSimulationCommit,
   });
+
+  const lastBuildToolRef = useRef(activeTool);
+  useEffect(() => {
+    if (activeTool !== 'POINTER') lastBuildToolRef.current = activeTool;
+  }, [activeTool]);
 
   const playSound = useCallback((sound: UiSound) => playUiSound(settings, sound), [settings]);
 
@@ -237,6 +264,15 @@ export default function App() {
     if (settings.dayNightCycle === 'locked_day' || settings.dayNightCycle === 'disabled') return 0;
     return getNightFactor(gameState.timeOfDay ?? 6);
   }, [gameState.timeOfDay, settings.dayNightCycle]);
+
+  const uiMode = useMemo(() => deriveUiMode({
+    activeTool,
+    selectedTile: Boolean(selectedTile),
+    panel,
+    activeOverlay,
+    showStartScreen,
+    tutorialActive: gameState.day === 1 && gameState.population === 0 && activeTool === 'POINTER' && !selectedTile && !showStartScreen,
+  }), [activeOverlay, activeTool, gameState.day, gameState.population, panel, selectedTile, showStartScreen]);
 
   useEffect(() => {
     const handleError = (event: ErrorEvent) => recordDiagnosticError(event.error ?? event.message, 'WINDOW_ERROR');
@@ -476,6 +512,8 @@ export default function App() {
 
 
 
+  const homeSatisfaction = useMemo(() => activeOverlay === 'HAPPINESS' ? aggregateHomeSatisfaction(gameState.citizenState?.households) : undefined, [activeOverlay, gameState.citizenState]);
+
   // Keyboard shortcut bindings
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -506,7 +544,7 @@ export default function App() {
       }
       if (event.key === 'Home') {
         event.preventDefault();
-        setCameraFocus(null);
+        resetCamera();
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault();
@@ -524,6 +562,22 @@ export default function App() {
       if (event.key.toLowerCase() === 'p') setPanel('policies');
       if (event.key.toLowerCase() === 'm') setPanel('missions');
       if (event.key.toLowerCase() === 'b') setActiveTool((tool) => tool === 'BULLDOZER' ? 'POINTER' : 'BULLDOZER');
+      if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+        const buildShortcut: Record<string, ActiveTool> = { j: TileType.ROAD, z: TileType.RESIDENTIAL, c: TileType.COMMERCIAL, i: TileType.INDUSTRIAL };
+        const tool = buildShortcut[event.key.toLowerCase()];
+        if (tool) {
+          event.preventDefault();
+          setActiveTool(tool);
+          setDragStart(null);
+          setSelectedTile(null);
+        }
+      }
+      if (event.key.toLowerCase() === 'r' && lastBuildToolRef.current !== 'POINTER') {
+        event.preventDefault();
+        setActiveTool(lastBuildToolRef.current);
+        setDragStart(null);
+        setSelectedTile(null);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -1514,6 +1568,13 @@ export default function App() {
     responseQuality: gameState.serviceResponseQuality ?? 100,
   }), [gameState]);
 
+  const trafficBottlenecks = useMemo(() => findTrafficBottlenecks(gameState.grid, {
+    trips: gameState.activeTrips ?? [],
+    freightTrips: gameState.activeFreightTrips ?? [],
+    serviceVehicles: gameState.serviceVehicles ?? [],
+    transitVehicles: gameState.transitVehicles ?? [],
+  }, 3), [gameState]);
+
   const cityInfoProps = useMemo(() => ({
     grid: gameState.grid,
     isOpen: panel === 'city',
@@ -1580,6 +1641,8 @@ export default function App() {
     activeTrips: gameState.activeTrips ?? [],
     activeFreightTrips: gameState.activeFreightTrips ?? [],
     trafficComparison,
+    trafficBottlenecks,
+    onFocusTrafficLocation: focusLocation,
     happiness: gameState.happiness,
     crimeRate: gameState.crimeRate,
     fireSafety: gameState.fireSafety,
@@ -1681,7 +1744,7 @@ export default function App() {
     campaignEvaluation: gameState.campaignEvaluation,
     campaignStyleGoal: gameState.campaignStyleGoal,
     onCampaignStyleChange: handleCampaignStyle,
-  }), [gameState, handleCampaignStyle, handlePreparationAction, handleRemoveTransitLine, handleToggleTransitLine, handleUpdateTransitLine, panel, settings.language, trafficComparison]);
+  }), [gameState, handleCampaignStyle, handlePreparationAction, handleRemoveTransitLine, handleToggleTransitLine, handleUpdateTransitLine, panel, settings.language, trafficBottlenecks, trafficComparison]);
 
   const nextAction = useMemo(() => getNextActionModel(gameState, speed), [gameState, speed]);
   const handleNextAction = useCallback((advice: NextActionModel) => {
@@ -1726,7 +1789,8 @@ export default function App() {
   }, [resetCamera, setRendererFailure, setRendererMode]);
 
   return (
-    <main className={`app-shell ui-scale-${settings.uiScale ?? 'medium'} ${settings.reducedMotion ? 'reduced-motion' : ''} ${settings.highContrast ? 'accessibility-high-contrast' : ''} colorblind-${settings.colorblindMode ?? 'none'}`}>
+    <Profiler id="SkylineApp" onRender={(_, __, actualDuration) => recordReactCommit(actualDuration)}>
+    <main className={`app-shell ui-scale-${settings.uiScale ?? 'medium'} ${settings.reducedMotion ? 'reduced-motion' : ''} ${settings.highContrast ? 'accessibility-high-contrast' : ''} colorblind-${settings.colorblindMode ?? 'none'} ${cleanCityView ? 'clean-city-view' : ''}`} data-ui-mode={uiMode} data-primary-action={UI_MODE_COPY[uiMode].action}>
       {showStartScreen && (
         <StartScreen
           onNewCity={resetCity}
@@ -1740,7 +1804,7 @@ export default function App() {
       )}
       <div className="app-world">
         {rendererMode === '2d' ? (
-          <City2DCanvas
+          <City2DCanvas homeSatisfaction={homeSatisfaction}
             grid={gameState.grid}
             activeTool={activeTool}
             focusTile={cameraFocus}
@@ -1766,7 +1830,7 @@ export default function App() {
             }}
           >
             <Suspense fallback={<div className="renderer-loading" role="status">Menyiapkan tampilan 3D…</div>}>
-        <City3DCanvas
+        <City3DCanvas homeSatisfaction={homeSatisfaction}
           selectedTile={selectedTile}
           grid={gameState.grid}
           activeTool={activeTool}
@@ -1774,6 +1838,8 @@ export default function App() {
           money={gameState.money}
           activeOverlay={activeOverlay}
           speed={speed}
+          population={gameState.population}
+          happiness={gameState.happiness}
           timeOfDay={gameState.timeOfDay ?? 6}
           weather={gameState.weather}
           precipitation={gameState.precipitation ?? 1}
@@ -1788,6 +1854,7 @@ export default function App() {
           unlockedUpgrades={gameState.unlockedUpgrades}
           activePolicies={gameState.activePolicies}
           districts={gameState.districts ?? []}
+          neighborhoodIdentities={gameState.neighborhoodIdentityState?.identities ?? []}
           mapExpansionMode={mapExpansionMode}
           brushSize={brushSize}
           dragPreviewTiles={previewTiles}
@@ -1805,9 +1872,12 @@ export default function App() {
           viewMode={cameraViewMode}
           cameraZoom={cameraZoom}
           cameraRotation={cameraRotation}
+          cameraResetRevision={cameraResetRevision}
+          cameraPresentation={milestoneCelebration !== null ? 'milestone' : activeOverlay === 'DISASTERS' ? 'incident' : cameraFocus ? 'recovery' : 'initial'}
           onCameraRotationChange={setCameraRotation}
           tutorialHighlight={tutorialHighlight}
           onRendererReady={() => setRendererReady(true)}
+          performanceDiagnostics={typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === '1'}
           onSelectCitizen={setSelectedCitizenId}
         />
             </Suspense>
@@ -1850,12 +1920,12 @@ export default function App() {
         )}
 
         {previewTiles.length > 0 && (activeTool === TileType.ROAD || activeTool === 'TUNNEL_ROAD' || isZoningTool(activeTool)) && (
-          <div className={`absolute bottom-28 left-1/2 z-40 -translate-x-1/2 rounded-xl border px-3 py-2 text-[11px] shadow-xl backdrop-blur-md ${previewColor === 'green' ? 'border-emerald-400/30 bg-emerald-950/90 text-emerald-100' : 'border-red-400/30 bg-red-950/90 text-red-100'}`}>
+          <div className={`placement-feedback absolute bottom-28 left-1/2 z-40 -translate-x-1/2 rounded-xl border px-3 py-2 text-[11px] shadow-xl backdrop-blur-md ${previewColor === 'green' ? 'border-emerald-400/30 bg-emerald-950/90 text-emerald-100' : 'border-red-400/30 bg-red-950/90 text-red-100'}`} data-valid={previewColor === 'green'} role="status" aria-live="polite">
             <div className="flex items-center gap-3">
               <span>{previewValidCount}/{previewTiles.length} petak valid</span>
               <span>Biaya <b>${totalPlacementCost.toLocaleString()}</b></span>
               <span>Kapasitas ±{previewValidCount * (activeTool === TileType.ROAD || activeTool === 'TUNNEL_ROAD' ? 4 : activeTool === 'RESIDENTIAL_HIGH' ? 24 : activeTool === 'RESIDENTIAL_MEDIUM' ? 15 : 10)}</span>
-              <span className="font-bold">{previewColor === 'green' ? 'Siap dibangun' : 'Lokasi tidak valid'}</span>
+              <span className="feedback-state font-bold">{previewColor === 'green' ? 'Siap dibangun' : 'Lokasi tidak valid'}</span>
             </div>
             <div className="mt-1 flex items-center gap-2 text-[10px] opacity-85">
               {previewBlockedCount > 0 && <span>{previewBlockedCount} petak terhalang</span>}
@@ -1915,10 +1985,10 @@ export default function App() {
           onFocusSelected={() => selected && setCameraFocus([selected.x, selected.y])}
           onCancelFocus={() => setCameraFocus(null)}
           onReset={handleResetCamera}
+          cleanCityView={cleanCityView}
+          onToggleCleanCityView={() => setCleanCityView((value) => !value)}
         />
-        {(gameState.day > 1 || gameState.population > 0) && (
-          <InfoViewsToolbar activeOverlay={activeOverlay} onSelectOverlay={setActiveOverlay} language={settings.language} />
-        )}
+        <InfoViewsToolbar activeOverlay={activeOverlay} onSelectOverlay={setActiveOverlay} language={settings.language} />
         <NotificationToast gameState={gameState} language={settings.language} />
         <PerformanceOverlay
           state={gameState}
@@ -2025,7 +2095,7 @@ export default function App() {
         onFocusOverview={() => {
           setCameraFocus([30, 30]);
           setCameraZoom(0.75);
-          setCameraRotation((rot) => rot + Math.PI / 4);
+          setCameraRotation((rot) => (rot + 45) % 360);
         }}
       />
       <CitizenProfileModal
@@ -2108,5 +2178,6 @@ export default function App() {
       />
       </Suspense>
     </main>
+    </Profiler>
   );
 }

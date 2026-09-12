@@ -15,6 +15,10 @@ export const OFFICIAL_BENCHMARKS: BenchmarkScenario[] = [
   'INDUSTRIAL_CITY',
   'FLOOD_RECOVERY',
   'PERFORMANCE_100K',
+  'DENSE_CITY',
+  'TRANSIT_STRESS',
+  'NIGHT_CITY',
+  'DISASTER_CITY',
 ];
 
 export interface BenchmarkPercentiles {
@@ -99,7 +103,7 @@ function sumGridPopulation(state: CityState): number {
 export function runOfficialBenchmark(scenario: BenchmarkScenario, ticks = 10, seed = 2088): BenchmarkReport {
   let state = createBenchmarkState(scenario, seed);
   // Warm caches once, but do not include that non-representative tick in the report.
-  const benchmarkMode = scenario === 'PERFORMANCE_100K';
+  const benchmarkMode = scenario === 'PERFORMANCE_100K' || scenario === 'DENSE_CITY';
   state = simulateTick(state, { trafficDensity: 'high', benchmarkMode });
   const tickSamples: number[] = [];
   const phaseSamples: Record<string, number[]> = {};

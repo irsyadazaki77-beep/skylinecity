@@ -1,0 +1,21 @@
+[
+  {
+    "width": 1280,
+    "height": 720,
+    "errors": [],
+    "layout": {
+      "overflow": false,
+      "canvas": true,
+      "hud": {
+        "x": 0,
+        "y": 0,
+        "width": 1280,
+        "height": 105.5,
+        "top": 0,
+        "right": 1280,
+        "bottom": 105.5,
+        "left": 0
+      }
+    }
+  }
+]

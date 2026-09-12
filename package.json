@@ -17,6 +17,8 @@
     "benchmark": "tsx src/benchmarkCli.ts",
     "balance": "tsx src/balanceCli.ts",
     "smoke": "tsx src/releaseSmoke.ts",
+    "render-benchmark": "tsx src/renderBenchmarkCli.ts",
+    "profile-browser": "node scripts/profileBrowser.mjs",
     "release-check": "npm run lint && npm test -- --run && npm run build && npm run smoke && npm run balance && npm run benchmark && npx playwright test"
   },
   "dependencies": {

@@ -94,7 +94,7 @@ export function NotificationToast({ gameState, language = 'id' }: NotificationTo
   if (alerts.length === 0) return null;
 
   return (
-    <div className="city-alert-stack absolute top-20 right-6 z-30 flex flex-col gap-2 max-w-sm pointer-events-none" aria-live="polite">
+    <div className="city-alert-stack absolute top-20 right-6 z-30 flex flex-col gap-2 max-w-sm pointer-events-none" data-ui-layer="notifications" role="status" aria-live="polite" aria-label="Peringatan kota">
       {alerts.map((alert) => (
         <div
           key={alert.id}

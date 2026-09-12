@@ -63,6 +63,7 @@ export function GameMenu({
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
         aria-haspopup="menu"
+        aria-label={translate(catalog, 'menu.title')}
         className="min-h-[44px] min-w-[44px] bg-black/50 hover:bg-black/70 backdrop-blur-md border border-white/10 rounded-xl text-gray-300 hover:text-white transition-all shadow-md active:scale-95 flex items-center justify-center"
         title={translate(catalog, 'menu.title')}
       >

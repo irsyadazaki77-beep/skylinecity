@@ -1,3 +1,4 @@
+import { getOverlayColor } from '../../overlayModel';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Info, Layers } from 'lucide-react';
 import { ActiveTool, OverlayMode, TileData, TileType } from '../../types';
@@ -9,6 +10,7 @@ import {
 
 interface City2DCanvasProps {
   grid: TileData[][];
+  homeSatisfaction?: Record<string, number>;
   activeTool: ActiveTool;
   focusTile?: [number, number] | null;
   tutorialHighlight?: 'highway' | 'zoning' | 'utilities' | 'mission' | null;
@@ -104,16 +106,16 @@ export function isRecommended2DZoningTile(grid: TileData[][], tile: TileData): b
 
 export function get2DTileColor(tile: TileData): string {
   if (tile.type === TileType.ROAD) {
-    if (tile.roadStructure === 'BRIDGE' || tile.water) return '#0284c7';
-    if (tile.roadClass === 'HIGHWAY') return '#b45309';
-    if (tile.roadClass === 'ARTERIAL') return '#d97706';
-    return '#475569';
+    if (tile.roadStructure === 'BRIDGE' || tile.water) return '#756a58';
+    if (tile.roadClass === 'HIGHWAY') return '#30353a';
+    if (tile.roadClass === 'ARTERIAL') return '#464a49';
+    return '#565957';
   }
-  if (tile.water) return '#0891b2';
-  if (tile.type === TileType.RESIDENTIAL) return '#15803d';
-  if (tile.type === TileType.COMMERCIAL) return '#1d4ed8';
-  if (tile.type === TileType.OFFICE) return '#0369a1';
-  if (tile.type === TileType.INDUSTRIAL) return '#a16207';
+  if (tile.water) return '#2d6572';
+  if (tile.type === TileType.RESIDENTIAL) return '#9c806d';
+  if (tile.type === TileType.COMMERCIAL) return '#a96f55';
+  if (tile.type === TileType.OFFICE) return '#6d7f82';
+  if (tile.type === TileType.INDUSTRIAL) return '#7d7763';
   if (tile.type === TileType.POWER_PLANT) return '#0284c7';
   if (tile.type === TileType.WATER_PUMP) return '#0891b2';
   if (tile.type === TileType.CLINIC || tile.type === TileType.FIRE_STATION || tile.type === TileType.POLICE_STATION || tile.type === TileType.SCHOOL) return '#b91c1c';
@@ -121,10 +123,12 @@ export function get2DTileColor(tile: TileData): string {
   if (tile.type === TileType.PARKING) return '#334155';
   if (tile.type === TileType.FLOOD_BARRIER) return '#0369a1';
   if (tile.type === TileType.WATER_RESERVOIR) return '#075985';
-  return tile.type === TileType.EMPTY ? '#4a6854' : '#be123c';
+  return tile.type === TileType.EMPTY ? '#66725d' : '#8a5b58';
 }
 
-export function get2DOverlayColor(tile: TileData, overlay: OverlayMode | 'NATURAL_RESOURCES' | undefined): string | null {
+export function get2DOverlayColor(tile: TileData, overlay: OverlayMode | 'NATURAL_RESOURCES' | undefined, homeSatisfaction?: Record<string, number>): string | null {
+  if (overlay === 'HAPPINESS') return getOverlayColor(tile, overlay, [], homeSatisfaction);
+  if (overlay && ['WASTE', 'HEALTH', 'FIRE', 'NOISE'].includes(overlay)) return getOverlayColor(tile, overlay, []);
   if (!overlay || overlay === 'NONE') return null;
   if (overlay === 'TRAFFIC' && tile.type === TileType.ROAD) {
     const tr = tile.traffic ?? 0;
@@ -173,6 +177,7 @@ export function get2DOverlayColor(tile: TileData, overlay: OverlayMode | 'NATURA
  */
 export function City2DCanvas({
   grid,
+  homeSatisfaction,
   activeTool,
   focusTile,
   tutorialHighlight,
@@ -186,7 +191,7 @@ export function City2DCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const focusBtnRef = useRef<HTMLButtonElement | null>(null);
   const [inspectedTile, setInspectedTile] = useState<TileData | null>(null);
-  const [showLegend, setShowLegend] = useState(true);
+  const [showLegend, setShowLegend] = useState(false);
   const [isRoadDragging, setIsRoadDragging] = useState(false);
   const roadDragStartRef = useRef<[number, number] | null>(null);
   const roadDragLastRef = useRef<[number, number] | null>(null);
@@ -254,7 +259,7 @@ export function City2DCanvas({
         ctx.strokeRect(px + 0.5, py + 0.5, tileSize - 1, tileSize - 1);
 
         // Overlay
-        const overlayColor = get2DOverlayColor(tile, activeOverlay);
+        const overlayColor = get2DOverlayColor(tile, activeOverlay, homeSatisfaction);
         if (overlayColor) {
           ctx.fillStyle = overlayColor;
           ctx.fillRect(px, py, tileSize, tileSize);
@@ -318,7 +323,7 @@ export function City2DCanvas({
         }
       }
     }
-  }, [grid, activeOverlay, tutorialHighlight, roadBestPathSet, roadValidSet, roadBlockedSet, zoningRecSet, utilityTargetSet, width, height]);
+  }, [grid, homeSatisfaction, activeOverlay, tutorialHighlight, roadBestPathSet, roadValidSet, roadBlockedSet, zoningRecSet, utilityTargetSet, width, height]);
 
   const getTileFromEvent = (e: React.PointerEvent<HTMLCanvasElement>): [number, number] | null => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -379,7 +384,7 @@ export function City2DCanvas({
   return (
     <section className="city-2d-canvas relative flex flex-col h-full w-full overflow-hidden bg-slate-950 select-none" aria-label="Peta kota mode 2D" onPointerLeave={onTilePointerLeave}>
       {/* Top Bar: 2D Status & Legend Toggle */}
-      <div className="absolute top-2 left-2 z-30 flex items-center gap-2">
+      <div className="map-legend-toolbar absolute z-30 flex items-center gap-2">
         <div className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-900/90 px-2.5 py-1 text-[10px] font-mono text-cyan-300 shadow-md backdrop-blur">
           <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
           <span>Mode 2D Taktis</span>
@@ -389,6 +394,8 @@ export function City2DCanvas({
         </div>
         <button
           type="button"
+          aria-expanded={showLegend}
+          aria-controls="city-map-legend"
           onClick={() => setShowLegend((v) => !v)}
           className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-900/80 px-2 py-1 text-[10px] text-slate-300 hover:bg-white/10"
         >
@@ -398,20 +405,20 @@ export function City2DCanvas({
 
       {/* Floating Color Legend */}
       {showLegend && (
-        <div className="absolute top-10 left-2 z-30 flex flex-col gap-1 rounded-xl border border-white/10 bg-slate-950/92 p-2.5 text-[10px] text-slate-200 shadow-2xl backdrop-blur-md max-w-xs animate-fadeIn">
+        <div id="city-map-legend" className="map-legend-panel absolute z-30 flex flex-col gap-1 rounded-xl border border-white/10 bg-slate-950/92 p-2.5 text-[10px] text-slate-200 shadow-2xl backdrop-blur-md max-w-xs animate-fadeIn">
           <div className="font-semibold text-slate-100 flex items-center justify-between pb-1 border-b border-white/10">
             <span>Legenda Warna & Simbol</span>
             <span className="text-[9px] text-cyan-400">2D</span>
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 pt-1 text-[9px]">
-            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-emerald-600 inline-block border border-white/20" /> Hunian (Hijau)</div>
-            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-blue-600 inline-block border border-white/20" /> Komersial (Biru)</div>
-            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-violet-600 inline-block border border-white/20" /> Kantor (Ungu)</div>
-            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-amber-600 inline-block border border-white/20" /> Industri (Kuning)</div>
-            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-slate-600 inline-block border border-white/20" /> Jalan Lokal (Abu)</div>
-            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-amber-500 inline-block border border-white/20" /> Jalan Tol (Emas)</div>
-            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-sky-400 inline-block border border-white/20" /> Jembatan (Sky)</div>
-            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-cyan-700 inline-block border border-white/20" /> Badan Air (Cyan)</div>
+            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-[#9c806d] inline-block border border-white/20" /> Hunian</div>
+            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-[#a96f55] inline-block border border-white/20" /> Komersial</div>
+            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-[#6d7f82] inline-block border border-white/20" /> Kantor</div>
+            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-[#7d7763] inline-block border border-white/20" /> Industri</div>
+            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-[#565957] inline-block border border-white/20" /> Jalan Lokal</div>
+            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-[#30353a] inline-block border border-white/20" /> Jalan Tol</div>
+            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-[#756a58] inline-block border border-white/20" /> Jembatan</div>
+            <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-[#2d6572] inline-block border border-white/20" /> Badan Air</div>
             <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-red-600 inline-block border border-white/20" /> Darurat (Merah)</div>
             <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-emerald-500 inline-block border border-white/20" /> Taman (Hijau Muda)</div>
             <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-purple-700 inline-block border border-white/20" /> Utilitas Listrik</div>

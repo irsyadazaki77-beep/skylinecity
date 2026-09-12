@@ -41,7 +41,7 @@ export function WeatherEffects({ weather, precipitation, qualityTier, reducedMot
     else if (weather === 'STORM') scene.fog = new THREE.FogExp2('#263746', 0.022);
     else if (weather === 'HEATWAVE') scene.fog = new THREE.FogExp2('#c9a56b', 0.008);
     else if (weather === 'DROUGHT') scene.fog = new THREE.FogExp2('#ae956b', 0.006);
-    else scene.fog = null;
+    else scene.fog = previousFog;
     return () => { scene.fog = previousFog; };
   }, [scene, weather]);
 
@@ -59,9 +59,10 @@ export function WeatherEffects({ weather, precipitation, qualityTier, reducedMot
       attribute.needsUpdate = true;
     }
     if (lightningRef.current) {
-      const pulse = storm && !reducedMotion && (Math.floor(elapsedRef.current * 1.7) % 19 === 0)
-        ? Math.max(0, Math.sin(elapsedRef.current * 48)) * 2.8
-        : 0;
+      // A single soft swell avoids rapid strobing during storms.
+      const phase = elapsedRef.current % 18;
+      const pulse = storm && !reducedMotion && phase < 1.6
+        ? Math.sin(phase / 1.6 * Math.PI) * 0.65 : 0;
       lightningRef.current.intensity = pulse;
     }
   });

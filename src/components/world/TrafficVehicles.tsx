@@ -32,6 +32,18 @@ interface VehicleActor {
   dwellTimer: number;
   isService?: boolean;
   color: THREE.Color;
+  visualScale?: [number, number, number];
+}
+
+const CAR_ARCHETYPES: Array<[string, [number, number, number]]> = [
+  ['SEDAN', [1, 1, 1]],
+  ['SCOOTER', [0.48, 0.72, 0.82]],
+  ['MPV', [1.08, 1.08, 1.1]],
+  ['VAN', [0.96, 1.24, 1.22]],
+];
+
+export function getCarVisualScale(index: number): [number, number, number] {
+  return CAR_ARCHETYPES[Math.abs(index) % CAR_ARCHETYPES.length][1];
 }
 
 const VEHICLE_COLORS = [
@@ -110,6 +122,7 @@ export function TrafficVehicles({
         targetLaneOffset: 0.13,
         dwellTimer: stableDwell(trip.id),
         color,
+        visualScale: getCarVisualScale(idx),
       } as VehicleActor;
     });
   }, [carTrips]);
@@ -127,6 +140,7 @@ export function TrafficVehicles({
         targetLaneOffset: 0.12,
         dwellTimer: stableDwell(trip.id),
         color: new THREE.Color(idx % 2 === 0 ? '#22d3ee' : '#a78bfa'),
+        visualScale: [1, 1, 1] as [number, number, number],
       } as VehicleActor;
     });
   }, [transitTrips]);
@@ -143,6 +157,7 @@ export function TrafficVehicles({
       targetLaneOffset: agent.mode === 'TRAM' ? 0 : 0.12,
       dwellTimer: stableDwell(agent.id),
       color: new THREE.Color(agent.mode === 'TRAM' ? '#a78bfa' : '#22d3ee'),
+      visualScale: agent.mode === 'TRAM' ? [1.08, 1.08, 1.28] : [1, 1.12, 1.08],
     } as VehicleActor;
   }), [lineTransitVehicles]);
 
@@ -159,6 +174,7 @@ export function TrafficVehicles({
         targetLaneOffset: 0.14,
         dwellTimer: stableDwell(trip.id),
         color: new THREE.Color(idx % 2 === 0 ? '#fb923c' : '#f59e0b'),
+        visualScale: idx % 3 === 0 ? [1.12, 1.18, 1.16] : [1, 1, 1],
       } as VehicleActor;
     });
   }, [visibleFreightTrips]);
@@ -195,7 +211,8 @@ export function TrafficVehicles({
           targetLaneOffset: 0,
           dwellTimer: agent.status === 'ON_SCENE' ? 999 : 0,
           isService: true,
-          color: new THREE.Color(color),
+        color: new THREE.Color(color),
+          visualScale: agent.role === 'FIRE_ENGINE' ? [1.12, 1.15, 1.18] : agent.role === 'AMBULANCE' ? [1.02, 1.12, 1.12] : [1, 1, 1],
         } as VehicleActor;
       });
     }
@@ -213,6 +230,7 @@ export function TrafficVehicles({
       dwellTimer: 0,
       isService: true,
       color: new THREE.Color(incident.type === 'FIRE' ? '#ef4444' : incident.type === 'MEDICAL' ? '#f8fafc' : '#60a5fa'),
+      visualScale: incident.type === 'FIRE' ? [1.12, 1.15, 1.18] : [1.02, 1.12, 1.12],
     } as VehicleActor)));
   }, [fleetServiceVehicles, serviceIncidents]);
 
@@ -368,7 +386,7 @@ export function TrafficVehicles({
 
         dummy.position.set(curX + sideX, curY + 0.08, curZ + sideZ);
         dummy.rotation.set(0, headingAngle, 0);
-        dummy.scale.set(1, 1, 1);
+        dummy.scale.set(...(v.visualScale ?? [1, 1, 1]));
         dummy.updateMatrix();
 
         meshRef.current.setMatrixAt(i, dummy.matrix);
@@ -412,7 +430,7 @@ export function TrafficVehicles({
 
         dummy.position.set(curX, curY + 0.13, curZ);
         dummy.rotation.set(0, headingAngle, 0);
-        dummy.scale.set(1, 1, 1);
+        dummy.scale.set(...(v.visualScale ?? [1, 1, 1]));
         dummy.updateMatrix();
         transitMeshRef.current.setMatrixAt(i, dummy.matrix);
         transitMeshRef.current.setColorAt(i, v.color);
@@ -449,7 +467,7 @@ export function TrafficVehicles({
 
         dummy.position.set(curX, curY + 0.14, curZ);
         dummy.rotation.set(0, headingAngle, 0);
-        dummy.scale.set(1, 1, 1);
+        dummy.scale.set(...(v.visualScale ?? [1, 1, 1]));
         dummy.updateMatrix();
         lineTransitMeshRef.current.setMatrixAt(i, dummy.matrix);
         lineTransitMeshRef.current.setColorAt(i, v.color);
@@ -486,7 +504,7 @@ export function TrafficVehicles({
 
         dummy.position.set(curX, curY + 0.16, curZ);
         dummy.rotation.set(0, headingAngle, 0);
-        dummy.scale.set(1, 1, 1);
+        dummy.scale.set(...(v.visualScale ?? [1, 1, 1]));
         dummy.updateMatrix();
         freightMeshRef.current.setMatrixAt(i, dummy.matrix);
         freightMeshRef.current.setColorAt(i, v.color);
@@ -523,7 +541,7 @@ export function TrafficVehicles({
 
         dummy.position.set(curX, curY + 0.12, curZ);
         dummy.rotation.set(0, headingAngle, 0);
-        dummy.scale.set(1, 1, 1);
+        dummy.scale.set(...(v.visualScale ?? [1, 1, 1]));
         dummy.updateMatrix();
         serviceMeshRef.current.setMatrixAt(i, dummy.matrix);
         serviceMeshRef.current.setColorAt(i, v.color);

@@ -81,6 +81,8 @@ export interface TrafficBottleneckInsight {
   roadClass: RoadClass;
   trafficPercent: number;
   queuePressure: number;
+  origin: { x: number; y: number };
+  destination: { x: number; y: number };
   originDesc: string;
   destinationDesc: string;
   purpose: TripPurpose;
@@ -116,6 +118,27 @@ export interface TrafficBeforeAfter {
   after: { congestion: number; commute: number; queue: number; carTrips: number };
 }
 
+type RoutedActor = { path: [number, number][] };
+
+function indexActorsByRoad<T extends RoutedActor>(actors: T[]): Map<string, T[]> {
+  const index = new Map<string, T[]>();
+  for (const actor of actors) {
+    // A route can contain the same tile more than once after a loop or a
+    // reroute. Count an actor once per road tile so cohort percentages remain
+    // meaningful and the index stays bounded by route coverage.
+    const visited = new Set<string>();
+    for (const [x, y] of actor.path) {
+      const key = `${x},${y}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      const actorsForTile = index.get(key);
+      if (actorsForTile) actorsForTile.push(actor);
+      else index.set(key, [actor]);
+    }
+  }
+  return index;
+}
+
 function placeDescription(grid: TileData[][], location: { x: number; y: number }): string {
   const tile = grid[location.y]?.[location.x];
   const label = tile?.type === TileType.RESIDENTIAL
@@ -149,6 +172,13 @@ export function findTrafficBottlenecks(grid: TileData[][], actors: TrafficActorC
   const height = grid.length;
   const width = grid[0]?.length ?? 0;
   const bottlenecks: TrafficBottleneckInsight[] = [];
+  const safeLimit = Math.max(0, Math.floor(limit));
+  if (safeLimit === 0) return bottlenecks;
+
+  const carTripsByRoad = indexActorsByRoad((actors.trips ?? []).filter((trip) => trip.mode === TransitMode.CAR));
+  const freightByRoad = indexActorsByRoad(actors.freightTrips ?? []);
+  const emergencyByRoad = indexActorsByRoad(actors.serviceVehicles ?? []);
+  const transitByRoad = indexActorsByRoad(actors.transitVehicles ?? []);
 
   const roadTiles: TileData[] = [];
   for (let y = 0; y < height; y++) {
@@ -160,12 +190,15 @@ export function findTrafficBottlenecks(grid: TileData[][], actors: TrafficActorC
     }
   }
 
-  roadTiles.sort((a, b) => ((b.traffic ?? 0) + (b.queuePressure ?? 0)) - ((a.traffic ?? 0) + (a.queuePressure ?? 0)));
+  roadTiles.sort((a, b) =>
+    ((b.traffic ?? 0) + (b.queuePressure ?? 0)) - ((a.traffic ?? 0) + (a.queuePressure ?? 0))
+    || a.y - b.y
+    || a.x - b.x,
+  );
 
   for (const tile of roadTiles) {
-    const observedTrips = (actors.trips ?? []).filter((trip) =>
-      trip.mode === TransitMode.CAR && trip.path.some(([x, y]) => x === tile.x && y === tile.y),
-    );
+    const roadKey = `${tile.x},${tile.y}`;
+    const observedTrips = carTripsByRoad.get(roadKey) ?? [];
     if (observedTrips.length === 0) continue;
 
     const roadClass = getRoadClass(tile);
@@ -187,12 +220,11 @@ export function findTrafficBottlenecks(grid: TileData[][], actors: TrafficActorC
     const confidence = sampleSize >= 10 ? 'HIGH' : sampleSize >= 4 ? 'MEDIUM' : 'LOW';
     const originDesc = placeDescription(grid, representative.origin);
     const destinationDesc = placeDescription(grid, representative.destination);
-    const crossesTile = (path: [number, number][]) => path.some(([x, y]) => x === tile.x && y === tile.y);
     const cohortCounts = {
       privateCars: observedTrips.length,
-      freight: (actors.freightTrips ?? []).filter((trip) => crossesTile(trip.path)).length,
-      emergency: (actors.serviceVehicles ?? []).filter((vehicle) => crossesTile(vehicle.path)).length,
-      transit: (actors.transitVehicles ?? []).filter((vehicle) => crossesTile(vehicle.path)).length,
+      freight: freightByRoad.get(roadKey)?.length ?? 0,
+      emergency: emergencyByRoad.get(roadKey)?.length ?? 0,
+      transit: transitByRoad.get(roadKey)?.length ?? 0,
     };
     const observedCause = `${sharePercent}% dari ${sampleSize} perjalanan mobil yang teramati di ruas ini adalah ${purposeDescription(representative.purpose)} dari ${originDesc} menuju ${destinationDesc}.`;
 
@@ -217,6 +249,8 @@ export function findTrafficBottlenecks(grid: TileData[][], actors: TrafficActorC
       roadClass,
       trafficPercent,
       queuePressure,
+      origin: { ...representative.origin },
+      destination: { ...representative.destination },
       originDesc,
       destinationDesc,
       purpose: representative.purpose,
@@ -232,7 +266,7 @@ export function findTrafficBottlenecks(grid: TileData[][], actors: TrafficActorC
       estimatedCost,
       projectedImpact,
     });
-    if (bottlenecks.length >= limit) break;
+    if (bottlenecks.length >= safeLimit) break;
   }
 
   return bottlenecks;

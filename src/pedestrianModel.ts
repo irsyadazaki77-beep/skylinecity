@@ -1,4 +1,4 @@
-import { TileData, TileType } from './types';
+import { getRoadClass, TileData, TileType, WeatherType } from './types';
 import { Trip, TransitMode, TripPurpose } from './citizenSimulation/types';
 import { RoadGraph } from './traffic';
 
@@ -10,6 +10,7 @@ export type PedestrianState =
   | 'TRANSIT_WAIT'
   | 'WORK'
   | 'SHOPPING'
+  | 'PARK_VISIT'
   | 'RETURN_HOME';
 
 export interface PedestrianAgent {
@@ -75,15 +76,24 @@ export function sampleRepresentativePedestrians(
   timeOfDay = 12,
   population = 0,
   maxAgents = 120,
+  context: { weather?: WeatherType; activeIncidentCount?: number } = {},
 ): PedestrianAgent[] {
   const height = grid.length;
   const width = grid[0]?.length ?? 0;
   if (height === 0 || width === 0) return [];
 
   const rushMultiplier = getRushHourMultiplier(timeOfDay);
+  const parkCount = grid.flat().filter((tile) => tile.type === TileType.PARK).length;
+  const weatherMultiplier = context.weather === 'STORM' ? 0.55
+    : context.weather === 'RAIN' ? 0.8
+      : context.weather === 'HEATWAVE' ? 0.75
+        : context.weather === 'DROUGHT' ? 0.9
+          : 1;
+  const incidentMultiplier = (context.activeIncidentCount ?? 0) > 0 ? 0.85 : 1;
+  const publicSpaceMultiplier = parkCount > 0 ? 1 + Math.min(0.25, parkCount * 0.03) : 1;
   const targetCount = Math.min(
     maxAgents,
-    Math.max(4, Math.round((Math.min(population, 500) * 0.2 + (trips.length * 0.8)) * (rushMultiplier * 0.8))),
+    Math.max(4, Math.round((Math.min(population, 500) * 0.2 + (trips.length * 0.8)) * (rushMultiplier * 0.8) * weatherMultiplier * incidentMultiplier * publicSpaceMultiplier)),
   );
 
   const agents: PedestrianAgent[] = [];
@@ -96,7 +106,8 @@ export function sampleRepresentativePedestrians(
     const trip = walkOrTransitTrips[i];
     const origin = { x: trip.origin[0], y: trip.origin[1] };
     const dest = { x: trip.destination[0], y: trip.destination[1] };
-    const path = trip.path;
+    const path = findPedestrianPath(grid, trip.path[0], trip.path[trip.path.length - 1], roadGraph);
+    if (path.length < 2) continue;
     const isTransit = trip.mode === TransitMode.TRANSIT;
     const side = (i % 2 === 0 ? 1 : -1) * 0.28;
     const purpose: PedestrianAgent['purpose'] =
@@ -144,6 +155,7 @@ export function sampleRepresentativePedestrians(
   // 2. If additional capacity remains, generate commercial and residential sidewalk life
   if (agents.length < targetCount) {
     const commercialTiles: Array<{ x: number; y: number; roadNeighbor: [number, number] }> = [];
+    const parkTiles: Array<{ x: number; y: number; roadNeighbor: [number, number] }> = [];
     const residentialTiles: Array<{ x: number; y: number; roadNeighbor: [number, number] }> = [];
     const transitStopTiles: Array<{ x: number; y: number }> = [];
 
@@ -156,6 +168,9 @@ export function sampleRepresentativePedestrians(
         if (tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE) {
           const adjRoad = findAdjacentRoadTile(grid, x, y);
           if (adjRoad) commercialTiles.push({ x, y, roadNeighbor: adjRoad });
+        } else if (tile.type === TileType.PARK) {
+          const adjRoad = findAdjacentRoadTile(grid, x, y);
+          if (adjRoad) parkTiles.push({ x, y, roadNeighbor: adjRoad });
         } else if (tile.type === TileType.RESIDENTIAL && tile.population > 0) {
           const adjRoad = findAdjacentRoadTile(grid, x, y);
           if (adjRoad) residentialTiles.push({ x, y, roadNeighbor: adjRoad });
@@ -163,21 +178,28 @@ export function sampleRepresentativePedestrians(
       }
     }
 
-    // Add shopping / errand pedestrians in commercial corridors
+    // Add shopping and park visitors in public-facing corridors.
+    const activityTiles = [...commercialTiles, ...parkTiles];
     let extraIndex = 0;
-    while (agents.length < targetCount && commercialTiles.length > 0) {
-      const com = commercialTiles[extraIndex % commercialTiles.length];
-      const res = residentialTiles.length > 0 ? residentialTiles[extraIndex % residentialTiles.length] : com;
+    // Some early cities have destinations on disconnected road fragments.
+    // Bound attempts independently from successful agents so presentation
+    // sampling can never stall the renderer while searching for a route.
+    const maxActivityAttempts = Math.max(activityTiles.length * 2, targetCount * 2);
+    while (agents.length < targetCount && activityTiles.length > 0 && extraIndex < maxActivityAttempts) {
+      const activity = activityTiles[extraIndex % activityTiles.length];
+      const res = residentialTiles.length > 0 ? residentialTiles[extraIndex % residentialTiles.length] : activity;
       extraIndex++;
 
       const isReturn = extraIndex % 3 === 0;
-      const origin = isReturn ? { x: com.x, y: com.y } : { x: res.x, y: res.y };
-      const dest = isReturn ? { x: res.x, y: res.y } : { x: com.x, y: com.y };
-      const startRoad = isReturn ? com.roadNeighbor : res.roadNeighbor;
-      const endRoad = isReturn ? res.roadNeighbor : com.roadNeighbor;
+      const isParkVisit = parkTiles.length > 0 && activityTiles.indexOf(activity) >= commercialTiles.length;
+      const origin = isReturn ? { x: activity.x, y: activity.y } : { x: res.x, y: res.y };
+      const dest = isReturn ? { x: res.x, y: res.y } : { x: activity.x, y: activity.y };
+      const startRoad = isReturn ? activity.roadNeighbor : res.roadNeighbor;
+      const endRoad = isReturn ? res.roadNeighbor : activity.roadNeighbor;
 
-      const path: [number, number][] = [startRoad, endRoad];
-      const state: PedestrianState = isReturn ? 'RETURN_HOME' : 'SHOPPING';
+      const path = findPedestrianPath(grid, startRoad, endRoad, roadGraph);
+      if (path.length < 2) continue;
+      const state: PedestrianState = isReturn ? 'RETURN_HOME' : isParkVisit ? 'PARK_VISIT' : 'SHOPPING';
 
       agents.push({
         id: `ped-local-${extraIndex}`,
@@ -196,11 +218,9 @@ export function sampleRepresentativePedestrians(
         speed: 0.035 + (extraIndex % 3) * 0.003,
         color: PEDESTRIAN_COLORS[(agents.length + extraIndex) % PEDESTRIAN_COLORS.length],
         isTransitUser: false,
-        purpose: isReturn ? 'RETURN' : 'SHOPPING',
+        purpose: isReturn ? 'RETURN' : isParkVisit ? 'LEISURE' : 'SHOPPING',
         crossingWaitTimer: 0,
       });
-
-      if (extraIndex > targetCount * 2) break;
     }
   }
 
@@ -212,11 +232,68 @@ function findAdjacentRoadTile(grid: TileData[][], x: number, y: number): [number
   for (const [dx, dy] of dirs) {
     const nx = x + dx;
     const ny = y + dy;
-    if (grid[ny]?.[nx]?.type === TileType.ROAD) {
+    if (grid[ny]?.[nx]?.type === TileType.ROAD && getRoadClass(grid[ny][nx]) !== 'HIGHWAY') {
       return [nx, ny];
     }
   }
   return null;
+}
+
+/**
+ * Builds a deterministic pedestrian route over walkable road/sidewalk nodes.
+ * Pedestrians may use local and arterial frontage, but never a highway tile.
+ * The graph path is preferred so activity agents follow the same connected
+ * network as simulation trips; the grid fallback keeps renderer tests and
+ * lightweight preview scenes usable without a built RoadGraph.
+ */
+function findPedestrianPath(
+  grid: TileData[][],
+  start: [number, number],
+  end: [number, number],
+  roadGraph: RoadGraph | null,
+): [number, number][] {
+  const isWalkable = (x: number, y: number) => {
+    const tile = grid[y]?.[x];
+    return tile?.type === TileType.ROAD && getRoadClass(tile) !== 'HIGHWAY';
+  };
+  if (!isWalkable(start[0], start[1]) || !isWalkable(end[0], end[1])) return [];
+  const startKey = `${start[0]},${start[1]}`;
+  const endKey = `${end[0]},${end[1]}`;
+  if (startKey === endKey) return [[...start]];
+
+  const queue = [startKey];
+  const parent = new Map<string, string | null>([[startKey, null]]);
+  const neighborsFor = (key: string): string[] => {
+    if (roadGraph?.nodes.has(key)) {
+      return (roadGraph.nodes.get(key)?.neighbors ?? [])
+        .filter((neighbor) => roadGraph.nodes.get(neighbor)?.roadClass !== 'HIGHWAY')
+        .sort();
+    }
+    const [x, y] = key.split(',').map(Number);
+    return [[0, 1], [1, 0], [0, -1], [-1, 0]]
+      .map(([dx, dy]) => [x + dx, y + dy] as const)
+      .filter(([nx, ny]) => isWalkable(nx, ny))
+      .map(([nx, ny]) => `${nx},${ny}`);
+  };
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const current = queue[index];
+    if (current === endKey) break;
+    for (const neighbor of neighborsFor(current)) {
+      if (parent.has(neighbor)) continue;
+      parent.set(neighbor, current);
+      queue.push(neighbor);
+    }
+  }
+  if (!parent.has(endKey)) return [];
+
+  const pathKeys: string[] = [];
+  let current: string | null = endKey;
+  while (current) {
+    pathKeys.unshift(current);
+    current = parent.get(current) ?? null;
+  }
+  return pathKeys.map((key) => key.split(',').map(Number) as [number, number]);
 }
 
 /**
@@ -275,7 +352,7 @@ export function updatePedestrianAgent(
       // Reached destination, turn around or transition state
       agent.pathIndex = 0;
       agent.path = [...agent.path].reverse();
-      agent.state = agent.state === 'SHOPPING' ? 'RETURN_HOME' : agent.state === 'WORK' ? 'HOME' : 'WALKING';
+      agent.state = agent.state === 'SHOPPING' || agent.state === 'PARK_VISIT' ? 'RETURN_HOME' : agent.state === 'WORK' ? 'HOME' : 'WALKING';
     }
   }
 

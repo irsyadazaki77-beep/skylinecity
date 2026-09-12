@@ -87,4 +87,23 @@ describe('findTrafficBottlenecks', () => {
     ];
     expect(findTrafficBottlenecks(grid, { trips }, 1)[0].purpose).toBe(TripPurpose.SHOPPING);
   });
+
+  it('counts a looped route once per road tile and honors a zero result limit', () => {
+    const grid = Array.from({ length: 3 }, (_, y) => Array.from({ length: 3 }, (_, x) => createTile(x, y)));
+    grid[1][1] = createTile(1, 1, { type: TileType.ROAD, traffic: 80, queuePressure: 40 });
+    const trip: Trip = {
+      id: 'loop',
+      citizenId: 'citizen-loop',
+      householdId: 'household-loop',
+      origin: { x: 0, y: 1 },
+      destination: { x: 2, y: 1 },
+      purpose: TripPurpose.COMMUTE_WORK,
+      path: [[1, 1], [1, 1], [1, 1]],
+      travelTime: 12,
+      mode: TransitMode.CAR,
+    };
+
+    expect(findTrafficBottlenecks(grid, { trips: [trip] }, 0)).toEqual([]);
+    expect(findTrafficBottlenecks(grid, { trips: [trip] }, 1)[0].sampleSize).toBe(1);
+  });
 });

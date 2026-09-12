@@ -16,7 +16,7 @@ describe('public beta benchmark and scheduler guardrails', () => {
 
   it('keeps integrity and performance as separate explicit gates', () => {
     const report = runOfficialBenchmarkSuite(1, 888);
-    expect(report.reports).toHaveLength(5);
+    expect(report.reports).toHaveLength(9);
     expect(report.deterministic).toBe(true);
     expect(report.integrityGate.passed).toBe(true);
     expect(typeof report.performanceGate.passed).toBe('boolean');

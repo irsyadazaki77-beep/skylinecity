@@ -1,12 +1,22 @@
 import React from 'react';
-import { sharedBuildingMats } from './sharedKits';
+import { sharedBuildingMats, sharedBuildingGeos, BuildingLod } from './sharedKits';
 import { TileType } from '../../../types';
 
 interface ServiceKitProps {
   type: TileType;
+  lod?: BuildingLod;
 }
 
-export function ServiceKit({ type }: ServiceKitProps) {
+export function ServiceKit({ type, lod = 'NEAR' }: ServiceKitProps) {
+  // Services remain readable at every distance. The fallback is deliberately
+  // a shared, opaque mass rather than removing the facility from the scene.
+  if (lod !== 'NEAR') {
+    return <group name={`ServiceFallback-${lod}`}>
+      <mesh geometry={sharedBuildingGeos.unitBox} material={sharedBuildingMats.comL2} position={[-0.1, 0.34, 0]} scale={[0.62, 0.66, 0.7]} />
+      <mesh geometry={sharedBuildingGeos.unitBox} material={sharedBuildingMats.officeWhite} position={[0.25, 0.25, -0.12]} scale={[0.24, 0.48, 0.38]} />
+      <mesh geometry={sharedBuildingGeos.unitBox} material={sharedBuildingMats.roof} position={[-0.1, 0.7, 0]} scale={[0.7, 0.07, 0.76]} />
+    </group>;
+  }
   // POWER PLANT
   if (type === TileType.POWER_PLANT) {
     return (
@@ -260,6 +270,16 @@ export function ServiceKit({ type }: ServiceKitProps) {
             </mesh>
           )),
         )}
+        {/* Small civic landmark: a shared-material park sculpture gives every
+            green space a readable focal point without adding simulation state. */}
+        <group name="ParkLandmark" position={[0, 0.08, 0]}>
+          <mesh material={sharedBuildingMats.resConcrete} position={[0, 0.08, 0]}>
+            <cylinderGeometry args={[0.075, 0.095, 0.16, 8]} />
+          </mesh>
+          <mesh material={sharedBuildingMats.indSafety} position={[0, 0.24, 0]} rotation={[0, Math.PI / 4, 0]}>
+            <octahedronGeometry args={[0.1, 0]} />
+          </mesh>
+        </group>
       </group>
     );
   }

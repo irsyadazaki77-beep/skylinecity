@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const isCI = Boolean(process.env.CI);
+const e2ePort = Number(process.env.PLAYWRIGHT_PORT ?? 3004);
 
 export default defineConfig({
   testDir: './e2e',
@@ -12,17 +13,23 @@ export default defineConfig({
   workers: 1,
   reporter: [['list']],
   use: {
-    baseURL: 'http://localhost:3002',
-    trace: 'retain-on-failure',
+    launchOptions: process.env.SKYLINE_SOFTWARE_WEBGL === '1'
+      ? { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] }
+      : {},
+    baseURL: `http://localhost:${e2ePort}`,
+    // OneDrive can remove an in-progress trace recording before Playwright
+    // closes the context. CI keeps failure traces; local runs prioritize a
+    // deterministic pass and still retain failure screenshots.
+    trace: isCI ? 'retain-on-failure' : 'off',
     screenshot: 'only-on-failure',
   },
   webServer: {
     // E2E validates the same production bundle that is released. Local runs
-    // may reuse an already-started server, while CI always starts a fresh
-    // preview after building.
-    command: 'npm run build && node scripts/serveDist.mjs --host 0.0.0.0 --port 3002',
-    port: 3002,
-    reuseExistingServer: !isCI,
+    // Use an isolated port so a stale dev server cannot make E2E hang or
+    // accidentally validate a different bundle.
+    command: `npm run build && node scripts/serveDist.mjs --host 0.0.0.0 --port ${e2ePort}`,
+    port: e2ePort,
+    reuseExistingServer: false,
     timeout: 30000,
   },
   projects: [

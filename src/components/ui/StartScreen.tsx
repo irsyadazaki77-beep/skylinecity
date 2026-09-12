@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Download, FolderOpen, Settings, Sparkles } from 'lucide-react';
+import { Download, FolderOpen, Settings, Sparkles, CloudSun, CarFront, Building2 } from 'lucide-react';
 import { createLocalizationCatalog, SupportedLanguage, translate } from '../../localization';
 import { useModalFocus } from './useModalFocus';
 
@@ -15,6 +15,7 @@ interface StartScreenProps {
 
 export function StartScreen({ onNewCity, onContinue, onLoad, onSettings, onClose, language = 'id', canContinue = false }: StartScreenProps) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const catalog = createLocalizationCatalog(language);
   const dialogRef = useModalFocus<HTMLDivElement>(true);
 
@@ -30,13 +31,28 @@ export function StartScreen({ onNewCity, onContinue, onLoad, onSettings, onClose
   }, [onClose]);
   const continueCity = async () => {
     setBusy(true);
-    await onContinue();
-    setBusy(false);
+    setError('');
+    try {
+      await onContinue();
+    } catch {
+      setError(language === 'en' ? 'Unable to open autosave. Retry or import a saved city.' : 'Autosave belum dapat dibuka. Coba lagi atau impor simpanan kota.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 z-[100] grid place-items-center bg-[#070b14]/95 p-4 sm:p-6 backdrop-blur-xl" role="presentation">
-      <div ref={dialogRef} className="w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-3xl border border-white/15 bg-[#0f172a]/95 p-6 sm:p-8 text-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="start-screen-title">
+      <div ref={dialogRef} className="start-screen-card w-full max-w-3xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-3xl border border-white/15 bg-[#0f172a]/95 p-4 sm:p-6 text-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="start-screen-title">
+        <div className="start-screen-preview" aria-hidden="true">
+          <div className="start-screen-sky" />
+          <div className="start-screen-moon" />
+          <div className="start-screen-silhouette start-screen-silhouette-back" />
+          <div className="start-screen-silhouette start-screen-silhouette-front" />
+          <div className="start-screen-road" />
+          <div className="start-screen-preview-caption"><CloudSun size={14} /> A living city, shaped by your decisions</div>
+        </div>
+        <div className="start-screen-content">
         <div className="mb-8 flex items-center gap-3">
           <div className="rounded-2xl border border-cyan-400/30 bg-cyan-500/10 p-3 text-cyan-300"><Sparkles size={26} /></div>
           <div>
@@ -44,8 +60,13 @@ export function StartScreen({ onNewCity, onContinue, onLoad, onSettings, onClose
             <h1 id="start-screen-title" className="text-2xl font-bold">Skyline Simulator</h1>
           </div>
         </div>
+        <div className="start-screen-pillars" aria-label="City builder features">
+          <span><Building2 size={14} /> Shape districts</span><span><CarFront size={14} /> Watch traffic flow</span><span><CloudSun size={14} /> Live through the weather</span>
+        </div>
         <p className="mb-6 text-sm leading-relaxed text-slate-300">Bangun kota yang hidup, atur jaringan layanan, dan lihat keputusanmu membentuk masa depan metropolitan.</p>
-        <div className="grid gap-3">
+        {error && <p role="alert" className="mb-3 rounded-xl border border-rose-400/40 bg-rose-950/60 p-3 text-sm text-rose-100">{error}</p>}
+        <div className="grid gap-3" aria-busy={busy}>
+          {busy && <p role="status" className="text-sm text-cyan-200">{language === 'en' ? 'Opening your city…' : 'Membuka kotamu…'}</p>}
           <button type="button" disabled={busy || !canContinue} onClick={() => void continueCity()} className="min-h-[44px] flex items-center justify-between rounded-xl border border-emerald-400/30 bg-emerald-500/15 px-4 py-3 text-left text-emerald-100 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-50">
             <span><b className="block text-sm">{translate(catalog, 'app.continue')}</b><small className="text-xs text-emerald-200/70">{canContinue ? 'Buka autosave terakhir' : 'Belum ada autosave tersedia'}</small></span>
             <FolderOpen size={18} />
@@ -60,6 +81,7 @@ export function StartScreen({ onNewCity, onContinue, onLoad, onSettings, onClose
           </div>
         </div>
         <p className="mt-6 text-center text-[10px] text-slate-500">{translate(catalog, 'app.browserHint')}</p>
+        </div>
       </div>
     </div>
   );

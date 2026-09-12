@@ -3,6 +3,7 @@ import { Activity, Gauge, MemoryStick } from 'lucide-react';
 import { CityState } from '../../types';
 import { recordPerformanceSnapshot } from '../../releaseReadiness';
 import { SimulationSchedulerTelemetry } from '../../simulationScheduler';
+import { getPerformanceTelemetry, subscribePerformanceTelemetry, PerformanceTelemetrySnapshot } from '../../performanceTelemetry';
 
 interface PerformanceOverlayProps {
   state: CityState;
@@ -27,16 +28,25 @@ interface PerformanceView {
 
 export function PerformanceOverlay({ state, speed, simulationTickMs = 0, simulationTickId = 0, simulationPhaseTimings = {}, adaptiveQuality = true, onQualityHint, schedulerTelemetry, enabled = false }: PerformanceOverlayProps) {
   const [view, setView] = useState<PerformanceView>({ fps: 0, frameTime: 0, simulationMs: 0, simulationP95Ms: 0, phaseP95: {} });
+  const [telemetry, setTelemetry] = useState<PerformanceTelemetrySnapshot>(() => getPerformanceTelemetry());
   const frameTimes = useRef<number[]>([]);
   const simulationTimes = useRef<number[]>([]);
   const phaseTimes = useRef<Record<string, number[]>>({});
   const lastFrame = useRef<number | null>(null);
   const lastSample = useRef(0);
   const lastRecordedTickId = useRef(simulationTickId);
+  const lowFrameWindows = useRef(0);
+  const healthyFrameWindows = useRef(0);
+  const lastQualityChange = useRef(0);
   const stateRef = useRef(state);
   stateRef.current = state;
   const simulationTickMsRef = useRef(simulationTickMs);
   simulationTickMsRef.current = simulationTickMs;
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    return subscribePerformanceTelemetry(() => setTelemetry(getPerformanceTelemetry()));
+  }, [enabled]);
 
   // Record simulation samples from the React tick boundary instead of waiting
   // for an animation frame to notice the ref change. This keeps phase timing
@@ -87,8 +97,18 @@ export function PerformanceOverlay({ state, speed, simulationTickMs = 0, simulat
         };
         setView(next);
         if (adaptiveQuality && onQualityHint) {
-          if (next.fps > 0 && next.fps < 48) onQualityHint('reduced');
-          else if (next.fps >= 58) onQualityHint('balanced');
+          lowFrameWindows.current = next.fps > 0 && (next.fps < 48 || p95 > 24) ? lowFrameWindows.current + 1 : 0;
+          healthyFrameWindows.current = next.fps >= 57 && p95 < 19 ? healthyFrameWindows.current + 1 : 0;
+          const cooldownElapsed = now - lastQualityChange.current >= 10_000;
+          if (cooldownElapsed && lowFrameWindows.current >= 3) {
+            onQualityHint('reduced');
+            lastQualityChange.current = now;
+            lowFrameWindows.current = 0;
+          } else if (cooldownElapsed && healthyFrameWindows.current >= 8) {
+            onQualityHint('balanced');
+            lastQualityChange.current = now;
+            healthyFrameWindows.current = 0;
+          }
         }
         recordPerformanceSnapshot({
           fps: next.fps,
@@ -118,8 +138,8 @@ export function PerformanceOverlay({ state, speed, simulationTickMs = 0, simulat
 
   return (
     <div className="performance-overlay" aria-label="Performance diagnostics">
-      <div><Gauge size={13} /> {view.fps.toFixed(0)} FPS</div>
-      <div><Activity size={13} /> p95 {view.frameTime.toFixed(1)} ms</div>
+      <div><Gauge size={13} /> {telemetry.fps.toFixed(0)} FPS</div>
+      <div><Activity size={13} /> frame p50 {telemetry.frameTimeP50Ms.toFixed(1)} · p95 {telemetry.frameTimeP95Ms.toFixed(1)} · p99 {telemetry.frameTimeP99Ms.toFixed(1)} ms</div>
       <div>Sim {view.simulationMs.toFixed(1)} ms · p95 {view.simulationP95Ms.toFixed(1)} ms</div>
       {schedulerTelemetry && <div className={schedulerTelemetry.overloaded ? 'text-amber-300' : 'text-slate-400'}>
         Tick budget {schedulerTelemetry.budgetMs} ms · scheduler p95 {schedulerTelemetry.rollingP95Ms.toFixed(1)} ms · {schedulerTelemetry.qualityTier}
@@ -127,6 +147,13 @@ export function PerformanceOverlay({ state, speed, simulationTickMs = 0, simulat
       {hottestPhases && <div className="text-[9px] text-slate-400">{hottestPhases}</div>}
       <div>{state.population.toLocaleString()} pop · {state.activeRegionKeys?.length ?? 0} regions</div>
       {view.memoryMb !== undefined && <div><MemoryStick size={13} /> {view.memoryMb.toFixed(0)} MB</div>}
+      <div>Worker {telemetry.workerMessageLatencyMs.toFixed(1)} ms · React {telemetry.reactCommitMs.toFixed(1)} ms</div>
+      <div>Three {telemetry.threeFrameMs.toFixed(1)} ms · GPU {telemetry.gpuTimeMs === undefined ? 'n/a' : `${telemetry.gpuTimeMs.toFixed(1)} ms`}</div>
+      <div>Draw {telemetry.drawCalls} · Tris {telemetry.triangles.toLocaleString()} · Objects {telemetry.visibleObjects}</div>
+      <div>Geo {telemetry.geometries} · Mat {telemetry.materials} · Tex {telemetry.textures}</div>
+      <div>Buildings {telemetry.mountedBuildings} · Props {telemetry.mountedProps} · Vehicles {telemetry.activeVehicles} · Peds {telemetry.activePedestrians}</div>
+      <div>LOD N/M/F {telemetry.lodNear}/{telemetry.lodMid}/{telemetry.lodFar} · transitions {telemetry.lodTransitions}</div>
+      <div>React commits {telemetry.reactCommitCount} · GC {telemetry.gcCount} · soak Δ {telemetry.soakHeapDeltaMb === undefined ? 'n/a' : `${telemetry.soakHeapDeltaMb.toFixed(1)} MB`}</div>
       {speed === 0 && <div className="text-amber-300">PAUSED</div>}
     </div>
   );

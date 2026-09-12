@@ -98,8 +98,8 @@ export function DayNightSky({ shadowSize = 1024, timeOfDay = 6, dayNightCycle = 
     }
     // At the default 06:00 start, preserve crisp, readable terrain, roads, water,
     // and zoning before the player has learned the camera controls.
-    if (ambientRef.current) ambientRef.current.intensity = 0.75 + twilight * 0.35;
-    if (hemisphereRef.current) hemisphereRef.current.intensity = 0.65 + twilight * 0.35;
+    if (ambientRef.current) ambientRef.current.intensity = 0.42 + twilight * 0.28;
+    if (hemisphereRef.current) hemisphereRef.current.intensity = 0.38 + twilight * 0.25;
   });
 
   return (
@@ -122,11 +122,11 @@ export function DayNightSky({ shadowSize = 1024, timeOfDay = 6, dayNightCycle = 
       />
 
       {/* Ambient & Hemisphere lighting for smooth global illumination */}
-      <ambientLight ref={ambientRef} intensity={0.48} color="#e0e7ff" />
-      <hemisphereLight ref={hemisphereRef} args={['#e0f2fe', '#3d493a', 0.52]} />
+      <ambientLight ref={ambientRef} intensity={0.42} color="#f4ead5" />
+      <hemisphereLight ref={hemisphereRef} args={['#dbe9ef', '#4a5140', 0.38]} />
 
       {/* Atmospheric Distance Fog */}
-      <fog ref={fogRef} attach="fog" args={['#101c2e', 52, 155]} />
+      <fog ref={fogRef} attach="fog" args={['#101c2e', 64, 150]} />
     </>
   );
 }

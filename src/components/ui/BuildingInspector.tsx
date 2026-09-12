@@ -295,7 +295,8 @@ export function BuildingInspector({ tile, language = 'id', onClose, onFocus, onD
       role="dialog"
       aria-modal="false"
       aria-labelledby="inspector-tile-title"
-      className="fixed bottom-20 right-3 left-3 sm:left-auto sm:right-5 z-40 max-h-[calc(100vh-6rem)] w-auto sm:w-80 overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[#0d1420]/95 p-4 text-white shadow-2xl backdrop-blur-xl custom-scrollbar animate-in fade-in slide-in-from-bottom-3 duration-200 select-none"
+      data-ui-layer="context-panel"
+      className="context-panel fixed bottom-20 right-3 left-3 sm:left-auto sm:right-5 z-40 max-h-[calc(100vh-6rem)] w-auto sm:w-80 overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[#0d1420]/95 p-4 text-white shadow-2xl backdrop-blur-xl custom-scrollbar animate-in fade-in slide-in-from-bottom-3 duration-200 select-none"
     >
       {/* Header */}
       <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-3">

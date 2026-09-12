@@ -8,6 +8,7 @@ import {
 } from '../simulationScheduler';
 import { createExternalRenderRevisions, SimulationRenderRevisions } from '../simulationContext';
 import { isCurrentWorkerTickResult, WorkerInMessage, WorkerOutMessage } from '../simulationWorkerProtocol';
+import { recordSimulationTick, recordWorkerMessageLatency } from '../performanceTelemetry';
 
 export interface SimulationCommit {
   previous: CityState;
@@ -47,6 +48,7 @@ export function useSimulationControls({
   const stateRevisionRef = useRef(0);
   const requestIdRef = useRef(0);
   const workerRequestRef = useRef<WorkerRequestIdentity | null>(null);
+  const workerSentAtRef = useRef<number | null>(null);
 
   const [renderRevisions, setRenderRevisions] = useState<SimulationRenderRevisions>(() => createExternalRenderRevisions(gameState?.grid));
   const [schedulerTelemetry, setSchedulerTelemetry] = useState<SimulationSchedulerTelemetry>({
@@ -138,6 +140,11 @@ export function useSimulationControls({
       isTickingRef.current = false;
       stateRevisionRef.current = data.stateRevision;
       lastSimulationTickMs.current = data.elapsedMs;
+      recordSimulationTick(data.elapsedMs);
+      if (workerSentAtRef.current !== null) {
+        recordWorkerMessageLatency(performance.now() - workerSentAtRef.current);
+        workerSentAtRef.current = null;
+      }
       lastSimulationPhaseTimings.current = data.phaseTimings;
       simulationTickId.current = data.tickId;
       setRenderRevisions(data.renderRevisions);
@@ -221,6 +228,7 @@ export function useSimulationControls({
       for (let i = 0; i < requestedTicks; i += 1) next = simulateTick(next, settings);
       const elapsedMs = performance.now() - simulationStartedAt;
       lastSimulationTickMs.current = elapsedMs;
+      recordSimulationTick(elapsedMs);
       lastSimulationPhaseTimings.current = getLastSimulationPhaseTimings();
       simulationTickId.current += requestedTicks;
       stateRevisionRef.current += requestedTicks;
@@ -253,6 +261,7 @@ export function useSimulationControls({
           const identity = nextIdentity(tickId);
           workerRequestRef.current = identity;
           isTickingRef.current = true;
+          workerSentAtRef.current = performance.now();
           worker.postMessage({
             type: 'TICK',
             ...identity,

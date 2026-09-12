@@ -1,19 +1,21 @@
 import React from 'react';
-import { sharedBuildingMats, sharedBuildingGeos, BuildingRoofKit, BuildingLod } from './sharedKits';
+import { sharedBuildingMats, sharedBuildingGeos, BuildingRoofKit, BuildingLod, FacadeRhythmKit } from './sharedKits';
 
 interface OfficeKitProps {
   level: number;
   abandoned?: boolean;
   lod?: BuildingLod;
+  variant?: number;
 }
 
 export function OfficeKit({
   level,
   abandoned = false,
   lod = 'NEAR',
+  variant = 0,
 }: OfficeKitProps) {
   const safeLevel = Math.max(1, Math.min(5, level));
-  const baseHeight = 0.45 + safeLevel * 0.35;
+  const baseHeight = (0.45 + safeLevel * 0.35) * (0.94 + (variant % 4) * 0.04);
 
   const matMain = abandoned ? sharedBuildingMats.comL3_abd : sharedBuildingMats.officeSteel;
   const matGlass = abandoned ? sharedBuildingMats.windowDark : sharedBuildingMats.officeGlass;
@@ -54,8 +56,8 @@ export function OfficeKit({
     // Low-rise boutique professional office / creative studio
     return (
       <group>
-        <mesh material={sharedBuildingMats.officeWhite} position={[0, 0.42, 0]} castShadow receiveShadow>
-          <boxGeometry args={[0.82, 0.82, 0.82]} />
+        <mesh material={(variant & 1) ? sharedBuildingMats.resConcrete : sharedBuildingMats.officeWhite} position={[0, 0.42, 0]} castShadow receiveShadow>
+          <boxGeometry args={[(variant & 2) ? 0.72 : 0.82, 0.82, (variant & 2) ? 0.88 : 0.82]} />
         </mesh>
         <mesh material={matGlass} position={[0, 0.42, 0.42]}>
           <boxGeometry args={[0.72, 0.7, 0.03]} />
@@ -83,6 +85,7 @@ export function OfficeKit({
         <mesh material={matGlass} position={[0, baseHeight / 2 + 0.25, 0]} castShadow receiveShadow>
           <boxGeometry args={[0.78, baseHeight - 0.2, 0.78]} />
         </mesh>
+        <FacadeRhythmKit height={baseHeight} floors={safeLevel + 2} variant={variant} abandoned={abandoned} />
         {/* Structural vertical mullions */}
         {[-0.35, 0.35].map((x) => (
           <mesh key={x} material={matMain} position={[x, baseHeight / 2 + 0.25, 0]}>
@@ -104,6 +107,7 @@ export function OfficeKit({
       <mesh material={matGlass} position={[0, 1.45, 0]} castShadow receiveShadow>
         <boxGeometry args={[0.76, 2.2, 0.76]} />
       </mesh>
+      <FacadeRhythmKit height={2.45} floors={7} variant={variant} abandoned={abandoned} />
       {/* Crown / Spire */}
       <mesh material={sharedBuildingMats.metal} position={[0, 2.65, 0]} castShadow>
         <cylinderGeometry args={[0.04, 0.12, 0.45, 8]} />

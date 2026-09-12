@@ -1,15 +1,17 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import * as THREE from 'three';
-import { BUILD_COSTS, getRoadClass, OverlayMode, ROAD_BUILD_COSTS, ROAD_REPAIR_COST, RoadClass, TERRAFORM_COST, TileData, TileType, TUNNEL_BUILD_COST } from '../../types';
+import { BUILD_COSTS, OverlayMode, ROAD_BUILD_COSTS, ROAD_REPAIR_COST, RoadClass, TERRAFORM_COST, TileData, TileType, TUNNEL_BUILD_COST } from '../../types';
 import { TileMarker } from './TileMarker';
 import { roadHeight, terrainHeight } from './visualModel';
+import { TileOverlayInstances } from './TileOverlayInstances';
 import { GAME_CONFIG } from '../../config';
 import { gridToWorld, worldToGrid, TILE_SIZE } from './types3D';
-import { CityDistrict, getDistrictAt } from '../../districts';
+import { CityDistrict } from '../../districts';
 import { computeRoadRecommendations, computeUtilityRecommendations, computeZoningRecommendations } from '../../tutorialPathfinder';
 
 interface TerrainGridProps {
   grid: TileData[][];
+  homeSatisfaction?: Record<string, number>;
   selectedTile?: { x: number; y: number } | null;
   activeTool: import('../../types').ActiveTool;
   money: number;
@@ -28,138 +30,9 @@ interface TerrainGridProps {
   districts?: CityDistrict[];
   tutorialHighlight?: 'highway' | 'zoning' | 'utilities' | 'mission' | null;
   terrainRevision?: number;
+  nightFactor?: number;
 }
 
-function getOverlayColor(tile: TileData, overlay: string, districts: CityDistrict[]): string | null {
-  if (overlay === 'NONE') return null;
-
-  if (overlay === 'DISTRICTS') return getDistrictAt(districts, tile.x, tile.y)?.color ?? null;
-
-  if (overlay === 'NATURAL_RESOURCES') {
-    if (tile.water) return null;
-    if (tile.resource === 'fertile') return '#84cc16'; // Lime green
-    if (tile.resource === 'forest') return '#15803d';  // Rich green
-    if (tile.resource === 'ore') return '#b45309';     // Bronze/Copper orange
-    if (tile.resource === 'oil') return '#1e1b4b';     // Dark oil midnight-blue
-    return null;
-  }
-
-  if (overlay === 'TRAFFIC') {
-    if (tile.type !== TileType.ROAD) return null;
-    const t = tile.traffic || 0;
-    if (t < 5) return '#22c55e';
-    if (t < 15) return '#eab308';
-    return '#ef4444';
-  }
-
-  if (overlay === 'ROAD_CONDITION') {
-    if (tile.type !== TileType.ROAD) return null;
-    const condition = tile.roadCondition ?? 100;
-    if (condition < 40) return '#ef4444';
-    if (condition < 70) return '#f59e0b';
-    return '#22c55e';
-  }
-
-  if (overlay === 'ROAD_HIERARCHY') {
-    if (tile.type !== TileType.ROAD) return null;
-    if (getRoadClass(tile) === 'HIGHWAY') return '#f59e0b';
-    if (getRoadClass(tile) === 'ARTERIAL') return '#38bdf8';
-    return '#64748b';
-  }
-
-  if (overlay === 'TRANSIT') {
-    if (tile.type === TileType.BUS_DEPOT) return '#22d3ee';
-    if (tile.type === TileType.TRAM_STATION) return '#a78bfa';
-    if (tile.type === TileType.BUS_STOP) return '#67e8f9';
-    if (tile.type === TileType.TRAM_STOP) return '#c4b5fd';
-    if (tile.type === TileType.ROAD) return tile.transitCovered ? '#06b6d4' : '#334155';
-    if (tile.type === TileType.RESIDENTIAL) return tile.transitCovered ? '#22c55e' : '#ef4444';
-    return null;
-  }
-
-  if (overlay === 'SERVICE_RESPONSE') {
-    if (tile.type === TileType.EMPTY || tile.type === TileType.ROAD || tile.water) return null;
-    const responseTimes = Object.values(tile.serviceResponseTimes ?? {}).filter((value): value is number => Number.isFinite(value));
-    if (responseTimes.length === 0) return '#7f1d1d';
-    const fastestResponse = Math.min(...responseTimes);
-    if (fastestResponse <= 5) return '#22c55e';
-    if (fastestResponse <= 10) return '#eab308';
-    if (fastestResponse <= 20) return '#f97316';
-    return '#ef4444';
-  }
-
-  if (overlay === 'POWER') {
-    if (tile.type === TileType.EMPTY || tile.type === TileType.ROAD) return null;
-    return tile.powered ? '#06b6d4' : '#ef4444';
-  }
-
-  if (overlay === 'WATER') {
-    if (tile.type === TileType.EMPTY || tile.type === TileType.ROAD) return null;
-    return tile.watered ? '#3b82f6' : '#ef4444';
-  }
-
-  if (overlay === 'HYDROLOGY') {
-    if (tile.water) return '#0ea5e9';
-    const depth = tile.waterDepth ?? 0;
-    if (depth >= 0.78) return '#1d4ed8';
-    if (depth >= 0.48) return '#2563eb';
-    if (depth >= 0.2) return '#60a5fa';
-    if (Math.abs(tile.flowDx ?? 0) + Math.abs(tile.flowDy ?? 0) > 0) return '#bae6fd';
-    return null;
-  }
-
-  if (overlay === 'POLLUTION') {
-    const p = tile.pollution || 0;
-    if (p < 10) return '#22c55e';
-    if (p < 30) return '#f59e0b';
-    return '#ef4444';
-  }
-
-  if (overlay === 'LAND_VALUE') {
-    const v = tile.landValue || 35;
-    if (v > 60) return '#10b981';
-    if (v > 30) return '#eab308';
-    return '#64748b';
-  }
-
-  if (overlay === 'CRIME' || overlay === 'POLICE') {
-    const c = tile.crime || 0;
-    if (c > 30) return '#a855f7';
-    if (c > 10) return '#f59e0b';
-    return '#22c55e';
-  }
-
-  if (overlay === 'EDUCATION') {
-    const ed = tile.education || 0;
-    if (ed > 50) return '#38bdf8';
-    if (ed > 20) return '#f59e0b';
-    return '#64748b';
-  }
-
-  if (overlay === 'HAPPINESS') {
-    if (tile.type === TileType.RESIDENTIAL) {
-      return (tile.population > 0) ? '#10b981' : '#f59e0b';
-    }
-  }
-
-  if (overlay === 'INCIDENTS') {
-    const severity = tile.incidentSeverity ?? 0;
-    if (severity >= 3) return '#ef4444';
-    if (severity === 2) return '#f97316';
-    if (severity === 1) return '#facc15';
-    return null;
-  }
-
-  if (overlay === 'DISASTERS') {
-    const severity = tile.disasterSeverity ?? 0;
-    if (severity >= 3) return '#dc2626';
-    if (severity === 2) return '#f97316';
-    if (severity === 1) return '#facc15';
-    return null;
-  }
-
-  return null;
-}
 
 function isRenderableTile(tile: TileData | undefined, unlockedRegions: string[], mapExpansionMode: boolean) {
   if (!tile) return false;
@@ -380,6 +253,7 @@ function createShorelineGeometry(grid: TileData[][], unlockedRegions: string[], 
 
 export function TerrainGrid({
   grid,
+  homeSatisfaction,
   selectedTile = null,
   activeTool,
   money,
@@ -398,11 +272,40 @@ export function TerrainGrid({
   districts = [],
   tutorialHighlight = null,
   terrainRevision = 0,
+  nightFactor = 0,
 }: TerrainGridProps) {
   const height = grid.length;
   const width = grid[0]?.length || 0;
 
   const [hoveredTile, setHoveredTile] = useState<[number, number] | null>(null);
+  const roadPointer = useRef<{ x: number; y: number } | null>(null);
+  const touchPointers = useRef(new Set<number>());
+  const gestureCancelled = useRef(false);
+  useEffect(() => {
+    const down = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch') { gestureCancelled.current = false; return; }
+      if ((event.target as HTMLElement)?.tagName !== 'CANVAS') return;
+      touchPointers.current.add(event.pointerId);
+      if (touchPointers.current.size === 1) gestureCancelled.current = false;
+      if (touchPointers.current.size > 1) {
+        gestureCancelled.current = true;
+        roadPointer.current = null;
+        onCancelInteraction?.();
+      }
+    };
+    const up = (event: PointerEvent) => { touchPointers.current.delete(event.pointerId); };
+    const cancel = () => { roadPointer.current = null; touchPointers.current.clear(); gestureCancelled.current = true; };
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+    window.addEventListener('blur', cancel);
+    return () => {
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('blur', cancel);
+    };
+  }, [onCancelInteraction]);
 
   // Check if a tile is inside any unlocked region
   const isTileUnlocked = (x: number, y: number): boolean => {
@@ -436,7 +339,7 @@ export function TerrainGrid({
 
   const terrainMat = useMemo(() => {
     return new THREE.MeshStandardMaterial({
-      color: '#24394b',
+      color: '#35433d',
       roughness: 0.95,
     });
   }, []);
@@ -455,7 +358,7 @@ export function TerrainGrid({
   ), [terrainRevision, unlockedSignature, mapExpansionMode]);
   const terrainSurfaceMat = useMemo(() => new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.94,
+    roughness: 0.88,
     side: THREE.DoubleSide,
   }), []);
   const waterSurfaceGeo = useMemo(() => (
@@ -464,6 +367,11 @@ export function TerrainGrid({
   const shorelineGeo = useMemo(() => (
     createShorelineGeometry(grid, unlockedRegions, mapExpansionMode)
   ), [terrainRevision, unlockedSignature, mapExpansionMode]);
+  useEffect(() => () => {
+    terrainSurfaceGeo.dispose();
+    waterSurfaceGeo.dispose();
+    shorelineGeo.dispose();
+  }, [terrainSurfaceGeo, waterSurfaceGeo, shorelineGeo]);
   const shorelineMat = useMemo(() => new THREE.MeshStandardMaterial({
     color: '#bbf2f6',
     roughness: 0.35,
@@ -473,13 +381,15 @@ export function TerrainGrid({
     depthWrite: false,
     side: THREE.DoubleSide,
   }), []);
-  const interactionTileGeo = useMemo(() => new THREE.PlaneGeometry(1, 1), []);
-  const interactionTileMat = useMemo(() => new THREE.MeshBasicMaterial({
-    transparent: true,
-    opacity: 0,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  }), []);
+  useEffect(() => {
+    waterTileMat.color.set('#f2d5a1').lerp(new THREE.Color('#294b61'), Math.min(1, Math.max(0, nightFactor) * 0.72));
+    shorelineMat.color.set('#d6c39a').lerp(new THREE.Color('#405466'), Math.min(1, Math.max(0, nightFactor) * 0.6));
+  }, [nightFactor, shorelineMat, waterTileMat]);
+  const placementGhostGeo = useMemo(() => new THREE.BoxGeometry(0.68, 1, 0.68), []);
+  const placementPodiumGeo = useMemo(() => new THREE.BoxGeometry(0.9, 0.12, 0.9), []);
+  const placementRoofGeo = useMemo(() => new THREE.BoxGeometry(0.5, 0.1, 0.5), []);
+  const placementAccessGeo = useMemo(() => new THREE.PlaneGeometry(0.18, 0.42), []);
+  const placementRangeGeo = useMemo(() => new THREE.RingGeometry(0.96, 1, 64), []);
 
   // Compute preview info for cursor hovered tile or brushes
   const previewInfo = useMemo(() => {
@@ -560,6 +470,16 @@ export function TerrainGrid({
   }, [hoveredTile, activeTool, activeRoadClass, money, grid, width, height, unlockedRegions, mapExpansionMode]);
 
   const isBrushTool = ['RESIDENTIAL', 'RESIDENTIAL_MEDIUM', 'RESIDENTIAL_HIGH', 'COMMERCIAL', 'OFFICE', 'INDUSTRIAL', 'RAISE_TERRAIN', 'LOWER_TERRAIN', 'LEVEL_TERRAIN', 'SMOOTH_TERRAIN'].includes(activeTool as string);
+  const ghostBuildingType = activeTool === 'RESIDENTIAL_MEDIUM' || activeTool === 'RESIDENTIAL_HIGH'
+    ? TileType.RESIDENTIAL
+    : Object.values(TileType).includes(activeTool as TileType) ? activeTool as TileType : null;
+  const ghostHeight = activeTool === 'RESIDENTIAL_HIGH' ? 1.65
+    : activeTool === 'RESIDENTIAL_MEDIUM' ? 1.05
+      : ghostBuildingType === TileType.OFFICE ? 1.35
+        : ghostBuildingType === TileType.INDUSTRIAL ? 0.58
+          : ghostBuildingType === TileType.ROAD ? 0 : 0.72;
+  const servicePreviewRadius = [TileType.FIRE_STATION, TileType.POLICE_STATION, TileType.CLINIC, TileType.SCHOOL, TileType.WASTE_MANAGEMENT]
+    .includes(ghostBuildingType as TileType) ? 5 : 0;
 
   // Compute set of coordinates within the brush radius
   const brushTiles = useMemo(() => {
@@ -598,6 +518,10 @@ export function TerrainGrid({
   const handlePointerDown = (e: any) => {
     e.stopPropagation();
     if (e.button !== 0) return;
+    // Inspect on click release, so a camera drag cannot select a parcel.
+    if (activeTool === 'POINTER' && !mapExpansionMode) return;
+    if (e.pointerType === 'touch') return;
+    if (activeTool === TileType.ROAD || activeTool === 'TUNNEL_ROAD') roadPointer.current = { x: e.clientX, y: e.clientY };
     const hit = worldToGrid(e.point.x, e.point.z, width, height);
     if (hit) {
       const [hx, hy] = hit;
@@ -634,7 +558,6 @@ export function TerrainGrid({
   const zoningValidSet = useMemo(() => new Set((zoningRec?.validTiles || []).map(([x, y]) => `${x},${y}`)), [zoningRec]);
   const utilityValidSet = useMemo(() => new Set((utilityRec?.validCandidates || []).map(([x, y]) => `${x},${y}`)), [utilityRec]);
 
-  const overlayGeo = useMemo(() => new THREE.PlaneGeometry(0.96, 0.96), []);
   const roadBestPathGeo = useMemo(() => new THREE.PlaneGeometry(0.92, 0.92), []);
   const roadValidGeo = useMemo(() => new THREE.PlaneGeometry(0.74, 0.74), []);
   const roadBlockedGeo = useMemo(() => new THREE.PlaneGeometry(0.62, 0.62), []);
@@ -655,18 +578,10 @@ export function TerrainGrid({
   const utilityValidMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#fde047', transparent: true, opacity: 0.32, side: THREE.DoubleSide }), []);
   const missionTileMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#e879f9', transparent: true, opacity: 0.42, side: THREE.DoubleSide }), []);
 
-  const overlayMatCache = useRef<Map<string, THREE.MeshBasicMaterial>>(new Map());
-  const getOverlayMat = (color: string) => {
-    let mat = overlayMatCache.current.get(color);
-    if (!mat) {
-      mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide });
-      overlayMatCache.current.set(color, mat);
-    }
-    return mat;
-  };
 
   return (
     <group name="TerrainGrid">
+      <TileOverlayInstances homeSatisfaction={homeSatisfaction} grid={grid} overlay={activeOverlay} districts={districts} unlockedRegions={unlockedRegions} expansion={mapExpansionMode} />
       {/* Absolute base floor under the world */}
       <mesh geometry={groundGeo} material={terrainMat} position={[0, -0.65, 0]} receiveShadow />
 
@@ -682,6 +597,25 @@ export function TerrainGrid({
         rotation={[-Math.PI / 2, 0, 0]}
         onPointerMove={handlePointerMove}
         onPointerDown={handlePointerDown}
+        onPointerUp={(event) => {
+          if (gestureCancelled.current && event.pointerType === 'touch') return;
+          if (event.pointerType === 'touch' && activeTool !== 'POINTER') {
+            const hit = worldToGrid(event.point.x, event.point.z, width, height);
+            if (hit) onTileClick(hit[0], hit[1]);
+            return;
+          }
+          const start = roadPointer.current;
+          roadPointer.current = null;
+          if (!start || event.button !== 0 || Math.hypot(event.clientX - start.x, event.clientY - start.y) <= 5) return;
+          const hit = worldToGrid(event.point.x, event.point.z, width, height);
+          if (hit) onTileClick(hit[0], hit[1]);
+        }}
+        onClick={(event) => {
+          if (activeTool !== 'POINTER' || mapExpansionMode || event.button !== 0 || event.delta > 5 || gestureCancelled.current) return;
+          event.stopPropagation();
+          const hit = worldToGrid(event.point.x, event.point.z, width, height);
+          if (hit) onTileClick(hit[0], hit[1]);
+        }}
         onPointerOut={() => {
           setHoveredTile(null);
           onTilePointerLeave?.();
@@ -706,7 +640,6 @@ export function TerrainGrid({
 
           const [wx, , wz] = gridToWorld(x, y, width, height);
           const tileY = (tile.elevation || 0) * 0.15;
-          const overlayColor = getOverlayColor(tile, activeOverlay, districts);
           const coordKey = `${x},${y}`;
           const isBestRoadPath = roadBestPathSet.has(coordKey);
           const isValidRoadTile = roadValidSet.has(coordKey);
@@ -722,39 +655,6 @@ export function TerrainGrid({
 
           return (
             <React.Fragment key={`tile-${x}-${y}`}>
-              {/* Transparent per-tile hit targets preserve existing pointer
-                  behavior while the visible water is rendered continuously. */}
-              {tile.water ? (
-                <mesh
-                  geometry={interactionTileGeo}
-                  material={interactionTileMat}
-                  position={[wx, tileY + 0.01, wz]}
-                  onPointerMove={handlePointerMove}
-                  onPointerDown={handlePointerDown}
-                  rotation={[-Math.PI / 2, 0, 0]}
-                  receiveShadow
-                />
-              ) : (
-                <mesh
-                  geometry={interactionTileGeo}
-                  material={interactionTileMat}
-                  position={[wx, tileY + 0.01, wz]}
-                  rotation={[-Math.PI / 2, 0, 0]}
-                  onPointerMove={handlePointerMove}
-                  onPointerDown={handlePointerDown}
-                />
-              )}
-
-              {/* Dynamic Overlay Color Grid */}
-              {overlayColor && (
-                <mesh
-                  geometry={overlayGeo}
-                  material={getOverlayMat(overlayColor)}
-                  position={[wx, roadHeight(tile) + 0.09, wz]}
-                  rotation={[-Math.PI / 2, 0, 0]}
-                />
-              )}
-
               {/* Tutorial Differentiated Road Corridor Highlights */}
               {isBestRoadPath && (
                 <mesh geometry={roadBestPathGeo} material={roadBestPathMat} position={[wx, tileY + 0.06, wz]} rotation={[-Math.PI / 2, 0, 0]} />
@@ -872,6 +772,27 @@ export function TerrainGrid({
             <boxGeometry args={[0.98, 0.2, 0.98]} />
             <meshBasicMaterial color={previewInfo.color} wireframe />
           </mesh>
+          {ghostBuildingType && ghostHeight > 0 && (
+            <group name="PlacementGhost" position={[0, 0.08, 0]}>
+              <mesh geometry={placementPodiumGeo} position={[0, 0.06, 0]}>
+                <meshBasicMaterial color={previewInfo.color} transparent opacity={0.22} depthWrite={false} />
+              </mesh>
+              <mesh geometry={placementGhostGeo} position={[0, ghostHeight / 2 + 0.12, 0]} scale={[1, ghostHeight, 1]}>
+                <meshBasicMaterial color={previewInfo.color} transparent opacity={0.28} wireframe={!previewInfo.isValid} depthWrite={false} />
+              </mesh>
+              <mesh geometry={placementRoofGeo} position={[0.08, ghostHeight + 0.2, -0.08]}>
+                <meshBasicMaterial color={previewInfo.color} transparent opacity={0.4} depthWrite={false} />
+              </mesh>
+              <mesh geometry={placementAccessGeo} position={[0, 0.08, 0.5]} rotation={[-Math.PI / 2, 0, 0]}>
+                <meshBasicMaterial color={previewInfo.color} transparent opacity={0.58} depthWrite={false} />
+              </mesh>
+            </group>
+          )}
+          {servicePreviewRadius > 0 && (
+            <mesh geometry={placementRangeGeo} position={[0, 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[servicePreviewRadius, servicePreviewRadius, 1]}>
+              <meshBasicMaterial color={previewInfo.color} transparent opacity={0.18} side={THREE.DoubleSide} depthWrite={false} />
+            </mesh>
+          )}
         </group>
       )}
 

@@ -8,6 +8,22 @@ interface ConstructionKitProps {
   type?: string;
 }
 
+function ConstructionCrane({ height }: { height: number }) {
+  return (
+    <group name="Construction-Crane" position={[0.48, height, -0.34]}>
+      <mesh material={sharedBuildingMats.metal} position={[0, height * 0.5, 0]}>
+        <boxGeometry args={[0.035, height, 0.035]} />
+      </mesh>
+      <mesh material={sharedBuildingMats.indSafety} position={[-0.24, height, 0]}>
+        <boxGeometry args={[0.52, 0.025, 0.025]} />
+      </mesh>
+      <mesh material={sharedBuildingMats.metal} position={[-0.34, height - 0.08, 0]}>
+        <boxGeometry args={[0.025, 0.16, 0.025]} />
+      </mesh>
+    </group>
+  );
+}
+
 export function ConstructionKit({
   stage,
   level = 1,
@@ -107,6 +123,7 @@ export function ConstructionKit({
         <mesh material={sharedBuildingMats.indSafety} position={[0.36, 0.5, 0.38]}>
           <cylinderGeometry args={[0.02, 0.02, 0.9, 6]} />
         </mesh>
+        <ConstructionCrane height={1.25 + safeLevel * 0.12} />
       </group>
     );
   }
@@ -128,6 +145,7 @@ export function ConstructionKit({
         <mesh material={sharedBuildingMats.metal} position={[0.38, 0.52 + safeLevel * 0.1, 0.39]}>
           <cylinderGeometry args={[0.02, 0.02, 0.9 + safeLevel * 0.16, 6]} />
         </mesh>
+        <ConstructionCrane height={1.45 + safeLevel * 0.16} />
       </group>
     );
   }

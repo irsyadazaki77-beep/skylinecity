@@ -111,4 +111,52 @@ describe('representative pedestrian model', () => {
     sampleRepresentativePedestrians(grid, [], null, 12, 10, 20);
     expect(grid[0][0].population).toBe(initialPop);
   });
+
+  it('routes commercial activity along connected frontage and excludes highways', () => {
+    const grid = makeGrid(7, 4);
+    grid[1][0] = createTile(0, 1, { type: TileType.ROAD, roadClass: 'LOCAL' });
+    grid[1][1] = createTile(1, 1, { type: TileType.ROAD, roadClass: 'LOCAL' });
+    grid[1][2] = createTile(2, 1, { type: TileType.ROAD, roadClass: 'HIGHWAY' });
+    grid[1][3] = createTile(3, 1, { type: TileType.ROAD, roadClass: 'LOCAL' });
+    grid[1][4] = createTile(4, 1, { type: TileType.ROAD, roadClass: 'LOCAL' });
+    grid[2][1] = createTile(1, 2, { type: TileType.ROAD, roadClass: 'LOCAL' });
+    grid[2][2] = createTile(2, 2, { type: TileType.ROAD, roadClass: 'LOCAL' });
+    grid[2][3] = createTile(3, 2, { type: TileType.ROAD, roadClass: 'LOCAL' });
+    grid[0][0] = createTile(0, 0, { type: TileType.COMMERCIAL });
+    grid[0][4] = createTile(4, 0, { type: TileType.RESIDENTIAL, population: 20 });
+
+    const agents = sampleRepresentativePedestrians(grid, [], null, 12, 40, 20);
+    const activity = agents.find((agent) => agent.id === 'ped-local-1');
+    expect(activity).toBeDefined();
+    expect(activity?.path.every(([x, y]) => grid[y][x].roadClass !== 'HIGHWAY')).toBe(true);
+    expect(activity?.path.every(([x, y], index, path) => index === 0 || Math.abs(x - path[index - 1][0]) + Math.abs(y - path[index - 1][1]) === 1)).toBe(true);
+  });
+
+  it('returns promptly when activity frontage exists but no pedestrian route connects it', () => {
+    const grid = makeGrid(8, 4);
+    grid[0][0] = createTile(0, 0, { type: TileType.RESIDENTIAL, population: 30 });
+    grid[1][0] = createTile(0, 1, { type: TileType.ROAD, roadClass: 'LOCAL' });
+    grid[0][7] = createTile(7, 0, { type: TileType.COMMERCIAL });
+    grid[1][7] = createTile(7, 1, { type: TileType.ROAD, roadClass: 'LOCAL' });
+
+    const startedAt = performance.now();
+    const agents = sampleRepresentativePedestrians(grid, [], null, 12, 60, 50);
+
+    expect(performance.now() - startedAt).toBeLessThan(100);
+    expect(agents).toEqual([]);
+  });
+
+  it('derives park visits and weather-sensitive density from world state', () => {
+    const clearGrid = makeGrid(5, 3);
+    clearGrid[1][0] = createTile(0, 1, { type: TileType.ROAD, roadClass: 'LOCAL' });
+    clearGrid[1][1] = createTile(1, 1, { type: TileType.ROAD, roadClass: 'LOCAL' });
+    clearGrid[1][2] = createTile(2, 1, { type: TileType.ROAD, roadClass: 'LOCAL' });
+    clearGrid[0][0] = createTile(0, 0, { type: TileType.RESIDENTIAL, population: 20 });
+    clearGrid[0][2] = createTile(2, 0, { type: TileType.PARK });
+
+    const clearAgents = sampleRepresentativePedestrians(clearGrid, [], null, 12, 40, 50, { weather: 'CLEAR' });
+    const stormAgents = sampleRepresentativePedestrians(clearGrid, [], null, 12, 40, 50, { weather: 'STORM', activeIncidentCount: 1 });
+    expect(clearAgents.some((agent) => agent.state === 'PARK_VISIT' || agent.purpose === 'LEISURE')).toBe(true);
+    expect(stormAgents.length).toBeLessThanOrEqual(clearAgents.length);
+  });
 });

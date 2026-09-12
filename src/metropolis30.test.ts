@@ -109,6 +109,17 @@ describe('Metropolis 3.0 foundation', () => {
     expect(evaluateScenario(state, scenario).completed).toBe(true);
   });
 
+  it('evaluates the waterfront landmark campaign from actual park tiles', () => {
+    const state = createInitialCityState(createEmptyGrid(), 78);
+    state.population = 220;
+    state.happiness = 70;
+    for (let x = 0; x < 4; x++) state.grid[0][x].type = TileType.PARK;
+    const scenario = createContentRegistry().scenarios.find((item) => item.id === 'waterfront-identity')!;
+    const progress = evaluateScenario(state, scenario);
+    expect(progress.objectiveValues.landmarks).toBe(4);
+    expect(progress.completed).toBe(true);
+  });
+
   it('runs deterministic benchmark scenarios and exposes completed telemetry', () => {
     const one = runBenchmarkScenario('SMALL_TOWN', 2, 99);
     const two = runBenchmarkScenario('SMALL_TOWN', 2, 99);

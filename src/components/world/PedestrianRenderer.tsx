@@ -1,7 +1,7 @@
 import React, { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { TileData } from '../../types';
+import { TileData, WeatherType } from '../../types';
 import { Trip } from '../../citizenSimulation/types';
 import { RoadGraph } from '../../traffic';
 import { PedestrianAgent, sampleRepresentativePedestrians, updatePedestrianAgent } from '../../pedestrianModel';
@@ -13,6 +13,8 @@ interface PedestrianRendererProps {
   roadGraph?: RoadGraph | null;
   timeOfDay?: number;
   population?: number;
+  weather?: WeatherType;
+  activeIncidentCount?: number;
   qualityTier?: 'balanced' | 'reduced';
   onSelectCitizen?: (citizenId: string) => void;
 }
@@ -23,6 +25,8 @@ export function PedestrianRenderer({
   roadGraph = null,
   timeOfDay = 12,
   population = 0,
+  weather = 'CLEAR',
+  activeIncidentCount = 0,
   qualityTier = 'balanced',
   onSelectCitizen,
 }: PedestrianRendererProps) {
@@ -36,8 +40,8 @@ export function PedestrianRenderer({
 
   // Derive sampled representative pedestrians from real trips and city state
   const agents = useMemo<PedestrianAgent[]>(() => {
-    return sampleRepresentativePedestrians(grid, trips, roadGraph, timeOfDay, population, maxAgents);
-  }, [grid, trips, roadGraph, timeOfDay, population, maxAgents]);
+    return sampleRepresentativePedestrians(grid, trips, roadGraph, timeOfDay, population, maxAgents, { weather, activeIncidentCount });
+  }, [grid, trips, roadGraph, timeOfDay, population, maxAgents, weather, activeIncidentCount]);
 
   // Shared low-poly geometry and material for high performance
   const geometry = useMemo(() => new THREE.CapsuleGeometry(0.045, 0.12, 4, 6), []);

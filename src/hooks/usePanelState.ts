@@ -21,6 +21,7 @@ export function usePanelState() {
   const [rendererReady, setRendererReady] = useState(false);
   const [rendererFailure, setRendererFailure] = useState(false);
   const [mapExpansionMode, setMapExpansionMode] = useState(false);
+  const [cleanCityView, setCleanCityView] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [milestoneCelebration, setMilestoneCelebration] = useState<number | null>(null);
 
@@ -60,6 +61,8 @@ export function usePanelState() {
     setRendererFailure,
     mapExpansionMode,
     setMapExpansionMode,
+    cleanCityView,
+    setCleanCityView,
     notificationOpen,
     setNotificationOpen,
     notifications,

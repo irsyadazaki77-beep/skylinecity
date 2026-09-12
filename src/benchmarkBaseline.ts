@@ -7,6 +7,12 @@ export const OFFICIAL_BENCHMARK_BASELINE: Record<BenchmarkScenario, { p50: numbe
   INDUSTRIAL_CITY: { p50: 21.7, p95: 31.5 },
   FLOOD_RECOVERY: { p50: 18.1, p95: 26.9 },
   PERFORMANCE_100K: { p50: 61.5, p95: 110.0 },
+  DENSE_CITY: { p50: 30.0, p95: 45.0 },
+  TRANSIT_STRESS: { p50: 21.3, p95: 34.8 },
+  NIGHT_CITY: { p50: 21.3, p95: 34.8 },
+  // Initial measurements for the explicit active-disaster fixture. This is a
+  // heavier input than FLOOD_RECOVERY and therefore has its own baseline.
+  DISASTER_CITY: { p50: 37.5, p95: 45.0 },
 };
 
 /** The CI runner margin applies only to regression comparison, never budgets. */

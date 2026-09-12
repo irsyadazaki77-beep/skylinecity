@@ -1,19 +1,21 @@
 import React from 'react';
-import { sharedBuildingMats, sharedBuildingGeos, BuildingRoofKit, BuildingLod } from './sharedKits';
+import { sharedBuildingMats, sharedBuildingGeos, BuildingRoofKit, BuildingLod, FacadeRhythmKit } from './sharedKits';
 
 interface CommercialKitProps {
   level: number;
   abandoned?: boolean;
   lod?: BuildingLod;
+  variant?: number;
 }
 
 export function CommercialKit({
   level,
   abandoned = false,
   lod = 'NEAR',
+  variant = 0,
 }: CommercialKitProps) {
   const safeLevel = Math.max(1, Math.min(5, level));
-  const baseHeight = 0.38 + safeLevel * 0.3;
+  const baseHeight = (0.38 + safeLevel * 0.3) * (0.95 + (variant % 3) * 0.04);
 
   const matMain = abandoned
     ? safeLevel === 1
@@ -72,9 +74,10 @@ export function CommercialKit({
           <boxGeometry args={[0.78, 0.42, 0.74]} />
         </mesh>
         {/* Colorful striped awning */}
-        <mesh material={sharedBuildingMats.retailAwningRed} position={[0, 0.24, 0.42]} rotation={[0.22, 0, 0]}>
+        <mesh material={(variant & 1) ? sharedBuildingMats.retailAwningBlue : sharedBuildingMats.retailAwningRed} position={[0, 0.24, 0.42]} rotation={[0.22, 0, 0]}>
           <boxGeometry args={[0.82, 0.04, 0.2]} />
         </mesh>
+        <mesh material={sharedBuildingMats.indSafety} position={[(variant & 2) ? -0.22 : 0.22, 0.4, 0.405]}><boxGeometry args={[0.22, 0.08, 0.025]} /></mesh>
         {/* Glass front window */}
         <mesh material={abandoned ? sharedBuildingMats.windowDark : sharedBuildingMats.glass} position={[0, 0.16, 0.38]}>
           <planeGeometry args={[0.68, 0.24]} />
@@ -108,6 +111,7 @@ export function CommercialKit({
         <mesh material={matMain} position={[0, 0.6, 0]} castShadow receiveShadow>
           <boxGeometry args={[0.84, 1.18, 0.82]} />
         </mesh>
+        <FacadeRhythmKit height={1.12} floors={4} variant={variant} abandoned={abandoned} accent="WARM" />
         {/* Prominent glass atrium */}
         <mesh material={sharedBuildingMats.glass} position={[0, 0.6, 0.42]}>
           <boxGeometry args={[0.55, 1.0, 0.04]} />
@@ -127,6 +131,7 @@ export function CommercialKit({
         <mesh material={matMain} position={[0, 1.0, 0]} castShadow receiveShadow>
           <boxGeometry args={[0.76, 1.38, 0.76]} />
         </mesh>
+        <FacadeRhythmKit height={1.62} floors={6} variant={variant} abandoned={abandoned} />
         <mesh material={sharedBuildingMats.officeGlass} position={[0, 1.0, 0.39]}>
           <boxGeometry args={[0.62, 1.25, 0.02]} />
         </mesh>
@@ -144,6 +149,7 @@ export function CommercialKit({
       <mesh material={matMain} position={[0, 1.35, 0]} castShadow receiveShadow>
         <boxGeometry args={[0.78, 2.0, 0.78]} />
       </mesh>
+      <FacadeRhythmKit height={2.25} floors={7} variant={variant} abandoned={abandoned} />
       <mesh material={sharedBuildingMats.officeGlass} position={[0, 1.35, 0]}>
         <boxGeometry args={[0.8, 1.9, 0.8]} />
       </mesh>

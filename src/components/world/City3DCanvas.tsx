@@ -1,4 +1,5 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { RendererRecovery } from './RendererRecovery';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { ActiveTool, CityIncident, ServiceVehicleAgent, TileData, TileType, OverlayMode, GameSettings, RoadClass, WeatherType } from '../../types';
@@ -11,26 +12,34 @@ import { TrafficVehicles } from './TrafficVehicles';
 import { EnvironmentProps } from './EnvironmentProps';
 import { CameraController } from './CameraController';
 import { DayNightSky } from './DayNightSky';
+import { CityEnvironment } from './CityEnvironment';
 import { Trip } from '../../citizenSimulation/types';
 import { FreightTrip } from '../../logistics';
 import { TransitVehicleAgent } from '../../transit';
 import { isTileInUnlockedRegion } from '../../mapGenerator';
 import { BuildingFootprint, deriveBuildingFootprints, getBuildingFrontageRotation } from '../../urbanForm';
-import { CityDistrict, getDistrictTileSet } from '../../districts';
+import { CityDistrict, getDistrictAt, getDistrictTileSet } from '../../districts';
+import { IDENTITY_COLORS, NeighborhoodIdentity } from '../../neighborhoodIdentity';
 import { gridToWorld } from './types3D';
 import { NetworkOverlays } from './NetworkOverlays';
 import { computeRoadRecommendations } from '../../tutorialPathfinder';
 import type { SimulationRenderRevisions } from '../../simulationContext';
 import { WeatherEffects } from './WeatherEffects';
 import { PedestrianRenderer } from './PedestrianRenderer';
+import { PremiumCityLayer } from './PremiumCityLayer';
+import { getRenderQuality } from '../../renderQuality';
+import { recordLodTransition, recordRenderFrame } from '../../performanceTelemetry';
 
 interface City3DCanvasProps {
   grid: TileData[][];
+  homeSatisfaction?: Record<string, number>;
   activeTool: ActiveTool;
   money: number;
   activeRoadClass?: RoadClass;
   activeOverlay: OverlayMode;
   speed: number;
+  population?: number;
+  happiness?: number;
   timeOfDay?: number;
   weather?: WeatherType;
   precipitation?: number;
@@ -45,6 +54,7 @@ interface City3DCanvasProps {
   unlockedUpgrades?: string[];
   activePolicies?: string[];
   districts?: CityDistrict[];
+  neighborhoodIdentities?: NeighborhoodIdentity[];
   mapExpansionMode?: boolean;
   brushSize?: number;
   dragPreviewTiles?: [number, number][];
@@ -62,9 +72,12 @@ interface City3DCanvasProps {
   viewMode?: '2D' | '3D';
   cameraZoom?: number;
   cameraRotation?: number;
+  cameraResetRevision?: number;
+  cameraPresentation?: 'initial' | 'milestone' | 'incident' | 'recovery';
   onCameraRotationChange?: (rotation: number) => void;
   tutorialHighlight?: 'highway' | 'zoning' | 'utilities' | 'mission' | null;
   onRendererReady?: () => void;
+  performanceDiagnostics?: boolean;
   renderRevisions?: SimulationRenderRevisions;
   onSelectCitizen?: (citizenId: string) => void;
 }
@@ -87,7 +100,7 @@ function buildingChunkKey(x: number, y: number): string {
   return `${Math.floor(x / BUILDING_CHUNK_SIZE)},${Math.floor(y / BUILDING_CHUNK_SIZE)}`;
 }
 
-function BuildingLodController({ qualityTier, children }: { qualityTier: 'balanced' | 'reduced'; children: React.ReactNode }) {
+function BuildingLodController({ qualityTier, shadowQuality, children }: { qualityTier: 'balanced' | 'reduced'; shadowQuality?: 'low' | 'medium' | 'high'; children: React.ReactNode }) {
   const rootRef = useRef<THREE.Group>(null);
   const elapsedRef = useRef(0);
   const worldPosition = useRef(new THREE.Vector3());
@@ -97,10 +110,10 @@ function BuildingLodController({ qualityTier, children }: { qualityTier: 'balanc
     elapsedRef.current += delta;
     if (elapsedRef.current < 0.12 || !rootRef.current) return;
     elapsedRef.current = 0;
-    const nearDistance = qualityTier === 'reduced' ? 24 : 36;
-    const farDistance = qualityTier === 'reduced' ? 42 : 62;
-    const nearDistanceSq = nearDistance * nearDistance;
-    const farDistanceSq = farDistance * farDistance;
+    const quality = getRenderQuality(qualityTier, shadowQuality);
+    const nearDistance = quality.nearLodDistance;
+    const farDistance = quality.farLodDistance;
+    const hysteresis = qualityTier === 'reduced' ? 2 : 3;
     const camPos = camera.position;
 
     // Fast 2-tier iteration over chunk groups
@@ -114,15 +127,33 @@ function BuildingLodController({ qualityTier, children }: { qualityTier: 'balanc
           b.getWorldPosition(worldPosition.current);
           const distanceSq = worldPosition.current.distanceToSquared(camPos);
 
-          const detail = b.children[0]?.name === 'BuildingDetail' ? b.children[0] : b.getObjectByName('BuildingDetail');
-          const mid = b.getObjectByName('BuildingMid');
-          const far = b.getObjectByName('BuildingFar');
-
-          if (distanceSq <= nearDistanceSq) {
+          if (!b.userData.__lodObjects) {
+            b.userData.__lodObjects = {
+              detail: b.children[0]?.name === 'BuildingNearDetail' ? b.children[0] : b.getObjectByName('BuildingNearDetail'),
+              mid: b.getObjectByName('BuildingMid'),
+              far: b.getObjectByName('BuildingFar'),
+            };
+          }
+          const { detail, mid, far } = b.userData.__lodObjects as {
+            detail?: THREE.Object3D; mid?: THREE.Object3D; far?: THREE.Object3D;
+          };
+          const currentLod = b.userData.__lod as 'NEAR' | 'MID' | 'FAR' | undefined;
+          const nearBoundary = currentLod === 'NEAR' ? nearDistance + hysteresis : nearDistance - hysteresis;
+          const farBoundary = currentLod === 'FAR' ? farDistance - hysteresis : farDistance + hysteresis;
+          const nextLod = (!mid && !far) || distanceSq <= nearBoundary * nearBoundary
+            ? 'NEAR'
+            : distanceSq <= farBoundary * farBoundary ? 'MID' : 'FAR';
+          const shadowsChanged = b.userData.__shadowTier !== quality.preset;
+          const lodChanged = b.userData.__lod !== nextLod;
+          if (b.userData.__lod !== nextLod) {
+            if (b.userData.__lod !== undefined) recordLodTransition();
+            b.userData.__lod = nextLod;
+          }
+          if (nextLod === 'NEAR') {
             if (detail) detail.visible = true;
             if (mid) mid.visible = false;
             if (far) far.visible = false;
-          } else if (distanceSq <= farDistanceSq) {
+          } else if (nextLod === 'MID') {
             if (detail) detail.visible = false;
             if (mid) mid.visible = true;
             if (far) far.visible = false;
@@ -130,6 +161,14 @@ function BuildingLodController({ qualityTier, children }: { qualityTier: 'balanc
             if (detail) detail.visible = false;
             if (mid) mid.visible = false;
             if (far) far.visible = true;
+          }
+          // Only near buildings participate in the shadow map. Far and mid
+          // representations remain visible but cannot become shadow casters.
+          if (lodChanged || shadowsChanged) {
+            b.userData.__shadowTier = quality.preset;
+            b.traverse((object) => {
+              if (object instanceof THREE.Mesh) object.castShadow = nextLod === 'NEAR' && quality.shadowCasters > 0;
+            });
           }
         }
       }
@@ -139,13 +178,94 @@ function BuildingLodController({ qualityTier, children }: { qualityTier: 'balanc
   return <group ref={rootRef} name="BuildingLodController">{children}</group>;
 }
 
+function PerformanceProbe() {
+  const { gl, scene, camera, controls } = useThree();
+  useEffect(() => {
+    // Read-only projection diagnostics allow browser tests to click real world
+    // coordinates without bypassing the game's pointer or build handlers.
+    const host = window as Window & { __SKYLINE_CAMERA__?: unknown };
+    host.__SKYLINE_CAMERA__ = {
+      snapshot: () => ({ position: camera.position.toArray(), target: (controls as unknown as { target?: THREE.Vector3 })?.target?.toArray() }),
+      project: (x: number, z: number, elevation = -0.01) => {
+        const point = new THREE.Vector3(x, elevation, z).project(camera);
+        const rect = gl.domElement.getBoundingClientRect();
+        return { x: rect.left + (point.x + 1) * rect.width / 2, y: rect.top + (1 - point.y) * rect.height / 2 };
+      },
+    };
+    return () => { delete host.__SKYLINE_CAMERA__; };
+  }, [camera, controls, gl]);
+  const sample = useRef({
+    elapsed: 1, visibleObjects: 0, materials: 0, mountedBuildings: 0, mountedProps: 0,
+    activeVehicles: 0, activePedestrians: 0, lodNear: 0, lodMid: 0, lodFar: 0,
+  });
+  const gpuTimerAvailable = useMemo(() => {
+    const context = gl.getContext();
+    return Boolean(context.getExtension('EXT_disjoint_timer_query_webgl2') || context.getExtension('EXT_disjoint_timer_query'));
+  }, [gl]);
+  useFrame((_, delta) => {
+    sample.current.elapsed += delta;
+    if (sample.current.elapsed >= 0.5) {
+      sample.current.elapsed = 0;
+      const inventory = sample.current;
+      inventory.visibleObjects = 0;
+      inventory.mountedBuildings = 0;
+      inventory.mountedProps = 0;
+      inventory.activeVehicles = 0;
+      inventory.activePedestrians = 0;
+      inventory.lodNear = 0;
+      inventory.lodMid = 0;
+      inventory.lodFar = 0;
+      const materials = new Set<THREE.Material>();
+      scene.traverseVisible((object) => {
+        if (object instanceof THREE.Mesh) {
+          inventory.visibleObjects += 1;
+          const objectMaterials = Array.isArray(object.material) ? object.material : [object.material];
+          for (const material of objectMaterials) materials.add(material);
+          const instances = object instanceof THREE.InstancedMesh ? object.count : 1;
+          if (/vehicle|car|transit|freight|service/i.test(object.name)) inventory.activeVehicles += instances;
+          else if (/pedestrian/i.test(object.name)) inventory.activePedestrians += instances;
+          else if (/prop|tree|shrub|rock|light|landscape/i.test(object.name)) inventory.mountedProps += instances;
+        }
+        if (object.name === 'BuildingRenderRoot') {
+          inventory.mountedBuildings += 1;
+          if (object.userData.__lod === 'NEAR') inventory.lodNear += 1;
+          else if (object.userData.__lod === 'MID') inventory.lodMid += 1;
+          else if (object.userData.__lod === 'FAR') inventory.lodFar += 1;
+        }
+      });
+      inventory.materials = materials.size;
+    }
+    recordRenderFrame({
+      frameTimeMs: delta * 1000,
+      drawCalls: gl.info.render.calls,
+      triangles: gl.info.render.triangles,
+      visibleObjects: sample.current.visibleObjects,
+      geometries: gl.info.memory.geometries,
+      textures: gl.info.memory.textures,
+      materials: sample.current.materials,
+      mountedBuildings: sample.current.mountedBuildings,
+      mountedProps: sample.current.mountedProps,
+      activeVehicles: sample.current.activeVehicles,
+      activePedestrians: sample.current.activePedestrians,
+      lodNear: sample.current.lodNear,
+      lodMid: sample.current.lodMid,
+      lodFar: sample.current.lodFar,
+      gpuTimerAvailable,
+    });
+  });
+  return null;
+}
+
 export function City3DCanvas({
   grid,
+  homeSatisfaction,
   activeTool,
   money,
   activeRoadClass = 'LOCAL',
   activeOverlay,
   speed,
+  population = 0,
+  happiness = 50,
   timeOfDay = 6,
   weather = 'CLEAR',
   precipitation = 1,
@@ -160,6 +280,7 @@ export function City3DCanvas({
   unlockedUpgrades = [],
   activePolicies = [],
   districts = [],
+  neighborhoodIdentities = [],
   mapExpansionMode = false,
   brushSize = 1,
   dragPreviewTiles = [],
@@ -177,12 +298,16 @@ export function City3DCanvas({
   viewMode = '3D',
   cameraZoom = 1.25,
   cameraRotation = 0,
+  cameraResetRevision = 0,
+  cameraPresentation = 'initial',
   onCameraRotationChange,
   tutorialHighlight = null,
   onRendererReady,
+  performanceDiagnostics = false,
   renderRevisions,
   onSelectCitizen,
 }: City3DCanvasProps) {
+  const [rendererEpoch, setRendererEpoch] = useState(0);
   const height = grid.length;
   const width = grid[0]?.length ?? 0;
 
@@ -227,6 +352,7 @@ export function City3DCanvas({
   const globalMixedUse = unlockedUpgrades.includes('mixed_use') || activePolicies.includes('mixed_use');
   const districtSignature = districts.map((district) => `${district.id}:${district.policy}:${district.center[0]}:${district.center[1]}:${district.radius}`).join('|');
   const mixedUseTiles = useMemo(() => globalMixedUse ? undefined : getDistrictTileSet(districts, 'MIXED_USE'), [districtSignature, globalMixedUse]);
+  const identityByDistrict = useMemo(() => new Map(neighborhoodIdentities.map((identity) => [identity.districtId, identity])), [neighborhoodIdentities]);
   const allowMixedUse = globalMixedUse || mixedUseTiles.size > 0;
   const footprints = useMemo(() => deriveBuildingFootprints(grid, { allowMixedUse, mixedUseTiles }), [allowMixedUse, mixedUseTiles, topologyRevision, buildingVisualRevision]);
   const unlockedRegionSignature = unlockedRegions.join('|');
@@ -337,7 +463,8 @@ export function City3DCanvas({
       ? 'soft'
       : 'basic';
   const antialias = settings?.antialiasing ?? true;
-  const effectiveShadowMode = qualityTier === 'reduced' ? false : shadowMode;
+  const quality = getRenderQuality(qualityTier, settings?.shadowQuality);
+  const effectiveShadowMode = quality.shadowCasters === 0 ? false : shadowMode;
   const effectiveTrafficDensity = qualityTier === 'reduced' ? 'low' : (settings?.trafficDensity ?? 'medium');
   const effectiveVegetationDensity = qualityTier === 'reduced' ? 'low' : (settings?.vegetationDensity ?? 'medium');
 
@@ -348,16 +475,20 @@ export function City3DCanvas({
 
   return (
     <Canvas
+      key={rendererEpoch}
       dpr={[dprMin, dprMax]}
       shadows={effectiveShadowMode}
-      camera={{ position: [0, 24, 22], fov: 44, near: 0.1, far: 220 }}
+      camera={{ position: [0, 18, 16], fov: 42, near: 0.1, far: 220 }}
       gl={{ antialias, powerPreference: 'high-performance' }}
       onCreated={({ gl }) => {
         gl.setClearColor('#070b14');
         onRendererReady?.();
       }}
     >
+      <RendererRecovery onRetry={() => setRendererEpoch((value) => value + 1)} />
       <CameraController
+        building={activeTool !== 'POINTER' || mapExpansionMode}
+        resetRevision={cameraResetRevision}
         reducedMotion={settings?.reducedMotion}
         terrainCeiling={terrainCeiling}
         focusDistance={focusTile && tutorialHighlight ? framing.distance : undefined}
@@ -368,12 +499,15 @@ export function City3DCanvas({
         gridWidth={width}
         gridHeight={height}
         target={cameraTarget}
+        presentation={cameraPresentation}
         onRotationChange={onCameraRotationChange}
       />
+      {performanceDiagnostics && <PerformanceProbe />}
+      <CityEnvironment nightFactor={nightFactor} reduced={qualityTier === 'reduced'} />
       <DayNightSky shadowSize={effectiveShadowMode === 'soft' ? 1024 : 512} timeOfDay={timeOfDay} dayNightCycle={settings?.dayNightCycle} />
       <WeatherEffects weather={weather} precipitation={precipitation} qualityTier={qualityTier} reducedMotion={settings?.reducedMotion} />
       <LandscapeContext grid={grid} unlockedRegions={unlockedRegions} />
-      <TerrainGrid
+      <TerrainGrid homeSatisfaction={homeSatisfaction}
         selectedTile={selectedTile}
         districts={districts}
         grid={grid}
@@ -393,8 +527,10 @@ export function City3DCanvas({
         onUnlockRegion={onUnlockRegion}
         tutorialHighlight={tutorialHighlight}
         terrainRevision={terrainRevision}
+        nightFactor={nightFactor}
       />
       <RoadMesh grid={grid} nightFactor={nightFactor} tutorialHighlight={tutorialHighlight === 'highway'} targetHighwayTile={targetHighwayTile} roadRevision={roadRevision} dirtyChunkKeys={renderRevisions?.dirtyChunkKeys} />
+      <PremiumCityLayer grid={grid} quality={quality} population={population} happiness={happiness} nightFactor={nightFactor} />
       <TrafficVehicles
         grid={grid}
         trips={activeTrips}
@@ -412,7 +548,9 @@ export function City3DCanvas({
         grid={grid}
         trips={activeTrips}
         timeOfDay={timeOfDay}
-        population={activeTrips?.length ? activeTrips.length * 6 : 60}
+        population={population}
+        weather={weather}
+        activeIncidentCount={incidents?.length ?? 0}
         qualityTier={qualityTier}
         onSelectCitizen={onSelectCitizen}
       />
@@ -425,7 +563,7 @@ export function City3DCanvas({
         incidents={incidents}
         serviceVehicles={serviceVehicles}
       />
-      <BuildingLodController qualityTier={qualityTier}>
+      <BuildingLodController qualityTier={qualityTier} shadowQuality={settings?.shadowQuality}>
         {Object.entries(visibleBuildingsByChunk).map(([chunkKey, chunkBuildings]) => (
             <group key={`chunk-${chunkKey}-${chunkRevisions[chunkKey] ?? 0}`} name={`BuildingChunk-${chunkKey}`}>
             {chunkBuildings.map(({ tile, footprint, frontageRotation }) => (
@@ -437,12 +575,21 @@ export function City3DCanvas({
                 nightFactor={nightFactor}
                 gridWidth={width}
                 gridHeight={height}
+                identityColor={(() => {
+                  const district = getDistrictAt(districts, tile.x, tile.y);
+                  const identity = district ? identityByDistrict.get(district.id) : undefined;
+                  return identity ? IDENTITY_COLORS[identity.type] : undefined;
+                })()}
+                districtTheme={(() => {
+                  const district = getDistrictAt(districts, tile.x, tile.y);
+                  return district ? identityByDistrict.get(district.id)?.visualTheme : undefined;
+                })()}
               />
             ))}
           </group>
         ))}
       </BuildingLodController>
-      <EnvironmentProps grid={grid} vegetationDensity={effectiveVegetationDensity} environmentRevision={Math.max(topologyRevision, terrainRevision, buildingVisualRevision)} />
+      <EnvironmentProps grid={grid} vegetationDensity={effectiveVegetationDensity} weather={weather} environmentRevision={Math.max(topologyRevision, terrainRevision, buildingVisualRevision)} />
     </Canvas>
   );
 }

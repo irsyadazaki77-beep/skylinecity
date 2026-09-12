@@ -110,6 +110,10 @@ export function StarterTutorial({
 }: StarterTutorialProps) {
   const saved = useMemo(() => readTutorialProgress(undefined, tutorialSessionKey), [tutorialSessionKey]);
   const [minimized, setMinimized] = useState(Boolean(saved.minimized));
+  const [mobileSheetState, setMobileSheetState] = useState<'collapsed' | 'half' | 'expanded'>(() =>
+    typeof window !== 'undefined' && window.innerWidth <= 480 ? 'collapsed' : 'half',
+  );
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [currentStepIndex, setCurrentStepIndex] = useState(() => Math.max(0, saved.currentStepIndex ?? 0));
   const [actionGuidance, setActionGuidance] = useState<string | null>(null);
   const baseline = useRef(createTutorialBaseline(gameState.grid));
@@ -335,6 +339,10 @@ export function StarterTutorial({
 
   const needsRecovery = gameState.money < 1000 && gameState.population === 0;
 
+  const cycleMobileSheet = () => {
+    setMobileSheetState((state) => state === 'collapsed' ? 'half' : state === 'half' ? 'expanded' : 'collapsed');
+  };
+
   // Minimized chip view
   if (minimized) {
     return (
@@ -363,7 +371,10 @@ export function StarterTutorial({
     };
 
     return (
-      <aside className="next-action-card" role="status" aria-live="polite" aria-label="Rekomendasi langkah berikutnya">
+      <aside className="next-action-card tutorial-sheet" data-sheet-state={mobileSheetState} role="status" aria-live="polite" aria-label="Rekomendasi langkah berikutnya">
+        <button type="button" className="tutorial-sheet-handle" onClick={cycleMobileSheet} aria-label="Ubah ukuran panduan" aria-expanded={mobileSheetState !== 'collapsed'} title="Ubah ukuran panduan">
+          <span aria-hidden="true" />
+        </button>
         <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-2.5">
           <div className="flex items-center gap-1.5 text-[11px] font-bold text-cyan-300">
             <Sparkles size={14} />
@@ -407,7 +418,10 @@ export function StarterTutorial({
 
   // Active Onboarding Tutorial Step Card
   return (
-    <aside className="next-action-card" role="status" aria-live="polite" aria-label="Panduan pemain baru">
+    <aside className="next-action-card tutorial-sheet" data-sheet-state={mobileSheetState} data-ui-layer="tutorial" role="region" aria-live="polite" aria-label="Panduan pemain baru">
+      <button type="button" className="tutorial-sheet-handle" onClick={cycleMobileSheet} aria-label="Ubah ukuran panduan" aria-expanded={mobileSheetState !== 'collapsed'} title="Ubah ukuran panduan">
+        <span aria-hidden="true" />
+      </button>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-2.5">
         <div className="flex items-center gap-2 min-w-0">
@@ -419,6 +433,14 @@ export function StarterTutorial({
           </span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => setDetailsOpen((value) => !value)}
+            className="tutorial-detail-toggle p-1 text-slate-400 hover:text-white rounded transition-colors text-[10px]"
+            aria-expanded={detailsOpen}
+          >
+            {detailsOpen ? 'Ringkas' : 'Detail'}
+          </button>
           <button
             type="button"
             onClick={() => setCurrentStepIndex((idx) => Math.min(steps.length - 1, idx + 1))}
@@ -440,8 +462,9 @@ export function StarterTutorial({
       </div>
 
       {/* Title & Reason */}
+      <div className="tutorial-sheet-content">
       <h2 className="text-xs font-bold text-white leading-snug">{activeStep.title}</h2>
-      
+      {detailsOpen && <div className="tutorial-detail-content">
       {isPreCompletedUtilities ? (
         <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-950/40 p-2 text-[11px] text-emerald-200">
           <div className="flex items-center gap-1.5 font-semibold text-emerald-300 mb-0.5">
@@ -493,18 +516,26 @@ export function StarterTutorial({
           )}
         </div>
       )}
+      </div>}
 
       {/* Actions */}
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={showLocation}
+      </div>
+      <div className="tutorial-sheet-actions mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={showLocation}
           className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 text-slate-200 font-semibold py-2 px-3 text-xs transition-colors min-h-[38px]"
           title="Fokuskan kamera ke target lokasi"
         >
           <MapPin size={14} className="text-cyan-400" />
           <span>Lokasi</span>
-        </button>
+          </button>
+        <button
+          type="button"
+          onClick={() => setMinimized(true)}
+          className="tutorial-later hidden sm:inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/5 px-2.5 text-[11px] font-semibold text-slate-300 hover:bg-white/10 min-h-[38px]"
+          title="Simpan langkah ini untuk nanti"
+        >Nanti</button>
         <button
           type="button"
           onClick={doNow}

@@ -3,12 +3,17 @@ import { createStarterGrid } from './starterCity';
 import { TileType, CityState } from './types';
 import { seedCitizenSimulationFromGrid, serializeCitizenSimulation } from './citizenSimulation';
 
-export type BenchmarkScenario = 'SMALL_TOWN' | 'CONGESTED_CORRIDOR' | 'INDUSTRIAL_CITY' | 'FLOOD_RECOVERY' | 'PERFORMANCE_100K';
+export type BenchmarkScenario =
+  | 'SMALL_TOWN' | 'CONGESTED_CORRIDOR' | 'INDUSTRIAL_CITY' | 'FLOOD_RECOVERY'
+  | 'PERFORMANCE_100K' | 'DENSE_CITY' | 'TRANSIT_STRESS' | 'NIGHT_CITY' | 'DISASTER_CITY';
 
 export function createBenchmarkState(scenario: BenchmarkScenario, seed = 2088): CityState {
-  const grid = scenario === 'SMALL_TOWN' ? createStarterGrid() : createEmptyGrid();
-  if (scenario !== 'SMALL_TOWN') {
-    if (scenario === 'PERFORMANCE_100K') {
+  const baseScenario = scenario === 'DENSE_CITY' ? 'CONGESTED_CORRIDOR'
+    : scenario === 'TRANSIT_STRESS' || scenario === 'NIGHT_CITY' ? 'CONGESTED_CORRIDOR'
+      : scenario === 'DISASTER_CITY' ? 'FLOOD_RECOVERY' : scenario;
+  const grid = baseScenario === 'SMALL_TOWN' ? createStarterGrid() : createEmptyGrid();
+  if (baseScenario !== 'SMALL_TOWN') {
+    if (baseScenario === 'PERFORMANCE_100K') {
       // Dense orthogonal city fixture. Every developed tile is adjacent to a
       // road and the utility facilities share the same connected topology, so
       // the benchmark measures citizen/network work rather than an accidental
@@ -75,12 +80,12 @@ export function createBenchmarkState(scenario: BenchmarkScenario, seed = 2088): 
     } else {
       for (let x = 6; x < 54; x += 1) {
         grid[30][x].type = TileType.ROAD;
-        grid[30][x].roadClass = scenario === 'CONGESTED_CORRIDOR' ? 'ARTERIAL' : 'HIGHWAY';
+        grid[30][x].roadClass = baseScenario === 'CONGESTED_CORRIDOR' ? 'ARTERIAL' : 'HIGHWAY';
         grid[31][x].type = TileType.ROAD;
-        grid[31][x].roadClass = scenario === 'CONGESTED_CORRIDOR' ? 'LOCAL' : 'HIGHWAY';
+        grid[31][x].roadClass = baseScenario === 'CONGESTED_CORRIDOR' ? 'LOCAL' : 'HIGHWAY';
       }
       for (let x = 8; x < 52; x += 4) {
-        const type = scenario === 'INDUSTRIAL_CITY' ? TileType.INDUSTRIAL : TileType.RESIDENTIAL;
+        const type = baseScenario === 'INDUSTRIAL_CITY' ? TileType.INDUSTRIAL : TileType.RESIDENTIAL;
         grid[29][x].type = type;
         grid[29][x].population = type === TileType.RESIDENTIAL ? 80 : 0;
         grid[29][x].jobs = type === TileType.INDUSTRIAL ? 70 : 0;
@@ -97,7 +102,7 @@ export function createBenchmarkState(scenario: BenchmarkScenario, seed = 2088): 
       grid[29][36].type = TileType.CLINIC;
       grid[32][24].type = TileType.SCHOOL;
       grid[32][36].type = TileType.WASTE_MANAGEMENT;
-      if (scenario === 'INDUSTRIAL_CITY') {
+      if (baseScenario === 'INDUSTRIAL_CITY') {
         grid[29][7].type = TileType.RESIDENTIAL;
         grid[29][7].population = 40;
         grid[29][8].type = TileType.RESIDENTIAL;
@@ -107,13 +112,27 @@ export function createBenchmarkState(scenario: BenchmarkScenario, seed = 2088): 
         grid[29][44].type = TileType.RESIDENTIAL;
         grid[29][44].population = 40;
       }
-      if (scenario === 'FLOOD_RECOVERY') {
+      if (baseScenario === 'FLOOD_RECOVERY') {
         for (let x = 10; x < 48; x += 1) grid[29][x].waterDepth = 0.9;
       }
     }
   }
+  if (scenario === 'DENSE_CITY') {
+    for (let x = 6; x < 54; x += 1) {
+      for (const y of [29, 32]) {
+        const tile = grid[y][x];
+        if (tile.type !== TileType.EMPTY) continue;
+        tile.type = (x + y) % 4 === 0 ? TileType.COMMERCIAL : TileType.RESIDENTIAL;
+        tile.level = 4;
+        tile.population = tile.type === TileType.RESIDENTIAL ? 70 : 0;
+        tile.jobs = tile.type === TileType.COMMERCIAL ? 55 : 0;
+        tile.powered = true;
+        tile.watered = true;
+      }
+    }
+  }
   const state = createInitialCityState(grid, seed, 'normal');
-  if (scenario === 'PERFORMANCE_100K') {
+  if (baseScenario === 'PERFORMANCE_100K') {
     // The fixture represents 100k residents with sampled citizen agents. This
     // keeps the benchmark meaningful without pretending that an empty citizen
     // state is equivalent to a large population.
@@ -124,7 +143,22 @@ export function createBenchmarkState(scenario: BenchmarkScenario, seed = 2088): 
     state.population = Math.round(grid.flat().reduce((sum, tile) => sum + (tile.type === TileType.RESIDENTIAL ? tile.population : 0), 0));
     state.households = Math.round(seededCitizens.households.size * populationScale);
   }
-  if (scenario === 'FLOOD_RECOVERY') state.activeScenarioId = 'flood-resilience';
+  if (baseScenario === 'FLOOD_RECOVERY') state.activeScenarioId = 'flood-resilience';
+  if (scenario === 'NIGHT_CITY') state.timeOfDay = 22;
+  if (scenario === 'TRANSIT_STRESS') {
+    state.transitLines = Array.from({ length: 12 }, (_, index) => ({
+      id: `stress-line-${index}`,
+      name: `Stress Line ${index + 1}`,
+      mode: index % 3 === 0 ? 'TRAM' as const : 'BUS' as const,
+      stops: [[6, 30], [18, 30], [30, 30], [42, 30], [53, 30]] as [number, number][],
+      frequency: 4 + (index % 4),
+      active: true,
+    }));
+  }
+  if (scenario === 'DISASTER_CITY') {
+    state.disasters = [{ id: 'benchmark-disaster', type: 'FLOOD', centerX: 29, centerY: 30, radius: 12, severity: 3, createdDay: state.day, remainingDays: 8, affectedTiles: 76 }];
+    state.activeDisasters = 1;
+  }
   return state;
 }
 
@@ -134,7 +168,7 @@ export function runBenchmarkScenario(scenario: BenchmarkScenario, ticks = 30, se
   for (let index = 0; index < ticks; index += 1) {
     state = simulateTick(state, {
       trafficDensity: 'high',
-      benchmarkMode: scenario === 'PERFORMANCE_100K',
+      benchmarkMode: scenario === 'PERFORMANCE_100K' || scenario === 'DENSE_CITY',
     });
   }
   return { state, elapsedMs: Date.now() - start };

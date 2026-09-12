@@ -106,6 +106,9 @@ test.describe('Skyline Simulator - real core workflows', () => {
 
   test('advances the simulation, then pauses on the same day', async ({ page }) => {
     await startNewCity(page);
+    // Keep this simulation-clock assertion independent from software WebGL
+    // throughput; renderer coverage lives in the dedicated 2D/3D workflow.
+    await open2D(page);
     const hud = page.locator('.game-hud');
     const speed1 = page.locator('button[aria-label="Kecepatan normal 1x"]');
     const pause = page.locator('button[aria-label="Jeda simulasi"]');
@@ -192,10 +195,13 @@ test.describe('Skyline Simulator - real core workflows', () => {
 
   test('does not restore a stale worker tick after an active build edit', async ({ page }) => {
     await startNewCity(page);
+    // This workflow validates worker revision ordering, not WebGL throughput.
+    // Use the deterministic 2D presentation so software-rendered CI cannot
+    // starve the HUD while the worker is advancing the same authoritative state.
+    await open2D(page);
     const speed1 = page.locator('button[aria-label="Kecepatan normal 1x"]');
     await speed1.click();
     await expect(page.locator('.game-hud')).toContainText(/Hari 2\b/, { timeout: 10_000 });
-    await open2D(page);
     await selectLocalRoad(page);
     await dragCanvasTiles(page, STARTER_ROAD, STARTER_CONNECTOR);
     await page.locator('button[aria-label="Jeda simulasi"]').click();

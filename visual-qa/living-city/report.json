@@ -1,0 +1,57 @@
+{
+  "captures": [
+    {
+      "kind": "METROPOLITAN",
+      "width": 1440,
+      "height": 900,
+      "day": 1,
+      "path": "visual-qa/living-city/metropolitan-1440x900.png"
+    },
+    {
+      "kind": "METROPOLITAN",
+      "width": 1280,
+      "height": 720,
+      "day": 1,
+      "path": "visual-qa/living-city/metropolitan-1280x720.png"
+    },
+    {
+      "kind": "TIMELINE",
+      "width": 1280,
+      "height": 720,
+      "day": 5,
+      "requestedDay": 5,
+      "path": "visual-qa/living-city/day-5-1280x720.png"
+    },
+    {
+      "kind": "TIMELINE",
+      "width": 1280,
+      "height": 720,
+      "day": 10,
+      "requestedDay": 10,
+      "path": "visual-qa/living-city/day-10-1280x720.png"
+    },
+    {
+      "kind": "TIMELINE",
+      "width": 1280,
+      "height": 720,
+      "day": 30,
+      "requestedDay": 30,
+      "path": "visual-qa/living-city/day-30-1280x720.png"
+    },
+    {
+      "kind": "METROPOLITAN",
+      "width": 844,
+      "height": 390,
+      "day": 1,
+      "path": "visual-qa/living-city/metropolitan-844x390.png"
+    },
+    {
+      "kind": "METROPOLITAN",
+      "width": 393,
+      "height": 851,
+      "day": 1,
+      "path": "visual-qa/living-city/metropolitan-393x851.png"
+    }
+  ],
+  "errors": []
+}
