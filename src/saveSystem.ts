@@ -179,6 +179,7 @@ type CompactTile = [
   RoadStructure?, number?, number?, IntersectionControl?, string?, SignalTimingMode?, number?,
   string?, ParcelOwnership?, ParcelStatus?, number?, number?, number?, number?, number?,
   MixedUseFloorProgram?, number?, number?, number?, number?, ZoneDensity?, number?, number?, number?, string?, string?, number?, number?, number?,
+  string?, number?, number?, number?, string?,
 ];
 
 type CompactCityState = Omit<CityState, 'grid'> & { grid: CompactTile[][] };
@@ -221,11 +222,16 @@ function compactTile(tile: TileData): CompactTile {
     tile.companyEfficiency,
     tile.companyProfit,
     tile.inputShortage,
+    tile.constructionState,
+    tile.constructionProgress,
+    tile.targetLevel,
+    tile.previousLevel,
+    tile.constructionType,
   ];
 }
 
 function expandTile(compact: CompactTile, x: number, y: number): TileData {
-  const [type, level, population, jobs, traffic, powered, watered, productivity, abandoned, fireCovered, policeCovered, healthCovered, schoolCovered, wasteCovered, landValue, pollution, noise, crime, health, education, upgradeProgress, elevation, resource, water, roadClass, roadStructure, roadCondition, disasterImpact, intersectionControl, prohibitedTurns, signalTimingMode, signalOffsetHours, parcelId, parcelOwnership, parcelStatus, parcelSeed, parcelWidth, parcelHeight, parcelIndex, reservoirLevel, mixedUseProgram, mixedUseFloorCount, mixedUseRetailFloors, mixedUseOfficeFloors, mixedUseResidentialFloors, zoneDensity, rent, rentPressure, affordability, serviceUpgrades, companySector, companyEfficiency, companyProfit, inputShortage] = compact;
+  const [type, level, population, jobs, traffic, powered, watered, productivity, abandoned, fireCovered, policeCovered, healthCovered, schoolCovered, wasteCovered, landValue, pollution, noise, crime, health, education, upgradeProgress, elevation, resource, water, roadClass, roadStructure, roadCondition, disasterImpact, intersectionControl, prohibitedTurns, signalTimingMode, signalOffsetHours, parcelId, parcelOwnership, parcelStatus, parcelSeed, parcelWidth, parcelHeight, parcelIndex, reservoirLevel, mixedUseProgram, mixedUseFloorCount, mixedUseRetailFloors, mixedUseOfficeFloors, mixedUseResidentialFloors, zoneDensity, rent, rentPressure, affordability, serviceUpgrades, companySector, companyEfficiency, companyProfit, inputShortage, constructionState, constructionProgress, targetLevel, previousLevel, constructionType] = compact;
   return createTile(x, y, {
     type: type as TileData['type'], level, population, jobs, traffic,
     powered: Boolean(powered), watered: Boolean(watered), productivity,
@@ -233,7 +239,7 @@ function expandTile(compact: CompactTile, x: number, y: number): TileData {
     healthCovered: Boolean(healthCovered), schoolCovered: Boolean(schoolCovered), wasteCovered: Boolean(wasteCovered),
     landValue, pollution, noise, crime, health, education, upgradeProgress, elevation,
     resource: resource as TileData['resource'], water: Boolean(water),
-    roadClass: roadClass === 'ARTERIAL' || roadClass === 'HIGHWAY' ? roadClass : 'LOCAL',
+    roadClass: ['ARTERIAL', 'HIGHWAY', 'AVENUE', 'ONE_WAY', 'PEDESTRIAN', 'SERVICE'].includes(String(roadClass)) ? roadClass as RoadClass : 'LOCAL',
     roadStructure: roadStructure === 'BRIDGE' || roadStructure === 'TUNNEL' ? roadStructure as RoadStructure : 'GROUND',
     roadCondition: typeof roadCondition === 'number' && Number.isFinite(roadCondition) ? roadCondition : 100,
     disasterImpact: typeof disasterImpact === 'number' && Number.isFinite(disasterImpact) ? disasterImpact : 0,
@@ -275,6 +281,11 @@ function expandTile(compact: CompactTile, x: number, y: number): TileData {
     companyEfficiency: typeof companyEfficiency === 'number' && Number.isFinite(companyEfficiency) ? Math.max(0, Math.min(1, companyEfficiency)) : undefined,
     companyProfit: typeof companyProfit === 'number' && Number.isFinite(companyProfit) ? companyProfit : undefined,
     inputShortage: typeof inputShortage === 'number' && Number.isFinite(inputShortage) ? Math.max(0, Math.min(1, inputShortage)) : undefined,
+    constructionState: typeof constructionState === 'string' ? constructionState as TileData['constructionState'] : undefined,
+    constructionProgress: typeof constructionProgress === 'number' && Number.isFinite(constructionProgress) ? Math.max(0, Math.min(100, constructionProgress)) : undefined,
+    targetLevel: typeof targetLevel === 'number' && Number.isFinite(targetLevel) ? targetLevel : undefined,
+    previousLevel: typeof previousLevel === 'number' && Number.isFinite(previousLevel) ? previousLevel : undefined,
+    constructionType: constructionType === 'NEW' || constructionType === 'UPGRADE' ? constructionType : undefined,
   });
 }
 

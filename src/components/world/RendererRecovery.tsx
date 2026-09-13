@@ -1,14 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 
 export function RendererRecovery({ onRetry }: { onRetry: () => void }) {
   const { gl, invalidate } = useThree();
   const [lost, setLost] = useState(false);
+  const retryRef = useRef(onRetry);
+  retryRef.current = onRetry;
   useEffect(() => {
     const canvas = gl.domElement;
     const onLost = (event: Event) => { event.preventDefault(); setLost(true); };
-    const onRestored = () => { setLost(false); invalidate(); };
+    const onRestored = () => {
+      setLost(false);
+      // Recreate generated render targets (including the local environment
+      // map), whose GPU contents cannot be restored by re-uploading an image.
+      retryRef.current();
+      invalidate();
+    };
     canvas.addEventListener('webglcontextlost', onLost);
     canvas.addEventListener('webglcontextrestored', onRestored);
     return () => {

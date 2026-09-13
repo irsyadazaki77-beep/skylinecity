@@ -1,11 +1,34 @@
 import React, { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TileData, WeatherType } from '../../types';
 import { Trip } from '../../citizenSimulation/types';
 import { RoadGraph } from '../../traffic';
 import { PedestrianAgent, sampleRepresentativePedestrians, updatePedestrianAgent } from '../../pedestrianModel';
 import { gridToWorld } from './types3D';
+
+function createPedestrianGeometry(): THREE.BufferGeometry {
+  const head = new THREE.SphereGeometry(0.022, 6, 5);
+  head.translate(0, 0.13, 0);
+
+  const torso = new THREE.BoxGeometry(0.038, 0.055, 0.024);
+  torso.translate(0, 0.082, 0);
+
+  const leftLeg = new THREE.BoxGeometry(0.014, 0.052, 0.016);
+  leftLeg.translate(-0.011, 0.027, 0);
+
+  const rightLeg = new THREE.BoxGeometry(0.014, 0.052, 0.016);
+  rightLeg.translate(0.011, 0.027, 0);
+
+  const merged = mergeGeometries([head, torso, leftLeg, rightLeg], false);
+  head.dispose();
+  torso.dispose();
+  leftLeg.dispose();
+  rightLeg.dispose();
+  return merged ?? new THREE.CapsuleGeometry(0.045, 0.12, 4, 6);
+}
+
 
 interface PedestrianRendererProps {
   grid: TileData[][];
@@ -44,7 +67,7 @@ export function PedestrianRenderer({
   }, [grid, trips, roadGraph, timeOfDay, population, maxAgents, weather, activeIncidentCount]);
 
   // Shared low-poly geometry and material for high performance
-  const geometry = useMemo(() => new THREE.CapsuleGeometry(0.045, 0.12, 4, 6), []);
+  const geometry = useMemo(() => createPedestrianGeometry(), []);
   const material = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.65, metalness: 0.1 }), []);
 
   const walkCycleRef = useRef(0);

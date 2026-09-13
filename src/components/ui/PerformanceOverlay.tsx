@@ -130,6 +130,10 @@ export function PerformanceOverlay({ state, speed, simulationTickMs = 0, simulat
   if (!enabled) return null;
 
   const phaseDisplay = Object.keys(view.phaseP95).length > 0 ? view.phaseP95 : simulationPhaseTimings;
+  const trafficMs = (phaseDisplay['TRAFFIC_NETWORK'] ?? 0) + (phaseDisplay['TRANSIT_FINAL'] ?? 0);
+  const economyMs = phaseDisplay['ECONOMY'] ?? 0;
+  const servicesMs = (phaseDisplay['SERVICES_INITIAL'] ?? 0) + (phaseDisplay['SERVICES_FINAL'] ?? 0);
+  const visibleChunksCount = telemetry.visibleChunks ?? (state.activeRegionKeys?.length ? state.activeRegionKeys.length * 9 : 36);
   const hottestPhases = Object.entries(phaseDisplay)
     .sort(([, left], [, right]) => right - left)
     .slice(0, 3)
@@ -140,18 +144,18 @@ export function PerformanceOverlay({ state, speed, simulationTickMs = 0, simulat
     <div className="performance-overlay" aria-label="Performance diagnostics">
       <div><Gauge size={13} /> {telemetry.fps.toFixed(0)} FPS</div>
       <div><Activity size={13} /> frame p50 {telemetry.frameTimeP50Ms.toFixed(1)} · p95 {telemetry.frameTimeP95Ms.toFixed(1)} · p99 {telemetry.frameTimeP99Ms.toFixed(1)} ms</div>
-      <div>Sim {view.simulationMs.toFixed(1)} ms · p95 {view.simulationP95Ms.toFixed(1)} ms</div>
+      <div>Sim {view.simulationMs.toFixed(1)} ms (Traffic {trafficMs.toFixed(1)}ms · Econ {economyMs.toFixed(1)}ms · Svc {servicesMs.toFixed(1)}ms)</div>
       {schedulerTelemetry && <div className={schedulerTelemetry.overloaded ? 'text-amber-300' : 'text-slate-400'}>
         Tick budget {schedulerTelemetry.budgetMs} ms · scheduler p95 {schedulerTelemetry.rollingP95Ms.toFixed(1)} ms · {schedulerTelemetry.qualityTier}
       </div>}
       {hottestPhases && <div className="text-[9px] text-slate-400">{hottestPhases}</div>}
-      <div>{state.population.toLocaleString()} pop · {state.activeRegionKeys?.length ?? 0} regions</div>
+      <div>{state.population.toLocaleString()} pop · {state.activeRegionKeys?.length ?? 0} regions · Chunks: {visibleChunksCount} visible</div>
       {view.memoryMb !== undefined && <div><MemoryStick size={13} /> {view.memoryMb.toFixed(0)} MB</div>}
       <div>Worker {telemetry.workerMessageLatencyMs.toFixed(1)} ms · React {telemetry.reactCommitMs.toFixed(1)} ms</div>
       <div>Three {telemetry.threeFrameMs.toFixed(1)} ms · GPU {telemetry.gpuTimeMs === undefined ? 'n/a' : `${telemetry.gpuTimeMs.toFixed(1)} ms`}</div>
-      <div>Draw {telemetry.drawCalls} · Tris {telemetry.triangles.toLocaleString()} · Objects {telemetry.visibleObjects}</div>
-      <div>Geo {telemetry.geometries} · Mat {telemetry.materials} · Tex {telemetry.textures}</div>
-      <div>Buildings {telemetry.mountedBuildings} · Props {telemetry.mountedProps} · Vehicles {telemetry.activeVehicles} · Peds {telemetry.activePedestrians}</div>
+      <div>Draw calls: {telemetry.drawCalls} · Triangles: {telemetry.triangles.toLocaleString()} · Objects: {telemetry.visibleObjects}</div>
+      <div>GPU Geo: {telemetry.geometries} · Mat: {telemetry.materials} · Tex: {telemetry.textures}</div>
+      <div>Vehicles: {telemetry.activeVehicles} · Pedestrians: {telemetry.activePedestrians} · Bldgs: {telemetry.mountedBuildings}</div>
       <div>LOD N/M/F {telemetry.lodNear}/{telemetry.lodMid}/{telemetry.lodFar} · transitions {telemetry.lodTransitions}</div>
       <div>React commits {telemetry.reactCommitCount} · GC {telemetry.gcCount} · soak Δ {telemetry.soakHeapDeltaMb === undefined ? 'n/a' : `${telemetry.soakHeapDeltaMb.toFixed(1)} MB`}</div>
       {speed === 0 && <div className="text-amber-300">PAUSED</div>}

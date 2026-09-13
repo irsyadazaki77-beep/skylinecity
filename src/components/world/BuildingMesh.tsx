@@ -6,7 +6,7 @@ import { getConstructionStage } from '../../constructionPresentation';
 import { BuildingFootprint } from '../../urbanForm';
 import { BuildingLod, BuildingLotKit } from './buildings/sharedKits';
 import { ServiceKit } from './buildings/ServiceKit';
-import { ConstructionKit } from './buildings/ConstructionKit';
+import { ConstructionKit, RenovationScaffoldingKit } from './buildings/ConstructionKit';
 import { ProceduralBuilding } from './buildings/ProceduralBuilding';
 import type { DistrictVisualTheme } from '../../neighborhoodIdentity';
 
@@ -43,14 +43,14 @@ export function BuildingMesh({
   const footprintWidth = _footprint?.width ?? 1;
   const footprintHeight = _footprint?.height ?? 1;
   const footprintCenter = _footprint ? gridToWorld(_footprint.centerX, _footprint.centerY, gridWidth, gridHeight) : [worldX, 0, worldZ] as [number, number, number];
+  const constructionStage = getConstructionStage(tile);
 
   const isZoned = [TileType.RESIDENTIAL, TileType.COMMERCIAL, TileType.OFFICE, TileType.INDUSTRIAL].includes(type);
   const lotKind = type === TileType.RESIDENTIAL ? 'RESIDENTIAL'
     : type === TileType.COMMERCIAL ? 'COMMERCIAL'
       : type === TileType.OFFICE ? 'OFFICE'
         : type === TileType.INDUSTRIAL ? 'INDUSTRIAL' : 'SERVICE';
-  const constructionStage = getConstructionStage(tile);
-  const isUnderConstruction = [
+  const isInitialConstruction = [
     'SITE_PREPARATION',
     'PREPARATION',
     'FOUNDATION',
@@ -58,8 +58,8 @@ export function BuildingMesh({
     'STRUCTURE',
     'FACADE',
     'FINISHING',
-    'RENOVATING',
-  ].includes(constructionStage);
+  ].includes(constructionStage) && (tile.type === TileType.RESIDENTIAL ? (tile.population ?? 0) === 0 : (tile.jobs ?? 0) === 0);
+  const isRenovating = constructionStage === 'RENOVATING' || ((tile.upgradeProgress ?? 0) > 0 && !isInitialConstruction && !abandoned);
 
   // The procedural front (+Z) follows the closest road. Shape variation stays
   // inside the parcel so it cannot rotate entrances away from their frontage.
@@ -70,21 +70,29 @@ export function BuildingMesh({
       name="BuildingRenderRoot"
       position={[footprintCenter[0], elevation, footprintCenter[2]]}
       rotation={[0, rotationY, 0]}
-      scale={[scale * footprintWidth, scale, scale * footprintHeight]}
+      scale={[footprintWidth, scale, footprintHeight]}
     >
       {/* 1. NEAR DETAIL TIER */}
       <group name="BuildingNearDetail">
         <BuildingLotKit kind={lotKind} variant={variant} lod="NEAR" />
-        {isUnderConstruction ? (
+        {isInitialConstruction ? (
           <ConstructionKit stage={constructionStage} level={safeLevel} type={type} />
         ) : (
           <>
             {isZoned && <ProceduralBuilding tile={tile} spec={visualSpec} lod="NEAR" nightFactor={nightFactor} districtTheme={districtTheme} />}
             {!isZoned && <ServiceKit type={type} lod="NEAR" />}
             {isZoned && districtTheme && <DistrictCharacterKit theme={districtTheme} type={type} />}
+            {isRenovating && (
+              <RenovationScaffoldingKit
+                currentLevel={tile.previousLevel ?? safeLevel}
+                targetLevel={tile.targetLevel ?? Math.min(5, safeLevel + 1)}
+                buildingHeight={visualSpec.height}
+                type={type}
+              />
+            )}
           </>
         )}
-        {isZoned && !isUnderConstruction && nightFactor !== undefined && nightFactor > 0.18 && (
+        {isZoned && !isInitialConstruction && nightFactor !== undefined && nightFactor > 0.18 && (
           <>
             <mesh position={[-0.22, Math.min(1.25, 0.2 + safeLevel * 0.16), 0.43]}>
               <planeGeometry args={[0.14, 0.1]} />
@@ -98,7 +106,7 @@ export function BuildingMesh({
         )}
       </group>
 
-      {isZoned && identityColor && !isUnderConstruction && (
+      {isZoned && identityColor && !isInitialConstruction && (
         <mesh name="DistrictIdentityAccent" position={[0, 0.035, 0.42]}>
           <boxGeometry args={[0.34, 0.018, 0.018]} />
           <meshBasicMaterial color={identityColor} toneMapped={false} transparent opacity={0.78} />
@@ -106,7 +114,7 @@ export function BuildingMesh({
       )}
 
       {/* 2. MID SIMPLIFIED TIER */}
-      {!isUnderConstruction && (
+      {!isInitialConstruction && (
         <group name="BuildingMid" visible={false}>
           <BuildingLotKit kind={lotKind} variant={variant} lod="MID" />
           {isZoned && <ProceduralBuilding tile={tile} spec={visualSpec} lod="MID" nightFactor={nightFactor} districtTheme={districtTheme} />}
@@ -115,7 +123,7 @@ export function BuildingMesh({
       )}
 
       {/* 3. FAR GEOMETRIC PROXY MASS */}
-      {!isUnderConstruction && (
+      {!isInitialConstruction && (
         <group name="BuildingFar" visible={false}>
           {isZoned && <ProceduralBuilding tile={tile} spec={visualSpec} lod="FAR" nightFactor={nightFactor} districtTheme={districtTheme} />}
           {!isZoned && <ServiceKit type={type} lod="FAR" />}
@@ -131,6 +139,20 @@ export function BuildingMesh({
             wireframe
           />
         </mesh>
+      )}
+
+      {/* 5. READY TO LEVEL UP VISUAL FEEDBACK BEACON */}
+      {isZoned && !abandoned && powered && watered && (tile.upgradeProgress ?? 0) >= 90 && safeLevel < 5 && (
+        <group position={[0, 2.0 + safeLevel * 0.25, 0]}>
+          <mesh>
+            <octahedronGeometry args={[0.14]} />
+            <meshBasicMaterial color="#38bdf8" wireframe />
+          </mesh>
+          <mesh>
+            <sphereGeometry args={[0.045, 8, 8]} />
+            <meshBasicMaterial color="#7dd3fc" />
+          </mesh>
+        </group>
       )}
     </group>
   );

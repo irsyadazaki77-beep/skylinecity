@@ -73,6 +73,20 @@ export const sharedBuildingMats = {
   retailAwningRed: new THREE.MeshStandardMaterial({ color: '#be123c', roughness: 0.7 }),
   retailAwningBlue: new THREE.MeshStandardMaterial({ color: '#1d4ed8', roughness: 0.7 }),
 
+  // Enhanced production architectural materials
+  resTerracotta: new THREE.MeshStandardMaterial({ color: '#b45309', roughness: 0.78 }),
+  resBrickRed: new THREE.MeshStandardMaterial({ color: '#8b2e1e', roughness: 0.85 }),
+  resBrickTan: new THREE.MeshStandardMaterial({ color: '#c2a17e', roughness: 0.82 }),
+  resWeatherboard: new THREE.MeshStandardMaterial({ color: '#e2d9cc', roughness: 0.75 }),
+  comNeonPink: new THREE.MeshBasicMaterial({ color: '#f43f5e' }),
+  comNeonCyan: new THREE.MeshBasicMaterial({ color: '#06b6d4' }),
+  comNeonAmber: new THREE.MeshBasicMaterial({ color: '#f59e0b' }),
+  indCorrugated: new THREE.MeshStandardMaterial({ color: '#52616b', roughness: 0.62, metalness: 0.45 }),
+  indRust: new THREE.MeshStandardMaterial({ color: '#7c4328', roughness: 0.88 }),
+  indChimneyBrick: new THREE.MeshStandardMaterial({ color: '#4a3528', roughness: 0.9 }),
+  windowCoolLit: new THREE.MeshStandardMaterial({ color: '#dbeafe', emissive: '#93c5fd', emissiveIntensity: 0.65, roughness: 0.25, toneMapped: false }),
+  windowShopLit: new THREE.MeshStandardMaterial({ color: '#fffbeb', emissive: '#fde68a', emissiveIntensity: 0.85, roughness: 0.2, toneMapped: false }),
+
   // Shared elements
   roof: new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.8 }),
   roofGreen: new THREE.MeshStandardMaterial({ color: '#15803d', roughness: 0.7 }),
@@ -91,6 +105,8 @@ export const sharedBuildingMats = {
 // Global shared reusable geometries
 export const sharedBuildingGeos = {
   unitBox: new THREE.BoxGeometry(1, 1, 1).translate(0, 0, 0),
+  unitCylinder: new THREE.CylinderGeometry(1, 1, 1, 8),
+  unitPlane: new THREE.PlaneGeometry(1, 1),
   bevelBox: new RoundedBoxGeometry(1, 1, 1, 2, 0.025),
   contactDisc: new THREE.CircleGeometry(0.48, 16),
   farMass: new THREE.BoxGeometry(0.88, 1, 0.88),
@@ -111,6 +127,18 @@ export const sharedBuildingGeos = {
   pipe: new THREE.CylinderGeometry(0.025, 0.025, 0.45, 6),
   fence: new THREE.BoxGeometry(0.8, 0.18, 0.018),
   pitchedRoof: new THREE.ConeGeometry(0.72, 0.42, 4),
+  hippedRoof: new THREE.ConeGeometry(0.74, 0.38, 4),
+  mansardRoof: new THREE.CylinderGeometry(0.48, 0.72, 0.26, 4),
+  sawtoothRoof: new THREE.CylinderGeometry(0.01, 0.48, 0.65, 3),
+  chimney: new THREE.BoxGeometry(0.09, 0.34, 0.09),
+  chimneyCap: new THREE.BoxGeometry(0.13, 0.035, 0.13),
+  coolingTower: new THREE.CylinderGeometry(0.16, 0.22, 0.38, 10),
+  exhaustStack: new THREE.CylinderGeometry(0.035, 0.045, 0.65, 8),
+  satelliteDish: new THREE.CylinderGeometry(0.015, 0.14, 0.04, 8),
+  storeSign: new THREE.BoxGeometry(0.42, 0.12, 0.03),
+  awningSloped: new THREE.BoxGeometry(0.55, 0.03, 0.22),
+  balconyRailing: new THREE.BoxGeometry(0.52, 0.08, 0.22),
+  spireCrown: new THREE.ConeGeometry(0.12, 0.55, 6),
 };
 
 export type BuildingLod = 'NEAR' | 'MID' | 'FAR';

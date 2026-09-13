@@ -1,7 +1,7 @@
 import { GAME_CONFIG } from './config';
 import { simulateCityDepthAndEnvironment, simulateBuildingEvolution, RESIDENTIAL_CAPACITIES, COMMERCIAL_CAPACITIES, INDUSTRIAL_CAPACITIES } from './depthSimulation';
 import { simulateCityServices, simulateUtilityNetworks } from './services';
-import { advanceIntersectionSignalStates, applySignalStatesToRoadGraph, buildRoadGraph } from './traffic';
+import { advanceIntersectionSignalStates, applySignalStatesToRoadGraph, getOrBuildRoadGraph, type RoadGraph } from './traffic';
 import { simulateTransitNetwork } from './transit';
 import { simulateLogistics } from './logistics';
 import { simulateIncidents } from './incidents';
@@ -56,6 +56,15 @@ function clamp(value: number, min: number, max: number): number {
 
 let lastSimulationPhaseTimings: Record<string, number> = {};
 let lastSimulationRenderRevisions = finalizeSimulationRenderRevisions(createSimulationTickContext([]));
+let cachedRoadGraph: RoadGraph | null = null;
+let cachedRoadGridRef: TileData[][] | null = null;
+let cachedRoadCount = -1;
+
+export function resetRoadGraphCache(): void {
+  cachedRoadGraph = null;
+  cachedRoadGridRef = null;
+  cachedRoadCount = -1;
+}
 
 function profilerNow(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -69,6 +78,17 @@ export function getLastSimulationPhaseTimings(): Record<string, number> {
 /** Render metadata is transient and intentionally not part of CityState. */
 export function getLastSimulationRenderRevisions() {
   return { ...lastSimulationRenderRevisions, dirtyChunkKeys: [...lastSimulationRenderRevisions.dirtyChunkKeys] };
+}
+
+let lastSimulationChangedTileKeys = new Set<string>();
+let lastSimulationDirtyChunkKeys = new Set<string>();
+
+export function getLastSimulationChangedTileKeys(): Set<string> {
+  return new Set(lastSimulationChangedTileKeys);
+}
+
+export function getLastSimulationDirtyChunkKeys(): Set<string> {
+  return new Set(lastSimulationDirtyChunkKeys);
 }
 
 function hasRoadAccess(tile: TileData, grid: TileData[][]): boolean {
@@ -109,8 +129,10 @@ export function calculateDemandsAndDesirability(
   const taxFriction = (tax: number) => tax > GAME_CONFIG.TAX_OPTIMAL
     ? (tax - GAME_CONFIG.TAX_OPTIMAL) * GAME_CONFIG.TAX_Friction_MULT
     : (GAME_CONFIG.TAX_OPTIMAL - tax) * 2;
+  const congestionPenalty = Math.max(0, ((state.congestionIndex ?? 0) - 25) * 0.2);
+  const debtPenalty = Math.max(0, Math.min(15, ((state.municipalDebt ?? 0) / 1000) * 1.2));
   const desirability = Math.round(clamp(
-    50 + (state.happiness - 50) * 0.35 + (serviceScore - 50) * 0.25 + (utilityReliability - 0.5) * 30 - state.pollutionAverage * 0.35 - state.noiseAverage * 0.15 - utilityPenalty * 0.25 - Math.max(0, (state.parkingPressure ?? 0) - 1) * 8,
+    50 + (state.happiness - 50) * 0.35 + (serviceScore - 50) * 0.25 + (utilityReliability - 0.5) * 30 - state.pollutionAverage * 0.35 - state.noiseAverage * 0.15 - utilityPenalty * 0.25 - Math.max(0, (state.parkingPressure ?? 0) - 1) * 8 - congestionPenalty - debtPenalty,
     0,
     100,
   ));
@@ -625,17 +647,51 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   state.waterDemand = utilities.waterDemand;
 
   markPhase('ENVIRONMENT');
-  const roadGraph = buildRoadGraph(state.grid, state.unlockedUpgrades, state.timeOfDay, state.signalStates);
+  const changedCoords: Array<[number, number]> = [];
+  for (const key of context.changedTiles) {
+    const comma = key.indexOf(',');
+    if (comma !== -1) {
+      changedCoords.push([Number(key.slice(0, comma)), Number(key.slice(comma + 1))]);
+    }
+  }
+
+  const gridChanged = cachedRoadGridRef !== state.grid;
+  const topologyDirty = cachedRoadGraph === null
+    || gridChanged
+    || context.renderChanges.has('TOPOLOGY')
+    || context.renderChanges.has('ROAD')
+    || cachedRoadCount !== context.tileAggregates.roadTiles.length;
+
+  const roadGraph = getOrBuildRoadGraph(
+    gridChanged ? null : cachedRoadGraph,
+    state.grid,
+    topologyDirty,
+    state.unlockedUpgrades,
+    state.timeOfDay,
+    state.signalStates,
+    gridChanged ? undefined : (changedCoords.length > 0 ? changedCoords : undefined),
+  );
+  cachedRoadGraph = roadGraph;
+  cachedRoadGridRef = state.grid;
+  cachedRoadCount = context.tileAggregates.roadTiles.length;
   context.roadGraph = roadGraph;
   state.signalStates = advanceIntersectionSignalStates(roadGraph, state.signalStates, state.timeOfDay, 1);
   applySignalStatesToRoadGraph(roadGraph, state.signalStates);
-  const depth = simulateCityDepthAndEnvironment(state.grid, roadGraph, state.unlockedUpgrades);
-  state.landValueAverage = depth.landValueAverage;
-  state.suitabilityAverage = depth.suitabilityAverage;
-  state.pollutionAverage = depth.pollutionAverage;
-  state.noiseAverage = depth.noiseAverage;
-  state.educationLevel = depth.educationLevel;
-  state.healthIndex = depth.healthIndex;
+
+  // Multi-rate execution: SLOW phases run every 2 ticks or when building/topology changed
+  const isInitialTick = state.day <= 2;
+  const hasBuildingChange = context.renderChanges.has('BUILDING') || context.renderChanges.has('TOPOLOGY');
+  const runSlow = isInitialTick || state.day % 2 === 0 || hasBuildingChange;
+
+  if (runSlow || state.landValueAverage === undefined) {
+    const depth = simulateCityDepthAndEnvironment(state.grid, roadGraph, state.unlockedUpgrades);
+    state.landValueAverage = depth.landValueAverage;
+    state.suitabilityAverage = depth.suitabilityAverage;
+    state.pollutionAverage = depth.pollutionAverage;
+    state.noiseAverage = depth.noiseAverage;
+    state.educationLevel = depth.educationLevel;
+    state.healthIndex = depth.healthIndex;
+  }
   const districtEffects = applyDistrictEffects(state.grid, state.districts ?? []);
   const mixedUseEnabled = state.unlockedUpgrades.includes('mixed_use') || state.activePolicies.includes('mixed_use');
   const mixedUseTiles = mixedUseEnabled ? undefined : getDistrictTileSet(state.districts ?? [], 'MIXED_USE');
@@ -689,16 +745,23 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   markPhase('URBAN_FORM');
   const preLogistics = simulateLogistics(state.grid, roadGraph, state.warehouseInventory ?? {}, false);
   const logisticsGrowthFactor = Math.max(0.65, Math.min(1, 0.65 + preLogistics.freightReliability / 100 * 0.35));
-  const evolvedBuildingTiles = simulateBuildingEvolution(
-    state.grid,
-    roadGraph,
-    state.residentialDemand,
-    Math.round(state.commercialDemand * logisticsGrowthFactor),
-    Math.round((state.officeDemand ?? state.commercialDemand) * logisticsGrowthFactor),
-    Math.round(state.industrialDemand * logisticsGrowthFactor),
-    state.unlockedUpgrades,
-  );
-  markTilesChanged(context, evolvedBuildingTiles, 'BUILDING');
+  if (runSlow) {
+    const evolvedBuildingTiles = simulateBuildingEvolution(
+      state.grid,
+      roadGraph,
+      state.residentialDemand,
+      Math.round(state.commercialDemand * logisticsGrowthFactor),
+      Math.round((state.officeDemand ?? state.commercialDemand) * logisticsGrowthFactor),
+      Math.round(state.industrialDemand * logisticsGrowthFactor),
+      state.unlockedUpgrades,
+      {
+        happiness: state.happiness,
+        taxRate: state.residentialTaxRate,
+        tickStep: 2,
+      },
+    );
+    markTilesChanged(context, evolvedBuildingTiles, 'BUILDING');
+  }
   const evolvedParcels = refreshParcelStatuses(state.grid);
   state.parcelCount = evolvedParcels.parcelCount;
   state.developedParcelCount = evolvedParcels.developedParcelCount;
@@ -1060,6 +1123,8 @@ export function simulateTick(input: CityState, settings?: Partial<GameSettings> 
   phaseTimings[phaseName] = Math.round((profileEnd - phaseStartedAt) * 10) / 10;
   lastSimulationPhaseTimings = phaseTimings;
   lastSimulationRenderRevisions = finalizeSimulationRenderRevisions(context);
+  lastSimulationChangedTileKeys = context.changedTiles;
+  lastSimulationDirtyChunkKeys = context.dirtyChunkKeys;
 
   return state;
 }

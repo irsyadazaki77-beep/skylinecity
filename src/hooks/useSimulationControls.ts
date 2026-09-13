@@ -37,7 +37,8 @@ export function useSimulationControls({
   pendingSimulationCommit,
   gameState,
 }: UseSimulationControlsOptions) {
-  const [speed, setSpeed] = useState<0 | 1 | 2 | 3>(0);
+  const [speed, setSpeedState] = useState<0 | 1 | 2 | 3>(0);
+  const speedRef = useRef<0 | 1 | 2 | 3>(0);
   const [qualityTier, setQualityTier] = useState<'balanced' | 'reduced'>('balanced');
   const lastSimulationTickMs = useRef(0);
   const lastSimulationPhaseTimings = useRef<Record<string, number>>({});
@@ -90,6 +91,26 @@ export function useSimulationControls({
     worker.terminate();
     workerRef.current = null;
   }, []);
+
+  const setSpeed = useCallback((action: React.SetStateAction<0 | 1 | 2 | 3>) => {
+    const nextSpeed = typeof action === 'function' ? action(speedRef.current) : action;
+    speedRef.current = nextSpeed;
+    // Invalidate an in-flight result synchronously with the player's pause,
+    // before React effects or a queued worker message can advance the city.
+    if (nextSpeed === 0 && isTickingRef.current && gameStateRef.current) {
+      workerGenerationRef.current += 1;
+      isTickingRef.current = false;
+      workerSentAtRef.current = null;
+      const worker = workerRef.current;
+      if (worker && !workerFailedRef.current) {
+        workerReadyRef.current = false;
+        const identity = nextIdentity(simulationTickId.current);
+        workerRequestRef.current = identity;
+        worker.postMessage({ type: 'RESET_STATE', ...identity, state: gameStateRef.current } satisfies WorkerInMessage);
+      } else workerRequestRef.current = null;
+    }
+    setSpeedState(nextSpeed);
+  }, [nextIdentity]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof Worker === 'undefined' || !gameStateRef.current) return undefined;
@@ -158,10 +179,27 @@ export function useSimulationControls({
       ));
       handleQualityHint(data.telemetry.qualityTier);
 
-      const previous = gameStateRef.current ?? data.nextState;
-      pendingSimulationCommit.current = { previous, next: data.nextState };
-      gameStateRef.current = data.nextState;
-      setGameState(() => data.nextState);
+      let nextState = data.nextState;
+      if (data.delta && gameStateRef.current) {
+        const prevGrid = gameStateRef.current.grid;
+        for (const t of data.delta.dirtyTiles) {
+          if (prevGrid[t.y]?.[t.x]) {
+            Object.assign(prevGrid[t.y][t.x], t);
+          }
+        }
+        nextState = {
+          ...gameStateRef.current,
+          ...data.delta.scalars,
+          grid: prevGrid,
+        };
+      } else if (!nextState) {
+        nextState = gameStateRef.current!;
+      }
+
+      const previous = gameStateRef.current ?? nextState;
+      pendingSimulationCommit.current = { previous, next: nextState };
+      gameStateRef.current = nextState;
+      setGameState(() => nextState);
     };
     worker.onerror = () => failWorker(worker);
     worker.onmessageerror = () => failWorker(worker);
@@ -250,7 +288,7 @@ export function useSimulationControls({
     };
 
     const runTick = () => {
-      if (cancelled) return;
+      if (cancelled || speedRef.current === 0) return;
       const worker = workerRef.current;
 
       if (worker && !workerFailedRef.current) {

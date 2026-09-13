@@ -1,11 +1,168 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CityIncident, ServiceVehicleAgent, TileData, TileType } from '../../types';
 import { TransitMode, Trip } from '../../citizenSimulation/types';
 import { FreightTrip } from '../../logistics';
 import { TransitVehicleAgent } from '../../transit';
 import { gridToWorld } from './types3D';
+
+function createCarGeometry(): THREE.BufferGeometry {
+  const chassis = new THREE.BoxGeometry(0.22, 0.055, 0.44);
+  chassis.translate(0, 0.045, 0);
+
+  const cabin = new THREE.BoxGeometry(0.18, 0.06, 0.22);
+  cabin.translate(0, 0.10, -0.025);
+
+  const hood = new THREE.BoxGeometry(0.17, 0.02, 0.11);
+  hood.translate(0, 0.068, 0.12);
+
+  const wheelGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.028, 6);
+  wheelGeo.rotateZ(Math.PI / 2);
+
+  const fl = wheelGeo.clone().translate(-0.112, 0.03, 0.12);
+  const fr = wheelGeo.clone().translate(0.112, 0.03, 0.12);
+  const rl = wheelGeo.clone().translate(-0.112, 0.03, -0.12);
+  const rr = wheelGeo.clone().translate(0.112, 0.03, -0.12);
+  wheelGeo.dispose();
+
+  const merged = mergeGeometries([chassis, cabin, hood, fl, fr, rl, rr], false);
+  chassis.dispose();
+  cabin.dispose();
+  hood.dispose();
+  fl.dispose();
+  fr.dispose();
+  rl.dispose();
+  rr.dispose();
+
+  return merged ?? new THREE.BoxGeometry(0.24, 0.12, 0.44);
+}
+
+function createTransitGeometry(): THREE.BufferGeometry {
+  const body = new THREE.BoxGeometry(0.28, 0.15, 0.74);
+  body.translate(0, 0.11, 0);
+
+  const hvac = new THREE.BoxGeometry(0.16, 0.035, 0.26);
+  hvac.translate(0, 0.20, 0.04);
+
+  const visor = new THREE.BoxGeometry(0.24, 0.025, 0.05);
+  visor.translate(0, 0.175, 0.35);
+
+  const wheelGeo = new THREE.CylinderGeometry(0.034, 0.034, 0.032, 6);
+  wheelGeo.rotateZ(Math.PI / 2);
+
+  const f1 = wheelGeo.clone().translate(-0.138, 0.034, 0.24);
+  const f2 = wheelGeo.clone().translate(0.138, 0.034, 0.24);
+  const m1 = wheelGeo.clone().translate(-0.138, 0.034, -0.12);
+  const m2 = wheelGeo.clone().translate(0.138, 0.034, -0.12);
+  const r1 = wheelGeo.clone().translate(-0.138, 0.034, -0.25);
+  const r2 = wheelGeo.clone().translate(0.138, 0.034, -0.25);
+  wheelGeo.dispose();
+
+  const merged = mergeGeometries([body, hvac, visor, f1, f2, m1, m2, r1, r2], false);
+  body.dispose();
+  hvac.dispose();
+  visor.dispose();
+  f1.dispose();
+  f2.dispose();
+  m1.dispose();
+  m2.dispose();
+  r1.dispose();
+  r2.dispose();
+
+  return merged ?? new THREE.BoxGeometry(0.32, 0.18, 0.72);
+}
+
+function createFreightGeometry(): THREE.BufferGeometry {
+  const cab = new THREE.BoxGeometry(0.32, 0.17, 0.24);
+  cab.translate(0, 0.12, 0.28);
+
+  const deflector = new THREE.BoxGeometry(0.26, 0.05, 0.16);
+  deflector.translate(0, 0.22, 0.26);
+
+  const container = new THREE.BoxGeometry(0.34, 0.22, 0.54);
+  container.translate(0, 0.15, -0.15);
+
+  const hitch = new THREE.BoxGeometry(0.14, 0.04, 0.14);
+  hitch.translate(0, 0.05, 0.12);
+
+  const stack1 = new THREE.CylinderGeometry(0.012, 0.012, 0.16, 5);
+  stack1.translate(-0.15, 0.18, 0.15);
+  const stack2 = new THREE.CylinderGeometry(0.012, 0.012, 0.16, 5);
+  stack2.translate(0.15, 0.18, 0.15);
+
+  const wheelGeo = new THREE.CylinderGeometry(0.038, 0.038, 0.034, 6);
+  wheelGeo.rotateZ(Math.PI / 2);
+
+  const c1 = wheelGeo.clone().translate(-0.155, 0.038, 0.28);
+  const c2 = wheelGeo.clone().translate(0.155, 0.038, 0.28);
+  const t1 = wheelGeo.clone().translate(-0.155, 0.038, -0.22);
+  const t2 = wheelGeo.clone().translate(0.155, 0.038, -0.22);
+  const t3 = wheelGeo.clone().translate(-0.155, 0.038, -0.34);
+  const t4 = wheelGeo.clone().translate(0.155, 0.038, -0.34);
+  wheelGeo.dispose();
+
+  const merged = mergeGeometries([cab, deflector, container, hitch, stack1, stack2, c1, c2, t1, t2, t3, t4], false);
+  cab.dispose();
+  deflector.dispose();
+  container.dispose();
+  hitch.dispose();
+  stack1.dispose();
+  stack2.dispose();
+  c1.dispose();
+  c2.dispose();
+  t1.dispose();
+  t2.dispose();
+  t3.dispose();
+  t4.dispose();
+
+  return merged ?? new THREE.BoxGeometry(0.38, 0.22, 0.9);
+}
+
+function createServiceGeometry(): THREE.BufferGeometry {
+  const cab = new THREE.BoxGeometry(0.26, 0.13, 0.26);
+  cab.translate(0, 0.10, 0.15);
+
+  const body = new THREE.BoxGeometry(0.28, 0.16, 0.34);
+  body.translate(0, 0.115, -0.14);
+
+  const lightbar = new THREE.BoxGeometry(0.18, 0.035, 0.05);
+  lightbar.translate(0, 0.18, 0.12);
+
+  const wheelGeo = new THREE.CylinderGeometry(0.034, 0.034, 0.03, 6);
+  wheelGeo.rotateZ(Math.PI / 2);
+
+  const w1 = wheelGeo.clone().translate(-0.135, 0.034, 0.15);
+  const w2 = wheelGeo.clone().translate(0.135, 0.034, 0.15);
+  const w3 = wheelGeo.clone().translate(-0.135, 0.034, -0.16);
+  const w4 = wheelGeo.clone().translate(0.135, 0.034, -0.16);
+  wheelGeo.dispose();
+
+  const merged = mergeGeometries([cab, body, lightbar, w1, w2, w3, w4], false);
+  cab.dispose();
+  body.dispose();
+  lightbar.dispose();
+  w1.dispose();
+  w2.dispose();
+  w3.dispose();
+  w4.dispose();
+
+  return merged ?? new THREE.BoxGeometry(0.28, 0.16, 0.62);
+}
+
+function createHeadlightGeometry(): THREE.BufferGeometry {
+  const fl = new THREE.SphereGeometry(0.024, 6, 5);
+  fl.translate(-0.08, 0.055, 0.22);
+  const fr = new THREE.SphereGeometry(0.024, 6, 5);
+  fr.translate(0.08, 0.055, 0.22);
+
+  const merged = mergeGeometries([fl, fr], false);
+  fl.dispose();
+  fr.dispose();
+  return merged ?? new THREE.SphereGeometry(0.03, 6, 6);
+}
+
 
 interface TrafficVehiclesProps {
   grid: TileData[][];
@@ -253,21 +410,26 @@ export function TrafficVehicles({
   }, [freightVehicles, lineVehicles, serviceVehicles, transitVehicles, vehicles]);
 
   // Geometries and materials
-  const carGeometry = useMemo(() => new THREE.BoxGeometry(0.24, 0.12, 0.44), []);
+  const carGeometry = useMemo(() => createCarGeometry(), []);
   const carMaterial = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.3, metalness: 0.6 }), []);
-  const transitGeometry = useMemo(() => new THREE.BoxGeometry(0.32, 0.18, 0.72), []);
+  const transitGeometry = useMemo(() => createTransitGeometry(), []);
   const transitMaterial = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.28, metalness: 0.55, emissive: '#082f49', emissiveIntensity: 0.35 }), []);
-  const freightGeometry = useMemo(() => new THREE.BoxGeometry(0.38, 0.22, 0.9), []);
+  const freightGeometry = useMemo(() => createFreightGeometry(), []);
   const freightMaterial = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.35, emissive: '#431407', emissiveIntensity: 0.25 }), []);
-  const serviceGeometry = useMemo(() => new THREE.BoxGeometry(0.28, 0.16, 0.62), []);
+  const serviceGeometry = useMemo(() => createServiceGeometry(), []);
   const serviceMaterial = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.45, emissive: '#450a0a', emissiveIntensity: 0.3 }), []);
 
-  const headlightGeometry = useMemo(() => new THREE.SphereGeometry(0.03, 6, 6), []);
+  const headlightGeometry = useMemo(() => createHeadlightGeometry(), []);
   const headlightMaterial = useMemo(() => new THREE.MeshBasicMaterial({ color: '#fef08a' }), []);
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
-  const roadHeight = (tile?: TileData) => (tile?.elevation || 0) * 0.5;
+  const roadHeight = (tile?: TileData) => {
+    if (!tile) return 0;
+    const elev = (tile.elevation || 0) * 0.15;
+    const structOffset = tile.roadStructure === 'BRIDGE' ? 0.22 : tile.roadStructure === 'TUNNEL' ? -0.08 : 0;
+    return elev + structOffset;
+  };
 
   /**
    * Physics-based vehicle motion advance:
@@ -384,7 +546,7 @@ export function TrafficVehicles({
         const sideX = Math.cos(headingAngle) * v.laneOffset;
         const sideZ = -Math.sin(headingAngle) * v.laneOffset;
 
-        dummy.position.set(curX + sideX, curY + 0.08, curZ + sideZ);
+        dummy.position.set(curX + sideX, curY + 0.015, curZ + sideZ);
         dummy.rotation.set(0, headingAngle, 0);
         dummy.scale.set(...(v.visualScale ?? [1, 1, 1]));
         dummy.updateMatrix();
@@ -393,7 +555,7 @@ export function TrafficVehicles({
         meshRef.current.setColorAt(i, v.color);
 
         if (headlightMeshRef.current) {
-          dummy.position.set(curX + sideX, curY + 0.09, curZ + sideZ);
+          dummy.position.set(curX + sideX, curY + 0.015, curZ + sideZ);
           dummy.updateMatrix();
           headlightMeshRef.current.setMatrixAt(i, dummy.matrix);
         }
@@ -428,7 +590,7 @@ export function TrafficVehicles({
           headingAngle = smoothHeading(baseAngle, Math.atan2(w2x - w1x, w2z - w1z), THREE.MathUtils.smoothstep(segT, 0.58, 1.0));
         }
 
-        dummy.position.set(curX, curY + 0.13, curZ);
+        dummy.position.set(curX, curY + 0.015, curZ);
         dummy.rotation.set(0, headingAngle, 0);
         dummy.scale.set(...(v.visualScale ?? [1, 1, 1]));
         dummy.updateMatrix();
@@ -465,7 +627,7 @@ export function TrafficVehicles({
           headingAngle = smoothHeading(baseAngle, Math.atan2(w2x - w1x, w2z - w1z), THREE.MathUtils.smoothstep(segT, 0.58, 1.0));
         }
 
-        dummy.position.set(curX, curY + 0.14, curZ);
+        dummy.position.set(curX, curY + 0.015, curZ);
         dummy.rotation.set(0, headingAngle, 0);
         dummy.scale.set(...(v.visualScale ?? [1, 1, 1]));
         dummy.updateMatrix();
@@ -502,7 +664,7 @@ export function TrafficVehicles({
           headingAngle = smoothHeading(baseAngle, Math.atan2(w2x - w1x, w2z - w1z), THREE.MathUtils.smoothstep(segT, 0.58, 1.0));
         }
 
-        dummy.position.set(curX, curY + 0.16, curZ);
+        dummy.position.set(curX, curY + 0.015, curZ);
         dummy.rotation.set(0, headingAngle, 0);
         dummy.scale.set(...(v.visualScale ?? [1, 1, 1]));
         dummy.updateMatrix();
@@ -539,7 +701,7 @@ export function TrafficVehicles({
           headingAngle = smoothHeading(baseAngle, Math.atan2(w2x - w1x, w2z - w1z), THREE.MathUtils.smoothstep(segT, 0.58, 1.0));
         }
 
-        dummy.position.set(curX, curY + 0.12, curZ);
+        dummy.position.set(curX, curY + 0.015, curZ);
         dummy.rotation.set(0, headingAngle, 0);
         dummy.scale.set(...(v.visualScale ?? [1, 1, 1]));
         dummy.updateMatrix();
@@ -594,7 +756,7 @@ export function TrafficVehicles({
           castShadow
         />
       )}
-      {nightFactor > 0.3 && vehicles.length > 0 && (
+      {nightFactor > 0.18 && vehicles.length > 0 && (
         <instancedMesh
           ref={headlightMeshRef}
           args={[headlightGeometry, headlightMaterial, vehicles.length]}
@@ -603,3 +765,4 @@ export function TrafficVehicles({
     </group>
   );
 }
+

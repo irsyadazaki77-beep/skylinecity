@@ -177,12 +177,68 @@ export function Sidebar({
     TERRAIN: 'Rekayasa Medan Tanah',
   };
 
+  const activeToolInfo = React.useMemo(() => {
+    if (activeTool === 'POINTER') return null;
+    if (activeTool === 'BULLDOZER') {
+      return {
+        label: translate(catalog, 'tool.bulldoze'),
+        cost: 0,
+        icon: <Eraser size={15} className="text-rose-400" />,
+        desc: 'Gusur petak bangunan atau jalan'
+      };
+    }
+    const found = searchItems.find((item) => {
+      if (item.tool === TileType.ROAD) {
+        if (activeRoadClass === 'ARTERIAL') return item.label.includes('Arteri');
+        if (activeRoadClass === 'HIGHWAY') return item.label.includes('Tol');
+        return item.label.includes('Lokal') || item.label.includes('Dasar');
+      }
+      return item.tool === activeTool;
+    });
+    return found ?? {
+      label: String(activeTool),
+      cost: BUILD_COSTS[activeTool as TileType] ?? 0,
+      icon: <Route size={15} className="text-cyan-400" />,
+      desc: ''
+    };
+  }, [activeRoadClass, activeTool, catalog, searchItems]);
+
   return (
-    <div className="tool-rail-container">
-      {/* 1. LEFT COMPACT RAIL (68px) */}
-      <nav aria-label="Menu Bangun Kota" className="tool-rail" data-ui-layer="build-navigation">
-        {/* Pointer / Select */}
-        <RailButton
+    <>
+      {activeToolInfo && (
+        <div
+          className="active-tool-status fixed bottom-24 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-1.5 rounded-full border border-cyan-400/40 bg-[#0c1424]/95 shadow-xl backdrop-blur-md text-xs text-white pointer-events-none active-tool-glow animate-in fade-in slide-in-from-bottom-2"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-1.5 font-semibold text-cyan-200">
+            <span className="p-1 rounded-md bg-cyan-500/20 text-cyan-300">{activeToolInfo.icon}</span>
+            <span>{activeToolInfo.label}</span>
+            {activeToolInfo.cost > 0 && (
+              <span className="font-mono text-amber-300 font-bold">(${activeToolInfo.cost})</span>
+            )}
+          </div>
+          <div className="w-px h-3.5 bg-white/20 mx-0.5" />
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTool('POINTER');
+              setSelectedCategory(null);
+            }}
+            aria-label="Batalkan alat dan kembali ke pointer"
+            className="flex items-center gap-1 text-[11px] text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 px-2 py-0.5 rounded-md transition-colors"
+            title="Batal / Kembali ke pointer (Esc)"
+          >
+            <X size={13} />
+            <span>Batal (Esc)</span>
+          </button>
+        </div>
+      )}
+      <div className="tool-rail-container">
+        {/* 1. LEFT COMPACT RAIL (68px) */}
+        <nav aria-label="Menu Bangun Kota" className="tool-rail" data-ui-layer="build-navigation">
+          {/* Pointer / Select */}
+          <RailButton
           icon={<MousePointer2 size={18} />}
           label={translate(catalog, 'tool.select')}
           active={activeTool === 'POINTER'}
@@ -482,7 +538,7 @@ export function Sidebar({
                         onClick={() => setActiveTool(TileType.INDUSTRIAL)}
                       />
                     </>
-                  ) : allowAdvancedZoning ? (
+                  ) : (
                     <>
                       <DrawerToolCard
                         icon={<Home size={18} className="text-emerald-300" />}
@@ -490,6 +546,8 @@ export function Sidebar({
                         cost={BUILD_COSTS[TileType.RESIDENTIAL] + 20}
                         desc="Apartemen sedang dan rumah susun"
                         active={activeTool === 'RESIDENTIAL_MEDIUM'}
+                        disabled={!allowAdvancedZoning}
+                        lockReason={!allowAdvancedZoning ? 'Buka di 50+ Warga / Tk. 1 Desa' : undefined}
                         isFavorite={favoriteTools.includes('RESIDENTIAL_MEDIUM')}
                         onToggleFavorite={() => toggleFavorite('RESIDENTIAL_MEDIUM')}
                         onClick={() => setActiveTool('RESIDENTIAL_MEDIUM')}
@@ -500,6 +558,8 @@ export function Sidebar({
                         cost={BUILD_COSTS[TileType.RESIDENTIAL] + 45}
                         desc="Menara apartemen hunian kepadatan tinggi"
                         active={activeTool === 'RESIDENTIAL_HIGH'}
+                        disabled={!allowAdvancedZoning}
+                        lockReason={!allowAdvancedZoning ? 'Buka di 50+ Warga / Tk. 1 Desa' : undefined}
                         isFavorite={favoriteTools.includes('RESIDENTIAL_HIGH')}
                         onToggleFavorite={() => toggleFavorite('RESIDENTIAL_HIGH')}
                         onClick={() => setActiveTool('RESIDENTIAL_HIGH')}
@@ -510,15 +570,13 @@ export function Sidebar({
                         cost={BUILD_COSTS[TileType.OFFICE]}
                         desc="Perkantoran profesional bebas polusi berat"
                         active={activeTool === TileType.OFFICE}
+                        disabled={!allowAdvancedZoning}
+                        lockReason={!allowAdvancedZoning ? 'Buka di 50+ Warga / Tk. 1 Desa' : undefined}
                         isFavorite={favoriteTools.includes(TileType.OFFICE)}
                         onToggleFavorite={() => toggleFavorite(TileType.OFFICE)}
                         onClick={() => setActiveTool(TileType.OFFICE)}
                       />
                     </>
-                  ) : (
-                    <div className="p-4 text-center rounded-xl bg-white/[0.02] border border-white/5 text-xs text-slate-400">
-                      Zonasi lanjutan terbuka pada 50+ warga atau milestone Town.
-                    </div>
                   )
                 )}
 
@@ -782,6 +840,7 @@ export function Sidebar({
         </>
       )}
     </div>
+  </>
   );
 }
 

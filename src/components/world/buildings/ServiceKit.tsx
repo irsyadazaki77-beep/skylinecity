@@ -161,14 +161,35 @@ export function ServiceKit({ type, lod = 'NEAR' }: ServiceKitProps) {
   if (type === TileType.BUS_STOP) {
     return (
       <group>
-        <mesh material={sharedBuildingMats.metal} position={[0, 0.2, 0]} castShadow>
-          <boxGeometry args={[0.12, 0.4, 0.12]} />
+        {/* Pavement platform */}
+        <mesh material={sharedBuildingMats.resConcrete} position={[0, 0.04, 0]} receiveShadow>
+          <boxGeometry args={[0.78, 0.06, 0.78]} />
         </mesh>
-        <mesh material={sharedBuildingMats.glass} position={[0, 0.34, 0]}>
-          <boxGeometry args={[0.38, 0.28, 0.08]} />
+        {/* Steel shelter posts */}
+        <mesh material={sharedBuildingMats.officeSteel} position={[-0.22, 0.28, -0.15]} castShadow>
+          <cylinderGeometry args={[0.015, 0.015, 0.44, 6]} />
         </mesh>
-        <mesh material={sharedBuildingMats.comL5} position={[0, 0.3, 0.05]}>
-          <planeGeometry args={[0.18, 0.12]} />
+        <mesh material={sharedBuildingMats.officeSteel} position={[0.22, 0.28, -0.15]} castShadow>
+          <cylinderGeometry args={[0.015, 0.015, 0.44, 6]} />
+        </mesh>
+        {/* Back glass windscreen */}
+        <mesh material={sharedBuildingMats.glass} position={[0, 0.28, -0.15]}>
+          <boxGeometry args={[0.48, 0.36, 0.02]} />
+        </mesh>
+        {/* Cantilever glass canopy */}
+        <mesh material={sharedBuildingMats.glass} position={[0, 0.5, -0.02]} rotation={[0.08, 0, 0]}>
+          <boxGeometry args={[0.54, 0.025, 0.32]} />
+        </mesh>
+        {/* Waiting passenger bench */}
+        <mesh material={sharedBuildingMats.resTimber} position={[0, 0.16, -0.08]} castShadow>
+          <boxGeometry args={[0.34, 0.035, 0.12]} />
+        </mesh>
+        {/* Bus stop sign pole */}
+        <mesh material={sharedBuildingMats.officeSteel} position={[0.32, 0.32, 0.22]}>
+          <cylinderGeometry args={[0.012, 0.012, 0.56, 6]} />
+        </mesh>
+        <mesh material={sharedBuildingMats.windowCyan} position={[0.32, 0.54, 0.22]}>
+          <boxGeometry args={[0.14, 0.14, 0.02]} />
         </mesh>
       </group>
     );
@@ -178,14 +199,32 @@ export function ServiceKit({ type, lod = 'NEAR' }: ServiceKitProps) {
   if (type === TileType.TRAM_STOP) {
     return (
       <group>
-        <mesh material={sharedBuildingMats.metal} position={[0, 0.18, 0]} castShadow>
-          <boxGeometry args={[0.16, 0.36, 0.16]} />
+        {/* Raised boarding platform */}
+        <mesh material={sharedBuildingMats.resConcrete} position={[0, 0.06, 0]} receiveShadow>
+          <boxGeometry args={[0.82, 0.1, 0.82]} />
         </mesh>
-        <mesh material={sharedBuildingMats.glass} position={[0, 0.34, 0]}>
-          <boxGeometry args={[0.46, 0.3, 0.1]} />
+        {/* Steel shelter columns */}
+        <mesh material={sharedBuildingMats.officeSteel} position={[-0.26, 0.32, -0.18]} castShadow>
+          <cylinderGeometry args={[0.018, 0.018, 0.52, 6]} />
         </mesh>
-        <mesh material={sharedBuildingMats.windowCyan} position={[0, 0.3, 0.06]}>
-          <planeGeometry args={[0.22, 0.14]} />
+        <mesh material={sharedBuildingMats.officeSteel} position={[0.26, 0.32, -0.18]} castShadow>
+          <cylinderGeometry args={[0.018, 0.018, 0.52, 6]} />
+        </mesh>
+        {/* Glass wall */}
+        <mesh material={sharedBuildingMats.glass} position={[0, 0.32, -0.18]}>
+          <boxGeometry args={[0.56, 0.4, 0.02]} />
+        </mesh>
+        {/* Modern arched canopy */}
+        <mesh material={sharedBuildingMats.officeSteel} position={[0, 0.58, -0.04]}>
+          <boxGeometry args={[0.68, 0.035, 0.38]} />
+        </mesh>
+        {/* Platform bench */}
+        <mesh material={sharedBuildingMats.resTimber} position={[0, 0.18, -0.08]} castShadow>
+          <boxGeometry args={[0.42, 0.035, 0.12]} />
+        </mesh>
+        {/* Tram arrival display */}
+        <mesh material={sharedBuildingMats.windowCyan} position={[0, 0.5, 0.12]}>
+          <boxGeometry args={[0.28, 0.08, 0.02]} />
         </mesh>
       </group>
     );

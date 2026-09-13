@@ -45,6 +45,22 @@ export function usePanelState() {
     }
   });
 
+  const setNotificationsDeduplicated: React.Dispatch<React.SetStateAction<NotificationItem[]>> = (action) => {
+    setNotifications((prev) => {
+      const next = typeof action === 'function' ? action(prev) : action;
+      const seen = new Set<string>();
+      const deduped: NotificationItem[] = [];
+      for (const item of next) {
+        const key = `${item.title}:${item.message}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          deduped.push(item);
+        }
+      }
+      return deduped.slice(0, 30);
+    });
+  };
+
   return {
     panel,
     setPanel,
@@ -66,7 +82,7 @@ export function usePanelState() {
     notificationOpen,
     setNotificationOpen,
     notifications,
-    setNotifications,
+    setNotifications: setNotificationsDeduplicated,
     milestoneCelebration,
     setMilestoneCelebration,
     showStartScreen,

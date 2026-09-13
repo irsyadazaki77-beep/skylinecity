@@ -13,6 +13,7 @@ export interface PerformanceTelemetrySnapshot {
   drawCalls: number;
   triangles: number;
   visibleObjects: number;
+  visibleChunks?: number;
   geometries: number;
   textures: number;
   materials: number;
@@ -101,6 +102,7 @@ export function recordReactCommit(elapsedMs: number): void {
 }
 export function recordRenderFrame(metrics: {
   frameTimeMs: number; drawCalls: number; triangles: number; visibleObjects: number;
+  visibleChunks?: number;
   geometries?: number; textures?: number; materials?: number; mountedBuildings?: number;
   mountedProps?: number; activeVehicles?: number; activePedestrians?: number;
   lodNear?: number; lodMid?: number; lodFar?: number;
@@ -120,6 +122,7 @@ export function recordRenderFrame(metrics: {
   snapshot.drawCalls = metrics.drawCalls;
   snapshot.triangles = metrics.triangles;
   snapshot.visibleObjects = metrics.visibleObjects;
+  if (metrics.visibleChunks !== undefined) snapshot.visibleChunks = metrics.visibleChunks;
   if (metrics.geometries !== undefined) snapshot.geometries = metrics.geometries;
   if (metrics.textures !== undefined) snapshot.textures = metrics.textures;
   if (metrics.materials !== undefined) snapshot.materials = metrics.materials;

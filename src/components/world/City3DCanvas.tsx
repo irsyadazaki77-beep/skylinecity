@@ -116,17 +116,30 @@ function BuildingLodController({ qualityTier, shadowQuality, children }: { quali
     const hysteresis = qualityTier === 'reduced' ? 2 : 3;
     const camPos = camera.position;
 
-    // Fast 2-tier iteration over chunk groups
+    // Fast 2-tier iteration over chunk groups with chunk-level bounding culling
     const chunkGroups = rootRef.current.children;
+    const nearCutoffSq = (nearDistance - 8) * (nearDistance - 8);
+    const farCutoffSq = (farDistance + 8) * (farDistance + 8);
+
     for (let i = 0; i < chunkGroups.length; i++) {
       const chunk = chunkGroups[i];
+      if (!chunk.userData.__center && chunk.children.length > 0) {
+        const first = chunk.children[0];
+        if (first) {
+          const cp = new THREE.Vector3();
+          first.getWorldPosition(cp);
+          chunk.userData.__center = cp;
+        }
+      }
+      const chunkCenter = chunk.userData.__center as THREE.Vector3 | undefined;
+      const chunkDistSq = chunkCenter ? chunkCenter.distanceToSquared(camPos) : -1;
+      const isDefinitelyFar = chunkDistSq > farCutoffSq;
+      const isDefinitelyNear = chunkDistSq >= 0 && chunkDistSq < nearCutoffSq;
+
       const buildings = chunk.children;
       for (let j = 0; j < buildings.length; j++) {
         const b = buildings[j];
         if (b.name === 'BuildingRenderRoot') {
-          b.getWorldPosition(worldPosition.current);
-          const distanceSq = worldPosition.current.distanceToSquared(camPos);
-
           if (!b.userData.__lodObjects) {
             b.userData.__lodObjects = {
               detail: b.children[0]?.name === 'BuildingNearDetail' ? b.children[0] : b.getObjectByName('BuildingNearDetail'),
@@ -137,31 +150,44 @@ function BuildingLodController({ qualityTier, shadowQuality, children }: { quali
           const { detail, mid, far } = b.userData.__lodObjects as {
             detail?: THREE.Object3D; mid?: THREE.Object3D; far?: THREE.Object3D;
           };
-          const currentLod = b.userData.__lod as 'NEAR' | 'MID' | 'FAR' | undefined;
-          const nearBoundary = currentLod === 'NEAR' ? nearDistance + hysteresis : nearDistance - hysteresis;
-          const farBoundary = currentLod === 'FAR' ? farDistance - hysteresis : farDistance + hysteresis;
-          const nextLod = (!mid && !far) || distanceSq <= nearBoundary * nearBoundary
-            ? 'NEAR'
-            : distanceSq <= farBoundary * farBoundary ? 'MID' : 'FAR';
+
+          let nextLod: 'NEAR' | 'MID' | 'FAR';
+          if (isDefinitelyFar && far) {
+            nextLod = 'FAR';
+          } else if (isDefinitelyNear) {
+            nextLod = 'NEAR';
+          } else {
+            b.getWorldPosition(worldPosition.current);
+            const distanceSq = worldPosition.current.distanceToSquared(camPos);
+            const currentLod = b.userData.__lod as 'NEAR' | 'MID' | 'FAR' | undefined;
+            const nearBoundary = currentLod === 'NEAR' ? nearDistance + hysteresis : nearDistance - hysteresis;
+            const farBoundary = currentLod === 'FAR' ? farDistance - hysteresis : farDistance + hysteresis;
+            nextLod = (!mid && !far) || distanceSq <= nearBoundary * nearBoundary
+              ? 'NEAR'
+              : distanceSq <= farBoundary * farBoundary ? 'MID' : 'FAR';
+          }
+
           const shadowsChanged = b.userData.__shadowTier !== quality.preset;
           const lodChanged = b.userData.__lod !== nextLod;
-          if (b.userData.__lod !== nextLod) {
+          if (lodChanged) {
             if (b.userData.__lod !== undefined) recordLodTransition();
             b.userData.__lod = nextLod;
+
+            if (nextLod === 'NEAR') {
+              if (detail) detail.visible = true;
+              if (mid) mid.visible = false;
+              if (far) far.visible = false;
+            } else if (nextLod === 'MID') {
+              if (detail) detail.visible = false;
+              if (mid) mid.visible = true;
+              if (far) far.visible = false;
+            } else {
+              if (detail) detail.visible = false;
+              if (mid) mid.visible = false;
+              if (far) far.visible = true;
+            }
           }
-          if (nextLod === 'NEAR') {
-            if (detail) detail.visible = true;
-            if (mid) mid.visible = false;
-            if (far) far.visible = false;
-          } else if (nextLod === 'MID') {
-            if (detail) detail.visible = false;
-            if (mid) mid.visible = true;
-            if (far) far.visible = false;
-          } else {
-            if (detail) detail.visible = false;
-            if (mid) mid.visible = false;
-            if (far) far.visible = true;
-          }
+
           // Only near buildings participate in the shadow map. Far and mid
           // representations remain visible but cannot become shadow casters.
           if (lodChanged || shadowsChanged) {
@@ -256,7 +282,7 @@ function PerformanceProbe() {
   return null;
 }
 
-export function City3DCanvas({
+function City3DCanvasComponent({
   grid,
   homeSatisfaction,
   activeTool,
@@ -593,4 +619,6 @@ export function City3DCanvas({
     </Canvas>
   );
 }
+
+export const City3DCanvas = React.memo(City3DCanvasComponent);
 

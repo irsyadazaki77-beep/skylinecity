@@ -1,8 +1,14 @@
-import { simulateTick, getLastSimulationPhaseTimings, getLastSimulationRenderRevisions } from './engine';
+import {
+  simulateTick,
+  getLastSimulationPhaseTimings,
+  getLastSimulationRenderRevisions,
+  getLastSimulationChangedTileKeys,
+  getLastSimulationDirtyChunkKeys,
+} from './engine';
 import { createSimulationSchedulerState, observeSimulationTick } from './simulationScheduler';
 import { queueSimulationCommand } from './simulationCommands';
-import { CityState } from './types';
-import { WorkerInMessage, WorkerOutMessage } from './simulationWorkerProtocol';
+import { CityState, TileData } from './types';
+import { WorkerInMessage, WorkerOutMessage, CityStateScalarDelta } from './simulationWorkerProtocol';
 
 let authoritativeState: CityState | null = null;
 let authoritativeGeneration = -1;
@@ -114,6 +120,106 @@ self.onmessage = (event: MessageEvent<WorkerInMessage>) => {
       authoritativeRevision += requestedTicks;
       authoritativeTickId = message.tickId;
 
+      const changedKeys = getLastSimulationChangedTileKeys();
+      const dirtyTiles: TileData[] = [];
+      for (const key of changedKeys) {
+        const comma = key.indexOf(',');
+        if (comma !== -1) {
+          const x = Number(key.slice(0, comma));
+          const y = Number(key.slice(comma + 1));
+          const t = next.grid[y]?.[x];
+          if (t) dirtyTiles.push(t);
+        }
+      }
+      const dirtyChunkKeys = [...getLastSimulationDirtyChunkKeys()];
+
+      const scalarDelta: CityStateScalarDelta = {
+        day: next.day,
+        timeOfDay: next.timeOfDay,
+        season: next.season,
+        weather: next.weather,
+        temperature: next.temperature,
+        precipitation: next.precipitation,
+        money: next.money,
+        population: next.population,
+        happiness: next.happiness,
+        desirability: next.desirability,
+        residentialDemand: next.residentialDemand,
+        commercialDemand: next.commercialDemand,
+        officeDemand: next.officeDemand,
+        industrialDemand: next.industrialDemand,
+        powerCapacity: next.powerCapacity,
+        powerDemand: next.powerDemand,
+        waterCapacity: next.waterCapacity,
+        waterDemand: next.waterDemand,
+        trafficAverage: next.trafficAverage,
+        averageCommuteTime: next.averageCommuteTime,
+        congestionIndex: next.congestionIndex,
+        averageQueuePressure: next.averageQueuePressure,
+        landValueAverage: next.landValueAverage,
+        suitabilityAverage: next.suitabilityAverage,
+        pollutionAverage: next.pollutionAverage,
+        noiseAverage: next.noiseAverage,
+        educationLevel: next.educationLevel,
+        healthIndex: next.healthIndex,
+        healthcareCoverage: next.healthcareCoverage,
+        educationCoverage: next.educationCoverage,
+        fireSafety: next.fireSafety,
+        crimeRate: next.crimeRate,
+        wasteCapacity: next.wasteCapacity,
+        wasteProduction: next.wasteProduction,
+        wasteCoverage: next.wasteCoverage,
+        fireServiceCapacity: next.fireServiceCapacity,
+        policeServiceCapacity: next.policeServiceCapacity,
+        healthcareCapacity: next.healthcareCapacity,
+        educationCapacity: next.educationCapacity,
+        serviceResponseQuality: next.serviceResponseQuality,
+        income: next.income,
+        expenses: next.expenses,
+        simulationPhase: next.simulationPhase,
+        milestoneLevel: next.milestoneLevel,
+        unlockedAchievements: next.unlockedAchievements,
+        completedMissions: next.completedMissions,
+        activeEvents: next.activeEvents,
+        eventsData: next.eventsData,
+        activeDisasters: next.activeDisasters,
+        disasters: next.disasters,
+        recoveryProjects: next.recoveryProjects,
+        tradeContracts: next.tradeContracts,
+        districts: next.districts,
+        transitLines: next.transitLines,
+        unlockedUpgrades: next.unlockedUpgrades,
+        activePolicies: next.activePolicies,
+        buildingLevelCounts: next.buildingLevelCounts,
+        demographics: next.demographics,
+        warehouseInventory: next.warehouseInventory,
+        causalDiagnostics: next.causalDiagnostics,
+        recentSimulationEvents: next.recentSimulationEvents,
+        citizenState: next.citizenState,
+        history: next.history,
+        regions: next.regions,
+        signalStates: next.signalStates,
+        activeTrips: next.activeTrips,
+        parkingDemand: next.parkingDemand,
+        parkingSupply: next.parkingSupply,
+        parkingCoverage: next.parkingCoverage,
+        parkingPressure: next.parkingPressure,
+        parcelCount: next.parcelCount,
+        developedParcelCount: next.developedParcelCount,
+        privateParcelCount: next.privateParcelCount,
+        averageParcelSize: next.averageParcelSize,
+        freightDemand: next.freightDemand,
+        freightCapacity: next.freightCapacity,
+        freightReliability: next.freightReliability,
+        commercialStock: next.commercialStock,
+        commodityDemand: next.commodityDemand,
+        commoditySupply: next.commoditySupply,
+        commodityStock: next.commodityStock,
+      };
+
+      const approxBytes = dirtyTiles.length * 150 + 2048;
+      const payloadSizeKb = Math.round((approxBytes / 1024) * 10) / 10;
+
       post({
         type: 'TICK_COMPLETED',
         workerGeneration: authoritativeGeneration,
@@ -121,6 +227,13 @@ self.onmessage = (event: MessageEvent<WorkerInMessage>) => {
         stateRevision: authoritativeRevision,
         tickId: authoritativeTickId,
         nextState: next,
+        delta: {
+          scalars: scalarDelta,
+          dirtyTiles,
+          dirtyChunkKeys,
+          payloadSizeKb,
+          queueLatencyMs: Math.round(elapsedMs * 10) / 10,
+        },
         elapsedMs,
         phaseTimings,
         telemetry: scheduled.telemetry,

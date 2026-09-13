@@ -94,6 +94,34 @@ export const GAME_CONFIG = {
       SPEED_MULTIPLIER: 0.62,
       LANES: 3,
     },
+    AVENUE: {
+      BUILD_COST: 55,
+      MAINTENANCE: 5,
+      CAPACITY: 48,
+      SPEED_MULTIPLIER: 0.78,
+      LANES: 2,
+    },
+    ONE_WAY: {
+      BUILD_COST: 30,
+      MAINTENANCE: 2,
+      CAPACITY: 28,
+      SPEED_MULTIPLIER: 0.95,
+      LANES: 1,
+    },
+    PEDESTRIAN: {
+      BUILD_COST: 20,
+      MAINTENANCE: 1,
+      CAPACITY: 10,
+      SPEED_MULTIPLIER: 1.2,
+      LANES: 1,
+    },
+    SERVICE: {
+      BUILD_COST: 18,
+      MAINTENANCE: 1,
+      CAPACITY: 15,
+      SPEED_MULTIPLIER: 1.1,
+      LANES: 1,
+    },
   },
 
   // City Services Specifications

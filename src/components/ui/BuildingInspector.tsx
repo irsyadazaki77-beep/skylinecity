@@ -206,11 +206,26 @@ export function BuildingInspector({ tile, language = 'id', onClose, onFocus, onD
   const baseCost = BUILD_COSTS[tile.type] || 0;
   const refundAmount = Math.round(baseCost * 0.5);
 
+  const hasRoadAccess = isRoad || (roadGrid ? [
+    roadGrid[tile.y - 1]?.[tile.x],
+    roadGrid[tile.y + 1]?.[tile.x],
+    roadGrid[tile.y]?.[tile.x - 1],
+    roadGrid[tile.y]?.[tile.x + 1],
+  ].some((n) => n?.type === TileType.ROAD) : true);
+
   // Diagnostic reason why building might be struggling or not growing
   const getGrowthDiagnostics = () => {
     if (!isZoned && !isTransit && !isWarehouse && !isCargoTerminal) return null;
 
     const reasons: { icon: React.ReactNode; text: string; severity: 'critical' | 'warning' | 'good' }[] = [];
+
+    if (!hasRoadAccess && !isRoad) {
+      reasons.push({
+        icon: <Route size={14} className="text-rose-400" />,
+        text: 'Tidak ada akses jalan langsung. Hubungkan petak ini ke ruas jalan agar warga dan layanan dapat menjangkaunya.',
+        severity: 'critical',
+      });
+    }
 
     if (!tile.powered) {
       reasons.push({
@@ -458,13 +473,35 @@ export function BuildingInspector({ tile, language = 'id', onClose, onFocus, onD
             </div>
             <span className={`text-[10px] font-semibold ${evolutionStatusClass(evolution.status)}`}>{evolutionStatusLabel(evolution.status)}</span>
           </div>
-          <div className="grid grid-cols-3 gap-1.5 text-[10px]">
-            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Okupansi</span><span className="font-mono text-slate-100">{Math.round(evolution.occupancyPercent)}% / 75%</span></div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Permintaan</span><span className={`font-mono ${evolution.demand > 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{evolution.demand > 0 ? '+' : ''}{Math.round(evolution.demand)}</span></div>
+          <div className="grid grid-cols-4 gap-1 text-[10px]">
+            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Skor Tumbuh</span><span className="font-mono text-cyan-300 font-bold">{evolution.developmentScore ?? 50}/100</span></div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Okupansi</span><span className="font-mono text-slate-100">{Math.round(evolution.occupancyPercent)}%</span></div>
+            <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Demand</span><span className={`font-mono ${evolution.demand > 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{evolution.demand > 0 ? '+' : ''}{Math.round(evolution.demand)}</span></div>
             <div className="rounded-lg border border-white/10 bg-black/20 p-1.5"><span className="block text-slate-500">Kapasitas</span><span className="font-mono text-slate-100">{evolution.capacity}</span></div>
           </div>
+          {evolution.upgradingReasons && evolution.upgradingReasons.length > 0 && (
+            <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-2 space-y-1">
+              <span className="text-[9px] uppercase font-bold text-emerald-300 tracking-wider">Faktor Pendukung Evolusi:</span>
+              {evolution.upgradingReasons.map((r) => (
+                <div key={r} className="text-[10px] text-emerald-200 flex items-center gap-1.5">
+                  <span className="text-emerald-400">✓</span><span>{r}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {tile.abandoned && evolution.abandonedReasons && evolution.abandonedReasons.length > 0 && (
+            <div className="rounded-lg bg-rose-500/10 border border-rose-500/20 p-2 space-y-1">
+              <span className="text-[9px] uppercase font-bold text-rose-300 tracking-wider">Penyebab Terbengkalai:</span>
+              {evolution.abandonedReasons.map((r) => (
+                <div key={r} className="text-[10px] text-rose-200 flex items-center gap-1.5">
+                  <span className="text-rose-400">!</span><span>{r}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {evolution.blockers.length > 0 ? (
             <div className="space-y-1">
+              <span className="text-[9px] uppercase font-bold text-amber-300 tracking-wider">Kendala / Penyebab Tertahan:</span>
               {evolution.blockers.slice(0, 4).map((blocker) => <div key={blocker} className="flex gap-1.5 text-[10px] leading-relaxed text-amber-200"><span className="mt-0.5 text-amber-400">•</span><span>{blocker}</span></div>)}
               {evolution.blockers.length > 4 && <div className="text-[9px] text-slate-500">+{evolution.blockers.length - 4} syarat lain di bawah</div>}
             </div>
@@ -674,7 +711,10 @@ export function BuildingInspector({ tile, language = 'id', onClose, onFocus, onD
           </>
         )}
         {isZoned && (
-          <StatBox label="Kesesuaian Lahan" value={`${tile.suitability ?? tile.landValue ?? 0}/100`} icon={<Sparkles size={14} className="text-cyan-300" />} />
+          <>
+            <StatBox label="Kebahagiaan" value={`${estimatedSatisfaction}%`} icon={<HeartPulse size={14} className={estimatedSatisfaction >= 70 ? 'text-emerald-400' : 'text-amber-400'} />} />
+            <StatBox label="Kesesuaian Lahan" value={`${tile.suitability ?? tile.landValue ?? 0}/100`} icon={<Sparkles size={14} className="text-cyan-300" />} />
+          </>
         )}
         {(tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE || tile.type === TileType.INDUSTRIAL) && (
           <StatBox label="Pekerjaan" value={`${tile.jobs} Pekerja`} icon={<TrendingUp size={14} className="text-blue-400" />} />
@@ -724,7 +764,7 @@ export function BuildingInspector({ tile, language = 'id', onClose, onFocus, onD
       )}
 
       {/* Utility Connection Badges */}
-      <div className="flex items-center gap-2 p-2 rounded-xl bg-black/30 border border-white/5 mb-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl bg-black/30 border border-white/5 mb-3 text-xs">
         <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${tile.powered ? 'bg-cyan-500/20 text-cyan-300' : 'bg-rose-500/20 text-rose-300'}`}>
           <Zap size={13} />
           <span>{tile.powered ? 'Listrik Aktif' : 'Tanpa Listrik'}</span>
@@ -733,6 +773,12 @@ export function BuildingInspector({ tile, language = 'id', onClose, onFocus, onD
           <Droplet size={13} />
           <span>{tile.watered ? 'Air Bersih' : 'Tanpa Air'}</span>
         </div>
+        {!isRoad && tile.type !== TileType.EMPTY && (
+          <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${hasRoadAccess ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}`}>
+            <Route size={13} />
+            <span>{hasRoadAccess ? 'Akses Jalan ✓' : 'Tanpa Jalan ⚠'}</span>
+          </div>
+        )}
       </div>
 
       {/* Diagnostics Section */}

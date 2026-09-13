@@ -366,7 +366,10 @@ export function updatePedestrianAgent(
   const tileY = currFrom[1] + cdy * agent.segmentProgress;
 
   const [wx, wy, wz] = gridToWorldFn(tileX, tileY, gridWidth, gridHeight);
-  const elevation = (grid[Math.round(tileY)]?.[Math.round(tileX)]?.elevation ?? 0) * 0.5;
+  const curTile = grid[Math.round(tileY)]?.[Math.round(tileX)];
+  const elevation = (curTile?.elevation ?? 0) * 0.15;
+  const structOffset = curTile?.roadStructure === 'BRIDGE' ? 0.22 : curTile?.roadStructure === 'TUNNEL' ? -0.08 : 0;
 
-  agent.worldPos = [wx + perpX, wy + elevation + 0.04, wz + perpZ];
+  agent.worldPos = [wx + perpX, wy + elevation + structOffset + 0.04, wz + perpZ];
 }
+

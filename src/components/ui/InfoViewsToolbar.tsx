@@ -174,6 +174,58 @@ export function InfoViewsToolbar({ activeOverlay, onSelectOverlay, language = 'i
           <div className="flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-amber-400" /> {translate(catalog, 'infoViews.traffic')}</div>
         </div>
       )}
+
+      {activeOverlay === 'TRAFFIC' && (
+        <div className="mt-2 rounded-lg border border-white/10 bg-[#1e293b]/90 p-2 text-[10px] text-slate-300 space-y-1 animate-in fade-in duration-150">
+          <div className="font-bold text-slate-200">Arus Lalu Lintas</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-emerald-500" /> Lancar (&lt; 30%)</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-amber-500" /> Ramai (30%–70%)</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-rose-500" /> Macet (&gt; 70%)</div>
+        </div>
+      )}
+
+      {activeOverlay === 'ROAD_CONDITION' && (
+        <div className="mt-2 rounded-lg border border-white/10 bg-[#1e293b]/90 p-2 text-[10px] text-slate-300 space-y-1 animate-in fade-in duration-150">
+          <div className="font-bold text-slate-200">Kondisi Aspal Jalan</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-emerald-500" /> Prima (80%–100%)</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-amber-500" /> Aus (50%–79%)</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-rose-500" /> Rusak Parah (&lt; 50%)</div>
+        </div>
+      )}
+
+      {activeOverlay === 'POWER' && (
+        <div className="mt-2 rounded-lg border border-white/10 bg-[#1e293b]/90 p-2 text-[10px] text-slate-300 space-y-1 animate-in fade-in duration-150">
+          <div className="font-bold text-slate-200">Jaringan Listrik</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-amber-400" /> Terhubung Aliran Listrik</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-rose-500" /> Padam (Tanpa Aliran Listrik)</div>
+        </div>
+      )}
+
+      {activeOverlay === 'WATER' && (
+        <div className="mt-2 rounded-lg border border-white/10 bg-[#1e293b]/90 p-2 text-[10px] text-slate-300 space-y-1 animate-in fade-in duration-150">
+          <div className="font-bold text-slate-200">Jaringan Air Bersih</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-sky-400" /> Terpasok Air Bersih</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-rose-500" /> Kering (Tanpa Pasokan Air)</div>
+        </div>
+      )}
+
+      {activeOverlay === 'POLLUTION' && (
+        <div className="mt-2 rounded-lg border border-white/10 bg-[#1e293b]/90 p-2 text-[10px] text-slate-300 space-y-1 animate-in fade-in duration-150">
+          <div className="font-bold text-slate-200">Polusi Lingkungan</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-emerald-500" /> Bersih / Segar (&lt; 20%)</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-amber-500" /> Polusi Sedang (20%–50%)</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-purple-600" /> Polusi Berat (&gt; 50%)</div>
+        </div>
+      )}
+
+      {activeOverlay === 'LAND_VALUE' && (
+        <div className="mt-2 rounded-lg border border-white/10 bg-[#1e293b]/90 p-2 text-[10px] text-slate-300 space-y-1 animate-in fade-in duration-150">
+          <div className="font-bold text-slate-200">Nilai Lahan</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-emerald-500" /> Prima / Tinggi (&gt; 65)</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-cyan-500" /> Menengah (35–65)</div>
+          <div className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-slate-500" /> Rendah (&lt; 35)</div>
+        </div>
+      )}
     </div>
   );
 }

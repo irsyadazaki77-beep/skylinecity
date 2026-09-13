@@ -193,6 +193,17 @@ export function StarterTutorial({
   const isPreCompletedUtilities = activeStep.id === 'utilities' && hasActiveStarterUtilities(gameState);
   const isAllTutorialComplete = steps.every((step) => step.isComplete(gameState, speed));
 
+  const foundationProgress = useMemo(() => {
+    const tiles = gameState.grid.flat();
+    const hasRoad = tiles.some((t) => t.type === TileType.ROAD);
+    const hasZoning = tiles.some((t) => t.type === TileType.RESIDENTIAL || t.type === TileType.COMMERCIAL || t.type === TileType.OFFICE || t.type === TileType.INDUSTRIAL);
+    const hasPower = tiles.some((t) => t.type === TileType.POWER_PLANT && t.powered);
+    const hasWater = tiles.some((t) => t.type === TileType.WATER_PUMP && t.watered);
+    const hasServices = tiles.some((t) => [TileType.FIRE_STATION, TileType.POLICE_STATION, TileType.CLINIC, TileType.SCHOOL].includes(t.type));
+    const hasEconomy = gameState.population > 0 || gameState.income > 0;
+    return { hasRoad, hasZoning, hasPower, hasWater, hasServices, hasEconomy };
+  }, [gameState.grid, gameState.population, gameState.income]);
+
   useEffect(() => {
     writeTutorialProgress({ minimized, currentStepIndex: boundedIndex }, undefined, tutorialSessionKey);
   }, [minimized, boundedIndex, tutorialSessionKey]);
@@ -463,6 +474,28 @@ export function StarterTutorial({
 
       {/* Title & Reason */}
       <div className="tutorial-sheet-content">
+        {/* Visual Progression: Road → Zoning → Power → Water → Services → Economy */}
+        <div className="mb-2.5 flex items-center justify-between gap-1 overflow-x-auto rounded-lg bg-black/40 p-1.5 text-[9px] border border-white/5 font-mono select-none" aria-label="Alur pondasi kota">
+          {[
+            { key: 'road', label: 'Jalan', done: foundationProgress.hasRoad },
+            { key: 'zoning', label: 'Zonasi', done: foundationProgress.hasZoning },
+            { key: 'power', label: 'Listrik', done: foundationProgress.hasPower },
+            { key: 'water', label: 'Air', done: foundationProgress.hasWater },
+            { key: 'services', label: 'Layanan', done: foundationProgress.hasServices },
+            { key: 'economy', label: 'Ekonomi', done: foundationProgress.hasEconomy },
+          ].map((item, idx, arr) => (
+            <React.Fragment key={item.key}>
+              <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded whitespace-nowrap ${
+                item.done
+                  ? 'bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30'
+                  : 'bg-white/5 text-slate-400'
+              }`}>
+                {item.done ? '✓' : idx + 1} {item.label}
+              </span>
+              {idx < arr.length - 1 && <span className="text-slate-600 text-[8px]">→</span>}
+            </React.Fragment>
+          ))}
+        </div>
       <h2 className="text-xs font-bold text-white leading-snug">{activeStep.title}</h2>
       {detailsOpen && <div className="tutorial-detail-content">
       {isPreCompletedUtilities ? (

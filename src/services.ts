@@ -2,6 +2,7 @@ import { TileData, TileType } from './types';
 import { GAME_CONFIG } from './config';
 import { RoadGraph, getAdjacentRoadNodeKey } from './traffic';
 import { serviceUpgradeStats } from './serviceUpgrades';
+import { getOrBuildSpatialRegistry } from './simulationContext';
 
 export interface NetworkUtilityResult {
   powerCapacity: number;
@@ -57,6 +58,7 @@ export function simulateUtilityNetworks(
 ): NetworkUtilityResult {
   const height = grid.length;
   const width = grid[0].length;
+  const registry = getOrBuildSpatialRegistry(grid);
   const hasU = (id: string) => unlockedUpgrades.includes(id);
 
   const powerCapMult = Math.max(0.1, 1 + (hasU('smart_grid') ? 0.2 : 0) + (hasU('adv_turbines') ? 0.5 : 0) + (hasU('smart_sensors') ? 0.1 : 0));
@@ -65,7 +67,7 @@ export function simulateUtilityNetworks(
   const powerDemandMult = Math.max(0.1, (1 - (hasU('solar_subsidies') ? 0.1 : 0)) * powerDemandMultiplier);
   const waterDemandMult = Math.max(0.1, (1 - (hasU('water_meters') ? 0.1 : 0)) * waterDemandMultiplier);
 
-  const visited = Array.from({ length: height }, () => Array(width).fill(false));
+  const visited = new Uint8Array(width * height);
 
   let totalPowerCapacity = 0;
   let totalPowerDemand = 0;
@@ -77,62 +79,71 @@ export function simulateUtilityNetworks(
 
   const markChanged = (tile: TileData) => changedTileKeys.add(`${tile.x},${tile.y}`);
 
-  // Reset all tiles before distribution
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (grid[y][x].powered || grid[y][x].watered) markChanged(grid[y][x]);
-      grid[y][x].powered = false;
-      grid[y][x].watered = false;
-    }
+  // Collect active conducting candidates from spatial registry
+  const roads = registry.zonesByType.get(TileType.ROAD) ?? [];
+  const powerPlants = registry.zonesByType.get(TileType.POWER_PLANT) ?? [];
+  const waterPumps = registry.zonesByType.get(TileType.WATER_PUMP) ?? [];
+  const res = registry.zonesByType.get(TileType.RESIDENTIAL) ?? [];
+  const com = registry.zonesByType.get(TileType.COMMERCIAL) ?? [];
+  const off = registry.zonesByType.get(TileType.OFFICE) ?? [];
+  const ind = registry.zonesByType.get(TileType.INDUSTRIAL) ?? [];
+  const services: TileData[] = [];
+  for (const sList of registry.servicesByChunk.values()) {
+    for (let i = 0; i < sList.length; i += 1) services.push(sList[i]);
   }
 
-  // Find all connected utility networks via BFS
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (visited[y][x]) continue;
+  const conductingTiles = [...powerPlants, ...waterPumps, ...roads, ...res, ...com, ...off, ...ind, ...services];
 
-      const startTile = grid[y][x];
-      // Only non-empty tiles conduct utilities through the city grid
-      if (startTile.type === TileType.EMPTY) {
-        visited[y][x] = true;
-        continue;
+  // Reset only previously powered/watered tiles or active conducting tiles
+  for (let i = 0; i < conductingTiles.length; i += 1) {
+    const tile = conductingTiles[i];
+    if (tile.powered || tile.watered) markChanged(tile);
+    tile.powered = false;
+    tile.watered = false;
+  }
+
+  // Find all connected utility networks via BFS starting from plants or roads
+  for (let i = 0; i < conductingTiles.length; i += 1) {
+    const startTile = conductingTiles[i];
+    const sIdx = startTile.y * width + startTile.x;
+    if (visited[sIdx] || startTile.type === TileType.EMPTY) continue;
+
+    // BFS to find connected component network
+    const queue: [number, number][] = [[startTile.x, startTile.y]];
+    visited[sIdx] = 1;
+    const componentTiles: TileData[] = [];
+
+    let compPowerCapacity = 0;
+    let compWaterCapacity = 0;
+
+    let queueIndex = 0;
+    while (queueIndex < queue.length) {
+      const [cx, cy] = queue[queueIndex++];
+      const currentTile = grid[cy][cx];
+      componentTiles.push(currentTile);
+
+      // Power Plant generation
+      if (currentTile.type === TileType.POWER_PLANT) {
+        compPowerCapacity += 50 * powerCapMult;
+      }
+      // Water Pump generation
+      if (currentTile.type === TileType.WATER_PUMP) {
+        compWaterCapacity += 50 * waterCapMult;
       }
 
-      // BFS to find connected component network
-      const queue: [number, number][] = [[x, y]];
-      visited[y][x] = true;
-      const componentTiles: TileData[] = [];
-
-      let compPowerCapacity = 0;
-      let compWaterCapacity = 0;
-
-      let queueIndex = 0;
-      while (queueIndex < queue.length) {
-        const [cx, cy] = queue[queueIndex++];
-        const currentTile = grid[cy][cx];
-        componentTiles.push(currentTile);
-
-        // Power Plant generation
-        if (currentTile.type === TileType.POWER_PLANT) {
-          compPowerCapacity += 50 * powerCapMult;
-        }
-        // Water Pump generation
-        if (currentTile.type === TileType.WATER_PUMP) {
-          compWaterCapacity += 50 * waterCapMult;
-        }
-
-        // Utilities travel through roads. A building can join a network only
-        // when it touches a road; adjacent buildings do not create a hidden
-        // utility bridge.
-        for (const [nx, ny] of getNeighbors(cx, cy, width, height)) {
-          const neighbor = grid[ny][nx];
-          const canConduct = currentTile.type === TileType.ROAD || neighbor.type === TileType.ROAD;
-          if (!visited[ny][nx] && neighbor.type !== TileType.EMPTY && canConduct) {
-            visited[ny][nx] = true;
-            queue.push([nx, ny]);
-          }
+      // Utilities travel through roads. A building can join a network only
+      // when it touches a road; adjacent buildings do not create a hidden
+      // utility bridge.
+      for (const [nx, ny] of getNeighbors(cx, cy, width, height)) {
+        const neighbor = grid[ny][nx];
+        const canConduct = currentTile.type === TileType.ROAD || neighbor.type === TileType.ROAD;
+        const nIdx = ny * width + nx;
+        if (visited[nIdx] === 0 && neighbor.type !== TileType.EMPTY && canConduct) {
+          visited[nIdx] = 1;
+          queue.push([nx, ny]);
         }
       }
+    }
 
       compPowerCapacity = Math.round(compPowerCapacity);
       compWaterCapacity = Math.round(compWaterCapacity);
@@ -214,7 +225,6 @@ export function simulateUtilityNetworks(
         }
       }
     }
-  }
 
   return {
     powerCapacity: totalPowerCapacity,
@@ -243,17 +253,27 @@ export function simulateCityServices(
 ): CityServicesResult {
   const height = grid.length;
   const width = grid[0].length;
+  const registry = getOrBuildSpatialRegistry(grid);
 
-  // Reset coverage tags
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      grid[y][x].fireCovered = false;
-      grid[y][x].policeCovered = false;
-      grid[y][x].healthCovered = false;
-      grid[y][x].schoolCovered = false;
-      grid[y][x].wasteCovered = false;
-      grid[y][x].serviceResponseTimes = {};
-    }
+  const resTiles = registry.zonesByType.get(TileType.RESIDENTIAL) ?? [];
+  const comTiles = registry.zonesByType.get(TileType.COMMERCIAL) ?? [];
+  const offTiles = registry.zonesByType.get(TileType.OFFICE) ?? [];
+  const indTiles = registry.zonesByType.get(TileType.INDUSTRIAL) ?? [];
+  const serviceTiles: TileData[] = [];
+  for (const sList of registry.servicesByChunk.values()) {
+    for (let i = 0; i < sList.length; i += 1) serviceTiles.push(sList[i]);
+  }
+
+  // Reset coverage tags only on developed/service tiles
+  const activeTiles = [...resTiles, ...comTiles, ...offTiles, ...indTiles, ...serviceTiles];
+  for (let i = 0; i < activeTiles.length; i += 1) {
+    const tile = activeTiles[i];
+    tile.fireCovered = false;
+    tile.policeCovered = false;
+    tile.healthCovered = false;
+    tile.schoolCovered = false;
+    tile.wasteCovered = false;
+    tile.serviceResponseTimes = {};
   }
 
   // Collect active service buildings
@@ -270,14 +290,15 @@ export function simulateCityServices(
 
   const facilities: ServiceFacility[] = [];
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const tile = grid[y][x];
-      // A service building is operational when powered and road-connected;
-      // water demand still participates in utility overload calculations, but
-      // emergency/service dispatch itself does not require potable water.
-      const roadNodeKey = getAdjacentRoadNodeKey(x, y, roadGraph);
-      if (!roadNodeKey || !tile.powered) continue;
+  for (let i = 0; i < serviceTiles.length; i += 1) {
+    const tile = serviceTiles[i];
+    const x = tile.x;
+    const y = tile.y;
+    // A service building is operational when powered and road-connected;
+    // water demand still participates in utility overload calculations, but
+    // emergency/service dispatch itself does not require potable water.
+    const roadNodeKey = getAdjacentRoadNodeKey(x, y, roadGraph);
+    if (!roadNodeKey || !tile.powered) continue;
 
       if (tile.type === TileType.FIRE_STATION) {
         const upgrades = serviceUpgradeStats(tile.type, tile.serviceUpgrades);
@@ -336,7 +357,7 @@ export function simulateCityServices(
         });
       }
     }
-  }
+
 
   type CapacityService = 'fire' | 'police' | 'health' | 'school';
   const allocatedServiceLoad = new Map<string, number>();
@@ -386,7 +407,10 @@ export function simulateCityServices(
 
     const capacityService = serviceIdForFacility(facility.type);
     const averageTraffic = reachableRoads.size > 0
-      ? [...reachableRoads].reduce((sum, key) => sum + (grid[roadGraph.nodes.get(key)!.y][roadGraph.nodes.get(key)!.x].traffic || 0), 0) / reachableRoads.size
+      ? [...reachableRoads].reduce((sum, key) => {
+          const node = roadGraph.nodes.get(key);
+          return sum + (node && grid[node.y]?.[node.x] ? (grid[node.y][node.x].traffic || 0) : 0);
+        }, 0) / reachableRoads.size
       : 0;
     const responseFactor = Math.max(0.45, Math.min(1, 1 - averageTraffic / 180 + (facility.responseBonus ?? 0)));
     facility.operationalCapacity = Math.max(1, Math.round(facility.capacity * responseFactor));
@@ -486,31 +510,31 @@ export function simulateCityServices(
     if (facility.type === TileType.SCHOOL) educationCapacity += facility.operationalCapacity ?? facility.capacity;
   }
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const tile = grid[y][x];
-      if (tile.type === TileType.RESIDENTIAL) {
-        const fireLoad = Math.max(1, tile.population + tile.jobs);
-        fireDemandUnits += fireLoad;
-        fireCoveredUnits += allocatedServiceLoad.get(`fire:${tile.x},${tile.y}`) ?? 0;
-        healthCoveredCapacity += allocatedServiceLoad.get(`health:${tile.x},${tile.y}`) ?? 0;
-        schoolCoveredCapacity += allocatedServiceLoad.get(`school:${tile.x},${tile.y}`) ?? 0;
-        policeCoveredUnits += allocatedServiceLoad.get(`police:${tile.x},${tile.y}`) ?? 0;
-        wasteUnitsProduced += tile.population * GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.PER_POP_WASTE;
-      } else if (tile.type === TileType.COMMERCIAL) {
-        const fireLoad = Math.max(1, tile.population + tile.jobs);
-        fireDemandUnits += fireLoad;
-        fireCoveredUnits += allocatedServiceLoad.get(`fire:${tile.x},${tile.y}`) ?? 0;
-        policeCoveredUnits += allocatedServiceLoad.get(`police:${tile.x},${tile.y}`) ?? 0;
-        wasteUnitsProduced += tile.jobs * 0.5;
-      } else if (tile.type === TileType.INDUSTRIAL) {
-        const fireLoad = Math.max(1, tile.population + tile.jobs);
-        fireDemandUnits += fireLoad;
-        fireCoveredUnits += allocatedServiceLoad.get(`fire:${tile.x},${tile.y}`) ?? 0;
-        policeCoveredUnits += allocatedServiceLoad.get(`police:${tile.x},${tile.y}`) ?? 0;
-        wasteUnitsProduced += tile.jobs * GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.PER_IND_WASTE;
-      }
-    }
+  for (let i = 0; i < resTiles.length; i += 1) {
+    const tile = resTiles[i];
+    const fireLoad = Math.max(1, tile.population + tile.jobs);
+    fireDemandUnits += fireLoad;
+    fireCoveredUnits += allocatedServiceLoad.get(`fire:${tile.x},${tile.y}`) ?? 0;
+    healthCoveredCapacity += allocatedServiceLoad.get(`health:${tile.x},${tile.y}`) ?? 0;
+    schoolCoveredCapacity += allocatedServiceLoad.get(`school:${tile.x},${tile.y}`) ?? 0;
+    policeCoveredUnits += allocatedServiceLoad.get(`police:${tile.x},${tile.y}`) ?? 0;
+    wasteUnitsProduced += tile.population * GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.PER_POP_WASTE;
+  }
+  for (let i = 0; i < comTiles.length; i += 1) {
+    const tile = comTiles[i];
+    const fireLoad = Math.max(1, tile.population + tile.jobs);
+    fireDemandUnits += fireLoad;
+    fireCoveredUnits += allocatedServiceLoad.get(`fire:${tile.x},${tile.y}`) ?? 0;
+    policeCoveredUnits += allocatedServiceLoad.get(`police:${tile.x},${tile.y}`) ?? 0;
+    wasteUnitsProduced += tile.jobs * 0.5;
+  }
+  for (let i = 0; i < indTiles.length; i += 1) {
+    const tile = indTiles[i];
+    const fireLoad = Math.max(1, tile.population + tile.jobs);
+    fireDemandUnits += fireLoad;
+    fireCoveredUnits += allocatedServiceLoad.get(`fire:${tile.x},${tile.y}`) ?? 0;
+    policeCoveredUnits += allocatedServiceLoad.get(`police:${tile.x},${tile.y}`) ?? 0;
+    wasteUnitsProduced += tile.jobs * GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.PER_IND_WASTE;
   }
 
   wasteUnitsProduced = Math.round(wasteUnitsProduced);

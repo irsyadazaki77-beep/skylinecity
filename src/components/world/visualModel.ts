@@ -13,12 +13,28 @@ export function buildingScale(tile: TileData): number {
   return (tile.zoneDensity === 'HIGH' ? 1.35 : tile.zoneDensity === 'MEDIUM' ? 1.15 : 1) * (0.94 + buildingVariant(tile) * 0.035);
 }
 
-export type BuildingSilhouette = 'L_SHAPE' | 'U_SHAPE' | 'STEPPED' | 'CORNER' | 'ROW' | 'COURTYARD';
+export type BuildingSilhouette =
+  | 'L_SHAPE'
+  | 'U_SHAPE'
+  | 'STEPPED'
+  | 'CORNER'
+  | 'ROW'
+  | 'COURTYARD'
+  | 'SETBACK'
+  | 'TWIN_TOWER'
+  | 'T_SHAPE'
+  | 'COMPACT_BOX'
+  | 'SHED'
+  | 'ATRIUM';
+
 export type BuildingArchetype =
   | 'DETACHED_HOUSE' | 'TOWNHOUSE_ROW' | 'VILLA' | 'COURTYARD_APARTMENT' | 'APARTMENT_BLOCK'
   | 'CORNER_SHOP' | 'RETAIL_STRIP' | 'MIXED_USE_BLOCK'
   | 'OFFICE_MIDRISE' | 'GLASS_TOWER' | 'CIVIC_TOWER'
   | 'WAREHOUSE' | 'FACTORY' | 'INDUSTRIAL_CAMPUS';
+export type RoofStyle = 'FLAT' | 'GABLE' | 'HIPPED' | 'MANSARD' | 'SAWTOOTH' | 'TERRACE' | 'SPIRE';
+export type SignageStyle = 'NONE' | 'AWNING' | 'NEON' | 'BILLBOARD' | 'CORPORATE';
+
 export interface BuildingVisualSpec {
   archetype: BuildingArchetype;
   silhouette: BuildingSilhouette;
@@ -30,6 +46,9 @@ export interface BuildingVisualSpec {
   accentIndex: number;
   windowPattern: number;
   roofProp: 'HVAC' | 'SOLAR' | 'TANK' | 'ANTENNA';
+  roofStyle: RoofStyle;
+  hasChimney: boolean;
+  signageStyle: SignageStyle;
   imperfection: number;
   balconyCount: number;
   hasCanopy: boolean;
@@ -72,28 +91,79 @@ export function buildingVisualSpec(tile: TileData): BuildingVisualSpec {
       : tile.type === TileType.OFFICE ? officeArchetypes
         : tile.type === TileType.INDUSTRIAL ? industrialArchetypes : ['CIVIC_TOWER'] as BuildingArchetype[];
   const archetype = archetypes[(variant + Math.floor(random() * archetypes.length)) % archetypes.length];
+
+  let roofStyle: RoofStyle = 'FLAT';
+  if (tile.type === TileType.RESIDENTIAL) {
+    roofStyle = level <= 1 ? ((variant & 1) ? 'GABLE' : 'HIPPED')
+      : level === 2 ? ((variant & 1) ? 'MANSARD' : 'GABLE')
+      : level === 3 ? 'TERRACE'
+      : level >= 5 ? 'SPIRE' : 'FLAT';
+  } else if (tile.type === TileType.INDUSTRIAL) {
+    roofStyle = level <= 2 ? 'SAWTOOTH' : 'FLAT';
+  } else if (tile.type === TileType.OFFICE || tile.type === TileType.COMMERCIAL) {
+    roofStyle = level >= 5 ? 'SPIRE' : level >= 3 ? 'TERRACE' : 'FLAT';
+  }
+
+  const hasChimney = tile.type === TileType.RESIDENTIAL && level <= 2 && ((variant & 1) === 0);
+
+  let signageStyle: SignageStyle = 'NONE';
+  if (tile.type === TileType.COMMERCIAL) {
+    signageStyle = level <= 2 ? 'AWNING' : level === 3 ? 'NEON' : 'CORPORATE';
+  } else if (tile.type === TileType.OFFICE) {
+    signageStyle = level >= 3 ? 'CORPORATE' : 'BILLBOARD';
+  } else if (tile.type === TileType.INDUSTRIAL && level >= 2) {
+    signageStyle = 'BILLBOARD';
+  }
+
+  // Tightly clamp width and depth so all geometries stay strictly within [-0.46, 0.46]
+  const safeWidth = Math.min(0.72, 0.54 + random() * 0.16);
+  const safeDepth = Math.min(0.70, 0.52 + random() * 0.16);
+
+  // Diverse deterministic color and window distribution to avoid adjacent clone buildings
+  const spatialSeed = (tile.x * 3 + tile.y * 7 + variant) >>> 0;
+  const accentIndex = (spatialSeed + Math.floor(random() * 5)) % 5;
+  const windowPattern = (spatialSeed + Math.floor(random() * 4)) % 4;
+
   return {
     archetype,
     silhouette: silhouettes[(variant + Math.floor(random() * silhouettes.length)) % silhouettes.length],
     floors,
-    width: 0.62 + random() * 0.24,
-    depth: 0.58 + random() * 0.27,
-    height: Math.max(0.42, floors * heightPerFloor),
+    width: safeWidth,
+    depth: safeDepth,
+    height: Math.max(0.40, floors * heightPerFloor),
     podiumHeight: level >= 3 || tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE ? 0.26 + random() * 0.12 : 0.1,
-    accentIndex: (variant + Math.floor(random() * 5)) % 5,
-    windowPattern: Math.floor(random() * 4),
+    accentIndex,
+    windowPattern,
     roofProp: (['HVAC', 'SOLAR', 'TANK', 'ANTENNA'] as const)[Math.floor(random() * 4)],
-    imperfection: random() * 0.06 - 0.03,
+    roofStyle,
+    hasChimney,
+    signageStyle,
+    imperfection: (random() * 0.04 - 0.02),
     balconyCount: tile.type === TileType.RESIDENTIAL || archetype === 'MIXED_USE_BLOCK' ? Math.max(0, Math.min(4, level - 1 + (variant & 1))) : 0,
     hasCanopy: tile.type === TileType.COMMERCIAL || tile.type === TileType.OFFICE || level >= 4,
     hasFireEscape: (archetype === 'APARTMENT_BLOCK' || archetype === 'COURTYARD_APARTMENT') && (variant & 1) === 1,
     hasCrown: level >= 5 || archetype === 'CIVIC_TOWER',
   };
 }
-export const roadVisual = (roadClass: RoadClass) => ({
-  width: roadClass === 'HIGHWAY' ? 1 : roadClass === 'ARTERIAL' ? 0.99 : 0.92,
-  color: roadClass === 'HIGHWAY' ? '#30353a' : roadClass === 'ARTERIAL' ? '#454b4d' : '#5b5d59',
-});
+export const roadVisual = (roadClass: RoadClass) => {
+  switch (roadClass) {
+    case 'HIGHWAY':
+      return { width: 1.0, color: '#272b30' };
+    case 'AVENUE':
+      return { width: 0.99, color: '#383e44' };
+    case 'ARTERIAL':
+      return { width: 0.98, color: '#454b4d' };
+    case 'ONE_WAY':
+      return { width: 0.94, color: '#4f555c' };
+    case 'PEDESTRIAN':
+      return { width: 0.88, color: '#8c7d6b' };
+    case 'SERVICE':
+      return { width: 0.86, color: '#68665f' };
+    case 'LOCAL':
+    default:
+      return { width: 0.92, color: '#5b5d59' };
+  }
+};
 export function focusFrame(target: [number, number, number], settlement: [number, number, number], context: boolean) {
   const span = context ? Math.hypot(target[0] - settlement[0], target[2] - settlement[2]) : 0;
   return { target: context ? target.map((v, i) => (v + settlement[i]) / 2) as [number, number, number] : target,

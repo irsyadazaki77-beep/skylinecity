@@ -23,12 +23,18 @@ export function getConstructionStage(tile: TileData): ConstructionStage {
   if (tile.abandoned) return 'ABANDONED';
 
   const occupied = tile.type === TileType.RESIDENTIAL ? tile.population > 0 : tile.jobs > 0;
-  const progress = Math.max(0, Math.min(100, tile.upgradeProgress ?? 0));
 
   // Upgrades of existing occupied buildings show as active renovation
-  if (occupied && progress > 0 && progress < 100) {
+  if (tile.constructionState === 'RENOVATING' || (occupied && (tile.upgradeProgress ?? 0) > 0 && (tile.upgradeProgress ?? 0) < 100)) {
     return 'RENOVATING';
   }
+
+  if (tile.constructionType === 'NEW' && tile.constructionState) {
+    if (tile.constructionState === 'EMPTY_LOT') return 'SITE_PREPARATION';
+    return tile.constructionState;
+  }
+
+  const progress = Math.max(0, Math.min(100, tile.upgradeProgress ?? 0));
 
   // New construction lifecycle progression
   if (progress >= 88) return 'FINISHING';

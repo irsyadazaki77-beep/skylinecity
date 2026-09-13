@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { BUILD_COSTS, OverlayMode, ROAD_BUILD_COSTS, ROAD_REPAIR_COST, RoadClass, TERRAFORM_COST, TileData, TileType, TUNNEL_BUILD_COST } from '../../types';
 import { TileMarker } from './TileMarker';
@@ -39,45 +40,61 @@ function isRenderableTile(tile: TileData | undefined, unlockedRegions: string[],
   return mapExpansionMode || unlockedRegions.includes(`${Math.floor(tile.x / 20)},${Math.floor(tile.y / 20)}`);
 }
 
-function getTerrainTileColor(tile: TileData): THREE.Color {
+function getTerrainTileColor(tile: TileData, isNearWater = false): THREE.Color {
   if (tile.type === TileType.FLOOD_BARRIER) return new THREE.Color('#0ea5e9');
   if (tile.type === TileType.WATER_RESERVOIR) return new THREE.Color('#2563eb');
   if (tile.type !== TileType.EMPTY) return new THREE.Color('#64748b');
 
   const elev = Math.max(0, tile.elevation || 0);
+  const hash = Math.sin(tile.x * 12.9898 + tile.y * 78.233) * 43758.5453;
+  const jitter = (hash - Math.floor(hash)) * 0.07 - 0.035;
 
-  // Resource-specific color palettes with elevation sensitivity
   if (tile.resource === 'fertile') {
-    return elev > 2 ? new THREE.Color('#5c7340') : new THREE.Color('#6b8e3d');
+    const base = elev > 2 ? new THREE.Color('#58723c') : new THREE.Color('#688c3a');
+    base.offsetHSL(0, 0, jitter);
+    return base;
   }
   if (tile.resource === 'forest') {
-    return elev > 3 ? new THREE.Color('#2d5238') : new THREE.Color('#356144');
+    const base = elev > 3 ? new THREE.Color('#284e34') : new THREE.Color('#315d3f');
+    base.offsetHSL(0, 0, jitter);
+    return base;
   }
   if (tile.resource === 'ore') {
-    return elev > 2 ? new THREE.Color('#8b5435') : new THREE.Color('#784d34');
+    const base = elev > 2 ? new THREE.Color('#855030') : new THREE.Color('#74492f');
+    base.offsetHSL(0, 0, jitter);
+    return base;
   }
   if (tile.resource === 'oil') {
-    return new THREE.Color('#3b4452');
+    const base = new THREE.Color('#343d4a');
+    base.offsetHSL(0, 0, jitter);
+    return base;
   }
 
-  // Natural elevation gradient for wild / grassland terrain:
-  // Lowlands (elev 0): warm meadow grass
-  // Mid (elev 1-2): lush vibrant highland grass
-  // High (elev 3-4): subalpine stony grassland
-  // Alpine (elev 5+): exposed mountain rock outcrop
-  if (elev === 0) return new THREE.Color('#4c7a45');
-  if (elev <= 2) return new THREE.Color('#446c3d');
-  if (elev <= 4) return new THREE.Color('#556850');
-  return new THREE.Color('#667065');
+  // Coastline sand fringe
+  if (isNearWater && elev === 0) {
+    const sandBase = new THREE.Color('#c4b07f');
+    sandBase.offsetHSL(0, 0, jitter * 0.5);
+    return sandBase;
+  }
+
+  // Natural elevation gradient:
+  let col: THREE.Color;
+  if (elev === 0) col = new THREE.Color('#4a7844');
+  else if (elev <= 2) col = new THREE.Color('#41683b');
+  else if (elev <= 4) col = new THREE.Color('#51634d');
+  else col = new THREE.Color('#636c62');
+
+  col.offsetHSL(0, 0, jitter);
+  return col;
 }
 
-function getTerrainCliffColor(tile: TileData): THREE.Color {
-  if (tile.resource === 'ore') return new THREE.Color('#5c3b26');
-  if (tile.resource === 'oil') return new THREE.Color('#2b323d');
-  if (tile.resource === 'fertile') return new THREE.Color('#4d4233');
+function getTerrainCliffColor(tile: TileData, isUpper = false): THREE.Color {
+  if (tile.resource === 'ore') return isUpper ? new THREE.Color('#4c2e1c') : new THREE.Color('#5c3b26');
+  if (tile.resource === 'oil') return isUpper ? new THREE.Color('#222830') : new THREE.Color('#2b323d');
+  if (tile.resource === 'fertile') return isUpper ? new THREE.Color('#3e3529') : new THREE.Color('#4d4233');
   const elev = Math.max(0, tile.elevation || 0);
-  if (elev >= 4) return new THREE.Color('#4f5351');
-  return new THREE.Color('#464742');
+  if (elev >= 4) return isUpper ? new THREE.Color('#3f4341') : new THREE.Color('#4f5351');
+  return isUpper ? new THREE.Color('#373833') : new THREE.Color('#464742');
 }
 
 function createTerrainSurfaceGeometry(grid: TileData[][], unlockedRegions: string[], mapExpansionMode: boolean) {
@@ -110,26 +127,47 @@ function createTerrainSurfaceGeometry(grid: TileData[][], unlockedRegions: strin
       const x1 = worldX + 0.502;
       const z0 = worldZ - 0.502;
       const z1 = worldZ + 0.502;
-      const topColor = getTerrainTileColor(tile);
-      pushQuad([[x0, top, z0], [x0, top, z1], [x1, top, z1], [x1, top, z0]], topColor);
 
-      const cliffColor = getTerrainCliffColor(tile);
       const neighbors: Array<{ tile: TileData | undefined; edge: 'north' | 'east' | 'south' | 'west' }> = [
         { tile: grid[y - 1]?.[x], edge: 'north' },
         { tile: grid[y]?.[x + 1], edge: 'east' },
         { tile: grid[y + 1]?.[x], edge: 'south' },
         { tile: grid[y]?.[x - 1], edge: 'west' },
       ];
+      const isNearWater = neighbors.some((n) => n.tile?.water);
+      const topColor = getTerrainTileColor(tile, isNearWater);
+      pushQuad([[x0, top, z0], [x0, top, z1], [x1, top, z1], [x1, top, z0]], topColor);
 
       neighbors.forEach(({ tile: neighbor, edge }) => {
         if (neighbor?.water) return;
         const neighborTop = neighbor ? terrainHeight(neighbor.elevation) : -0.55;
         if (neighbor && neighborTop >= top - 0.001) return;
         const bottom = Math.min(top - 0.02, neighborTop);
-        if (edge === 'north') pushQuad([[x0, top, z0], [x1, top, z0], [x1, bottom, z0], [x0, bottom, z0]], cliffColor);
-        if (edge === 'east') pushQuad([[x1, top, z0], [x1, top, z1], [x1, bottom, z1], [x1, bottom, z0]], cliffColor);
-        if (edge === 'south') pushQuad([[x1, top, z1], [x0, top, z1], [x0, bottom, z1], [x1, bottom, z1]], cliffColor);
-        if (edge === 'west') pushQuad([[x0, top, z1], [x0, top, z0], [x0, bottom, z0], [x0, bottom, z1]], cliffColor);
+        const drop = top - bottom;
+        if (drop > 0.25) {
+          const midH = top - 0.12;
+          const upperColor = getTerrainCliffColor(tile, true);
+          const lowerColor = getTerrainCliffColor(tile, false);
+          if (edge === 'north') {
+            pushQuad([[x0, top, z0], [x1, top, z0], [x1, midH, z0], [x0, midH, z0]], upperColor);
+            pushQuad([[x0, midH, z0], [x1, midH, z0], [x1, bottom, z0], [x0, bottom, z0]], lowerColor);
+          } else if (edge === 'east') {
+            pushQuad([[x1, top, z0], [x1, top, z1], [x1, midH, z1], [x1, midH, z0]], upperColor);
+            pushQuad([[x1, midH, z0], [x1, midH, z1], [x1, bottom, z1], [x1, bottom, z0]], lowerColor);
+          } else if (edge === 'south') {
+            pushQuad([[x1, top, z1], [x0, top, z1], [x0, midH, z1], [x1, midH, z1]], upperColor);
+            pushQuad([[x1, midH, z1], [x0, midH, z1], [x0, bottom, z1], [x1, bottom, z1]], lowerColor);
+          } else if (edge === 'west') {
+            pushQuad([[x0, top, z1], [x0, top, z0], [x0, midH, z0], [x0, midH, z1]], upperColor);
+            pushQuad([[x0, midH, z1], [x0, midH, z0], [x0, bottom, z0], [x0, bottom, z1]], lowerColor);
+          }
+        } else {
+          const cliffColor = getTerrainCliffColor(tile, false);
+          if (edge === 'north') pushQuad([[x0, top, z0], [x1, top, z0], [x1, bottom, z0], [x0, bottom, z0]], cliffColor);
+          if (edge === 'east') pushQuad([[x1, top, z0], [x1, top, z1], [x1, bottom, z1], [x1, bottom, z0]], cliffColor);
+          if (edge === 'south') pushQuad([[x1, top, z1], [x0, top, z1], [x0, bottom, z1], [x1, bottom, z1]], cliffColor);
+          if (edge === 'west') pushQuad([[x0, top, z1], [x0, top, z0], [x0, bottom, z0], [x0, bottom, z1]], cliffColor);
+        }
       });
     }
   }
@@ -344,14 +382,35 @@ export function TerrainGrid({
     });
   }, []);
 
-  const waterTileMat = useMemo(() => new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.05,
-    metalness: 0.16,
-    transparent: true,
-    opacity: 0.88,
-    side: THREE.DoubleSide,
-  }), []);
+  const waterTimeRef = useRef({ value: 0 });
+  const waterTileMat = useMemo(() => {
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.06,
+      metalness: 0.18,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+    });
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uWaterTime = waterTimeRef.current;
+      shader.vertexShader = `
+        uniform float uWaterTime;
+        ${shader.vertexShader}
+      `.replace(
+        '#include <begin_vertex>',
+        `
+        #include <begin_vertex>
+        transformed.y += sin(position.x * 2.6 + position.z * 2.2 + uWaterTime * 1.5) * 0.007 + cos(position.x * 1.4 - position.z * 1.8 + uWaterTime * 1.1) * 0.004;
+        `
+      );
+    };
+    return mat;
+  }, []);
+
+  useFrame((_, delta) => {
+    waterTimeRef.current.value += delta;
+  });
 
   const terrainSurfaceGeo = useMemo(() => (
     createTerrainSurfaceGeometry(grid, unlockedRegions, mapExpansionMode)
@@ -373,17 +432,17 @@ export function TerrainGrid({
     shorelineGeo.dispose();
   }, [terrainSurfaceGeo, waterSurfaceGeo, shorelineGeo]);
   const shorelineMat = useMemo(() => new THREE.MeshStandardMaterial({
-    color: '#bbf2f6',
-    roughness: 0.35,
-    metalness: 0.05,
+    color: '#dfcfab',
+    roughness: 0.42,
+    metalness: 0.02,
     transparent: true,
-    opacity: 0.72,
+    opacity: 0.82,
     depthWrite: false,
     side: THREE.DoubleSide,
   }), []);
   useEffect(() => {
     waterTileMat.color.set('#f2d5a1').lerp(new THREE.Color('#294b61'), Math.min(1, Math.max(0, nightFactor) * 0.72));
-    shorelineMat.color.set('#d6c39a').lerp(new THREE.Color('#405466'), Math.min(1, Math.max(0, nightFactor) * 0.6));
+    shorelineMat.color.set('#dfcfab').lerp(new THREE.Color('#405466'), Math.min(1, Math.max(0, nightFactor) * 0.6));
   }, [nightFactor, shorelineMat, waterTileMat]);
   const placementGhostGeo = useMemo(() => new THREE.BoxGeometry(0.68, 1, 0.68), []);
   const placementPodiumGeo = useMemo(() => new THREE.BoxGeometry(0.9, 0.12, 0.9), []);

@@ -1,0 +1,56 @@
+[
+  {
+    "name": "desktop",
+    "width": 1280,
+    "height": 720,
+    "errors": [],
+    "checks": [
+      "camera keyboard pan, rotate, zoom preserves target, Home reset",
+      "3D road drag and actual tile inspector",
+      "left drag pans without selecting",
+      "3D residential zoning",
+      "service overlay and readable legend",
+      "3D bulldozer and undo",
+      "save, page reload, load retains 3D zoning"
+    ],
+    "failure": "Error: expect(received).toBeGreaterThan(expected)\n\nExpected: > 0\nReceived:   0\n\nCall Log:\n- Timeout 45000ms exceeded while waiting on the predicate",
+    "ui": {
+      "focus": "BUTTON",
+      "day": "31",
+      "hud": "Skyline / DesaTk.0Layanan Dasar0%Populasi0• stabilKas Kota$4.920$-99-$99↘ defisitKebahagiaan36%• perhatianHari 31 · 18:001",
+      "performance": {
+        "frameTimeMs": 934.9000000059605,
+        "frameTimeP50Ms": 174.90000000596046,
+        "frameTimeP95Ms": 3084.5999999940395,
+        "frameTimeP99Ms": 4392.199999988079,
+        "fps": 5.717552887169358,
+        "simulationTickMs": 40.30000001192093,
+        "workerMessageLatencyMs": 78.19999998807907,
+        "reactCommitMs": 0,
+        "threeFrameMs": 934.9000000059605,
+        "gpuTimerAvailable": true,
+        "drawCalls": 509,
+        "triangles": 254874,
+        "visibleObjects": 1288,
+        "geometries": 68,
+        "textures": 2,
+        "materials": 69,
+        "mountedBuildings": 7,
+        "mountedProps": 2,
+        "activeVehicles": 2,
+        "activePedestrians": 0,
+        "lodNear": 0,
+        "lodMid": 0,
+        "lodFar": 0,
+        "lodTransitions": 0,
+        "reactCommitCount": 0,
+        "gcCount": 0,
+        "soakElapsedMs": 53091.69999998808,
+        "jsHeapMb": 9.5367431640625,
+        "soakHeapStartMb": 9.5367431640625,
+        "soakHeapDeltaMb": 0
+      },
+      "dialogs": []
+    }
+  }
+]

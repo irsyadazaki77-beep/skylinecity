@@ -57,3 +57,28 @@ Baseline: lint/type-check dan build lulus; 76 berkas uji / 316 pengujian lulus. 
 Target 60 FPS pada GPU desktop menengah belum terbukti. SwiftShader pada host ini bukan perangkat pembanding GPU dan menghasilkan p95 frame yang tinggi. Profil singkat bukan bukti tidak ada memory leak; perlu soak 10–30 menit dan perangkat Android/iOS fisik. Tampilan High, gesture perangkat nyata, cuaca, seluruh campaign serta seluruh kombinasi overlay belum mendapat acceptance menyeluruh. Sebagian label lama masih campuran Bahasa Indonesia/Inggris. Penyatuan semua overlay khusus 2D/3D masih perlu dilanjutkan.
 
 Prioritas selanjutnya: batching detail bangunan pada kota padat, raycast terrain sesuai elevasi pada seluruh sudut, profiling GPU nyata, serta acceptance visual High siang/malam. Dokumen ini tidak menyatakan keseluruhan brief premium telah selesai.
+
+## Kelanjutan 13 September
+
+- Uji 3D membuktikan zoning, layanan overlay, bulldozer/undo, serta save lalu reload dan load bekerja. Uji tersebut menangkap satu tick terlambat setelah pause.
+- `useSimulationControls` sekarang mengganti identitas generasi worker dan mengirim reset ke state terakhir yang sudah terlihat ketika pause membatalkan tick aktif. Timer juga membaca status pause sinkron. Tidak ada tick yang dibuang lalu diam-diam diterapkan ketika resume.
+- Dua pengujian browser baru menunda respons `TICK_COMPLETED` selama 800 ms. Pause harus mempertahankan hari yang terlihat dan resume harus melanjutkan dari hari itu. Keduanya lulus pada desktop dan mobile.
+- Dua alur mobile tertahan karena badge alat aktif menutupi tombol kategori Zona. Badge dipindah ke bawah kontrol kamera pada portrait; label pasif tidak menangkap pointer dan tombol Batal tetap dapat diklik.
+- Pemulihan konteks grafis memasang ulang renderer sehingga render target lingkungan procedural dibuat kembali. CityState tetap berada di luar canvas.
+- Peringatan lint untuk geometri jalan dan parameter detail rumah yang tidak digunakan dibersihkan.
+
+Pada host Windows ini teardown pohon proses server bawaan Playwright dapat tersendat setelah hasil semua tes sudah keluar. Mode opt-in `SKYLINE_E2E_EXTERNAL_SERVER=1` menggunakan server produksi yang dimulai secara eksplisit, tanpa mengubah perilaku default CI. Selalu build dahulu. Contoh PowerShell untuk server port 3006:
+
+```powershell
+npm run build
+# Terminal pertama:
+node scripts/serveDist.mjs --port 3006
+# Terminal kedua:
+$env:SKYLINE_SOFTWARE_WEBGL='1'
+$env:SKYLINE_E2E_EXTERNAL_SERVER='1'
+$env:PLAYWRIGHT_PORT='3006'
+npm run e2e
+node visual-qa/verify-upgrade.mjs
+```
+
+Manifest hash source pada awal verifikasi tersedia di `visual-qa/upgrade/source-manifest.json` untuk mendeteksi perubahan workspace selama pengujian.

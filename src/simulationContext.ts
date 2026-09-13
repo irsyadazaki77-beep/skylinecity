@@ -51,6 +51,17 @@ export interface SimulationRenderRevisions {
   chunkRevisions: Record<string, number>;
 }
 
+export interface SpatialRegistry {
+  buildingsByChunk: Map<string, TileData[]>;
+  roadsByChunk: Map<string, TileData[]>;
+  zonesByType: Map<TileType, TileData[]>;
+  servicesByChunk: Map<string, TileData[]>;
+  dirtySimulationChunks: Set<string>;
+  gridRef: TileData[][] | null;
+  width: number;
+  height: number;
+}
+
 export interface SimulationTickContext {
   /** Derived graph is owned by this tick and is never persisted. */
   roadGraph: RoadGraph | null;
@@ -58,26 +69,39 @@ export interface SimulationTickContext {
   changedTiles: Set<string>;
   dirtyChunkKeys: Set<string>;
   renderChanges: Set<RenderChangeKind>;
+  spatialRegistry: SpatialRegistry;
 }
 
 const RENDER_CHUNK_SIZE = 10;
 
-function chunkKey(x: number, y: number): string {
+export function getSimulationChunkKey(x: number, y: number): string {
   return `${Math.floor(x / RENDER_CHUNK_SIZE)},${Math.floor(y / RENDER_CHUNK_SIZE)}`;
 }
 
-function isBuilding(type: TileType): boolean {
+function chunkKey(x: number, y: number): string {
+  return getSimulationChunkKey(x, y);
+}
+
+export function isBuildingType(type: TileType): boolean {
   return type === TileType.RESIDENTIAL
     || type === TileType.COMMERCIAL
     || type === TileType.OFFICE
     || type === TileType.INDUSTRIAL;
 }
 
-function isUtility(type: TileType): boolean {
+function isBuilding(type: TileType): boolean {
+  return isBuildingType(type);
+}
+
+export function isUtilityType(type: TileType): boolean {
   return type === TileType.POWER_PLANT || type === TileType.WATER_PUMP;
 }
 
-function isService(type: TileType): boolean {
+function isUtility(type: TileType): boolean {
+  return isUtilityType(type);
+}
+
+export function isServiceType(type: TileType): boolean {
   return type === TileType.FIRE_STATION
     || type === TileType.POLICE_STATION
     || type === TileType.CLINIC
@@ -85,67 +109,248 @@ function isService(type: TileType): boolean {
     || type === TileType.WASTE_MANAGEMENT;
 }
 
-/** One deterministic grid pass shared by the phases that need these indexes. */
-export function collectTileAggregates(grid: TileData[][]): SimulationTileAggregates {
-  const result: SimulationTileAggregates = {
-    buildingCount: 0,
-    reliableBuildingCount: 0,
-    population: 0,
-    jobs: 0,
-    officeJobs: 0,
-    residentialTiles: [],
-    commercialTiles: [],
-    officeTiles: [],
-    industrialTiles: [],
-    roadTiles: [],
-    utilityTiles: [],
-    serviceTiles: [],
-    developedTiles: [],
-  };
+function isService(type: TileType): boolean {
+  return isServiceType(type);
+}
 
-  for (let y = 0; y < grid.length; y += 1) {
+let cachedSpatialRegistry: SpatialRegistry | null = null;
+
+export function createSpatialRegistry(grid: TileData[][]): SpatialRegistry {
+  const height = grid.length;
+  const width = grid[0]?.length ?? 0;
+  const buildingsByChunk = new Map<string, TileData[]>();
+  const roadsByChunk = new Map<string, TileData[]>();
+  const zonesByType = new Map<TileType, TileData[]>();
+  const servicesByChunk = new Map<string, TileData[]>();
+  const dirtySimulationChunks = new Set<string>();
+
+  for (let y = 0; y < height; y += 1) {
     const row = grid[y];
-    for (let x = 0; x < row.length; x += 1) {
+    for (let x = 0; x < width; x += 1) {
       const tile = row[x];
-      if (isBuilding(tile.type)) {
-        result.buildingCount += 1;
-        if (tile.powered && tile.watered) result.reliableBuildingCount += 1;
-        result.jobs += tile.jobs || 0;
-        if (tile.type === TileType.RESIDENTIAL) {
-          result.residentialTiles.push(tile);
-          result.population += tile.population || 0;
-        } else if (tile.type === TileType.COMMERCIAL) {
-          result.commercialTiles.push(tile);
-        } else if (tile.type === TileType.OFFICE) {
-          result.officeTiles.push(tile);
-          result.officeJobs += tile.jobs || 0;
-        } else {
-          result.industrialTiles.push(tile);
-        }
-        if (!tile.abandoned && tile.type !== TileType.ROAD && (tile.population > 0 || tile.jobs > 0 || tile.level > 1)) {
-          result.developedTiles.push(tile);
-        }
+      const cKey = getSimulationChunkKey(x, y);
+
+      let byType = zonesByType.get(tile.type);
+      if (!byType) {
+        byType = [];
+        zonesByType.set(tile.type, byType);
       }
-      if (tile.type === TileType.ROAD) result.roadTiles.push(tile);
-      if (isUtility(tile.type)) result.utilityTiles.push(tile);
-      if (isService(tile.type)) result.serviceTiles.push(tile);
+      byType.push(tile);
+
+      if (isBuildingType(tile.type)) {
+        let bList = buildingsByChunk.get(cKey);
+        if (!bList) {
+          bList = [];
+          buildingsByChunk.set(cKey, bList);
+        }
+        bList.push(tile);
+      } else if (tile.type === TileType.ROAD) {
+        let rList = roadsByChunk.get(cKey);
+        if (!rList) {
+          rList = [];
+          roadsByChunk.set(cKey, rList);
+        }
+        rList.push(tile);
+      } else if (isServiceType(tile.type)) {
+        let sList = servicesByChunk.get(cKey);
+        if (!sList) {
+          sList = [];
+          servicesByChunk.set(cKey, sList);
+        }
+        sList.push(tile);
+      }
     }
   }
-  return result;
+
+  const registry: SpatialRegistry = {
+    buildingsByChunk,
+    roadsByChunk,
+    zonesByType,
+    servicesByChunk,
+    dirtySimulationChunks,
+    gridRef: grid,
+    width,
+    height,
+  };
+  cachedSpatialRegistry = registry;
+  return registry;
+}
+
+export function getOrBuildSpatialRegistry(grid: TileData[][], forceRebuild = false): SpatialRegistry {
+  if (
+    !forceRebuild
+    && cachedSpatialRegistry
+    && cachedSpatialRegistry.gridRef === grid
+    && cachedSpatialRegistry.height === grid.length
+    && cachedSpatialRegistry.width === (grid[0]?.length ?? 0)
+  ) {
+    return cachedSpatialRegistry;
+  }
+  return createSpatialRegistry(grid);
+}
+
+export function updateSpatialRegistryTile(
+  registry: SpatialRegistry,
+  tile: TileData,
+  prevType?: TileType,
+): void {
+  const cKey = getSimulationChunkKey(tile.x, tile.y);
+  registry.dirtySimulationChunks.add(cKey);
+
+  // If previous type is provided and different, remove from old collections
+  if (prevType && prevType !== tile.type) {
+    const oldList = registry.zonesByType.get(prevType);
+    if (oldList) {
+      const idx = oldList.findIndex((t) => t.x === tile.x && t.y === tile.y);
+      if (idx !== -1) oldList.splice(idx, 1);
+    }
+    if (isBuildingType(prevType)) {
+      const bList = registry.buildingsByChunk.get(cKey);
+      if (bList) {
+        const idx = bList.findIndex((t) => t.x === tile.x && t.y === tile.y);
+        if (idx !== -1) bList.splice(idx, 1);
+      }
+    }
+    if (prevType === TileType.ROAD) {
+      const rList = registry.roadsByChunk.get(cKey);
+      if (rList) {
+        const idx = rList.findIndex((t) => t.x === tile.x && t.y === tile.y);
+        if (idx !== -1) rList.splice(idx, 1);
+      }
+    }
+    if (isServiceType(prevType)) {
+      const sList = registry.servicesByChunk.get(cKey);
+      if (sList) {
+        const idx = sList.findIndex((t) => t.x === tile.x && t.y === tile.y);
+        if (idx !== -1) sList.splice(idx, 1);
+      }
+    }
+  }
+
+  // Add to new collections
+  let newList = registry.zonesByType.get(tile.type);
+  if (!newList) {
+    newList = [];
+    registry.zonesByType.set(tile.type, newList);
+  }
+  if (!newList.some((t) => t.x === tile.x && t.y === tile.y)) {
+    newList.push(tile);
+  }
+
+  if (isBuildingType(tile.type)) {
+    let bList = registry.buildingsByChunk.get(cKey);
+    if (!bList) {
+      bList = [];
+      registry.buildingsByChunk.set(cKey, bList);
+    }
+    if (!bList.some((t) => t.x === tile.x && t.y === tile.y)) {
+      bList.push(tile);
+    }
+  } else if (tile.type === TileType.ROAD) {
+    let rList = registry.roadsByChunk.get(cKey);
+    if (!rList) {
+      rList = [];
+      registry.roadsByChunk.set(cKey, rList);
+    }
+    if (!rList.some((t) => t.x === tile.x && t.y === tile.y)) {
+      rList.push(tile);
+    }
+  } else if (isServiceType(tile.type)) {
+    let sList = registry.servicesByChunk.get(cKey);
+    if (!sList) {
+      sList = [];
+      registry.servicesByChunk.set(cKey, sList);
+    }
+    if (!sList.some((t) => t.x === tile.x && t.y === tile.y)) {
+      sList.push(tile);
+    }
+  }
+}
+
+/** One deterministic pass using spatial registry when available to avoid full grid scan. */
+export function collectTileAggregates(grid: TileData[][], registry?: SpatialRegistry): SimulationTileAggregates {
+  const reg = registry ?? getOrBuildSpatialRegistry(grid);
+  const residentialTiles = reg.zonesByType.get(TileType.RESIDENTIAL) ?? [];
+  const commercialTiles = reg.zonesByType.get(TileType.COMMERCIAL) ?? [];
+  const officeTiles = reg.zonesByType.get(TileType.OFFICE) ?? [];
+  const industrialTiles = reg.zonesByType.get(TileType.INDUSTRIAL) ?? [];
+  const roadTiles = reg.zonesByType.get(TileType.ROAD) ?? [];
+  const powerTiles = reg.zonesByType.get(TileType.POWER_PLANT) ?? [];
+  const waterTiles = reg.zonesByType.get(TileType.WATER_PUMP) ?? [];
+  const utilityTiles = [...powerTiles, ...waterTiles];
+
+  const serviceTiles: TileData[] = [];
+  for (const sList of reg.servicesByChunk.values()) {
+    for (let i = 0; i < sList.length; i += 1) serviceTiles.push(sList[i]);
+  }
+
+  let population = 0;
+  let jobs = 0;
+  let officeJobs = 0;
+  let reliableBuildingCount = 0;
+  const developedTiles: TileData[] = [];
+
+  for (let i = 0; i < residentialTiles.length; i += 1) {
+    const tile = residentialTiles[i];
+    population += tile.population || 0;
+    if (tile.powered && tile.watered) reliableBuildingCount += 1;
+    if (!tile.abandoned && (tile.population > 0 || tile.level > 1)) developedTiles.push(tile);
+  }
+  for (let i = 0; i < commercialTiles.length; i += 1) {
+    const tile = commercialTiles[i];
+    jobs += tile.jobs || 0;
+    if (tile.powered && tile.watered) reliableBuildingCount += 1;
+    if (!tile.abandoned && (tile.jobs > 0 || tile.level > 1)) developedTiles.push(tile);
+  }
+  for (let i = 0; i < officeTiles.length; i += 1) {
+    const tile = officeTiles[i];
+    const j = tile.jobs || 0;
+    jobs += j;
+    officeJobs += j;
+    if (tile.powered && tile.watered) reliableBuildingCount += 1;
+    if (!tile.abandoned && (tile.jobs > 0 || tile.level > 1)) developedTiles.push(tile);
+  }
+  for (let i = 0; i < industrialTiles.length; i += 1) {
+    const tile = industrialTiles[i];
+    jobs += tile.jobs || 0;
+    if (tile.powered && tile.watered) reliableBuildingCount += 1;
+    if (!tile.abandoned && (tile.jobs > 0 || tile.level > 1)) developedTiles.push(tile);
+  }
+
+  const buildingCount = residentialTiles.length + commercialTiles.length + officeTiles.length + industrialTiles.length;
+
+  return {
+    buildingCount,
+    reliableBuildingCount,
+    population,
+    jobs,
+    officeJobs,
+    residentialTiles,
+    commercialTiles,
+    officeTiles,
+    industrialTiles,
+    roadTiles,
+    utilityTiles,
+    serviceTiles,
+    developedTiles,
+  };
 }
 
 export function createSimulationTickContext(grid: TileData[][]): SimulationTickContext {
+  const spatialRegistry = getOrBuildSpatialRegistry(grid);
   return {
     roadGraph: null,
-    tileAggregates: collectTileAggregates(grid),
+    tileAggregates: collectTileAggregates(grid, spatialRegistry),
     changedTiles: new Set<string>(),
     dirtyChunkKeys: new Set<string>(),
     renderChanges: new Set<RenderChangeKind>(),
+    spatialRegistry,
   };
 }
 
 export function refreshTileAggregates(context: SimulationTickContext, grid: TileData[][]): void {
-  context.tileAggregates = collectTileAggregates(grid);
+  context.spatialRegistry = getOrBuildSpatialRegistry(grid);
+  context.tileAggregates = collectTileAggregates(grid, context.spatialRegistry);
 }
 
 export function markTilesChanged(

@@ -57,4 +57,46 @@ describe('evaluateBuildingEvolution', () => {
     const unlocked = evaluateBuildingEvolution(grid[0][0], { ...context(grid), unlockedUpgrades: ['sky_permits'] });
     expect(unlocked?.nextLevel).toBe(3);
   });
+
+  it('caps low-density zones to level 2 to preserve suburban character', () => {
+    const grid = Array.from({ length: 1 }, (_, y) => Array.from({ length: 2 }, (_, x) => createTile(x, y)));
+    grid[0][0] = createTile(0, 0, {
+      type: TileType.RESIDENTIAL,
+      level: 2,
+      zoneDensity: 'LOW',
+      powered: true,
+      watered: true,
+      population: 10,
+    });
+    grid[0][1] = createTile(1, 0, { type: TileType.ROAD });
+
+    const summary = evaluateBuildingEvolution(grid[0][0], { ...context(grid), unlockedUpgrades: ['sky_permits'] });
+    expect(summary?.maxLevel).toBe(2);
+    expect(summary?.nextLevel).toBeNull();
+    expect(summary?.status).toBe('MAX_LEVEL');
+    expect(summary?.blockers[0]).toContain('Kepadatan zona rendah');
+  });
+
+  it('blocks high-density evolution when frontage road has severe traffic congestion', () => {
+    const grid = Array.from({ length: 1 }, (_, y) => Array.from({ length: 2 }, (_, x) => createTile(x, y)));
+    grid[0][0] = createTile(0, 0, {
+      type: TileType.COMMERCIAL,
+      level: 3,
+      zoneDensity: 'HIGH',
+      powered: true,
+      watered: true,
+      jobs: 25,
+      landValue: 70,
+      suitability: 75,
+      fireCovered: true,
+      policeCovered: true,
+      healthCovered: true,
+    });
+    grid[0][1] = createTile(1, 0, { type: TileType.ROAD, traffic: 92 });
+
+    const summary = evaluateBuildingEvolution(grid[0][0], { ...context(grid), unlockedUpgrades: ['sky_permits'] });
+    expect(summary?.nextLevel).toBe(4);
+    expect(summary?.blockers.some((b) => b.includes('Lalu lintas'))).toBe(true);
+    expect(summary?.status).toBe('PROGRESSING');
+  });
 });

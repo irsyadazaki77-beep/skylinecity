@@ -20,7 +20,7 @@ import { BuildingInspector } from './components/ui/BuildingInspector';
 import { BottomToolbar } from './components/ui/BottomToolbar';
 import { CameraToolbar } from './components/ui/CameraToolbar';
 import { MilestoneBanner } from './components/MilestoneBanner';
-import { ActiveTool, BUILD_COSTS, CityState, createTile, getRoadClass, GameSettings, IntersectionControl, ROAD_BUILD_COSTS, RoadClass, SignalTimingMode, TileData, TileType, TransitLine, TERRAFORM_COST, TUNNEL_BUILD_COST, TurnMovement, ZoneDensity } from './types';
+import { ActiveTool, BUILD_COSTS, CityState, createTile, getRoadClass, GameSettings, IntersectionControl, ROAD_BUILD_COSTS, ROAD_REPAIR_COST, RoadClass, SignalTimingMode, TileData, TileType, TransitLine, TERRAFORM_COST, TUNNEL_BUILD_COST, TurnMovement, ZoneDensity } from './types';
 import { FreightCommodity } from './logistics';
 import { GAME_CONFIG } from './config';
 import { createInitialCityState, simulateTick, unlockRegion } from './engine';
@@ -47,7 +47,6 @@ import { createRuntimeAuditScenario } from './runtimeAuditScenario';
 import { createBenchmarkState } from './metropolisBenchmarks';
 import { calculateBuildForecast } from './buildForecast';
 import { playUiSound, updateProceduralAmbience, type UiSound } from './audio';
-import { createLocalizationCatalog, translate } from './localization';
 import { hasWebGLSupport } from './releaseReadiness';
 import { findTrafficBottlenecks, type TrafficBeforeAfter } from './trafficInsights';
 import { deriveUiMode, UI_MODE_COPY } from './uiState';
@@ -591,9 +590,29 @@ export default function App() {
     });
   }, []);
 
-  // Compute road drag line tiles or zoning brush tiles
-  const { previewTiles, previewColor, totalPlacementCost, previewValidCount, previewBlockedCount, previewReason } = useMemo(() => {
-    if (!hoveredPos) return { previewTiles: [], previewColor: 'green', totalPlacementCost: 0, previewValidCount: 0, previewBlockedCount: 0, previewReason: '' };
+  // Compute road drag line tiles or zoning brush tiles or single tile preview
+  const {
+    previewTiles,
+    previewColor,
+    totalPlacementCost,
+    previewValidCount,
+    previewBlockedCount: _previewBlockedCount,
+    previewReason,
+    placementRoadAccess,
+    placementFootprint,
+  } = useMemo(() => {
+    if (!hoveredPos) {
+      return {
+        previewTiles: [] as [number, number][],
+        previewColor: 'green' as const,
+        totalPlacementCost: 0,
+        previewValidCount: 0,
+        previewBlockedCount: 0,
+        previewReason: '',
+        placementRoadAccess: null as boolean | null,
+        placementFootprint: '1×1',
+      };
+    }
     const [hx, hy] = hoveredPos;
 
     // 1. Road drag line calculation
@@ -616,7 +635,7 @@ export default function App() {
         if (!unlocked || !t || (t.water && !canBuildBridge)) {
           valid = false;
           blockedCount += 1;
-          if (!firstBlockedReason) firstBlockedReason = !unlocked ? 'Tile belum terbuka' : !t ? 'Di luar peta' : 'Air membutuhkan jalan jembatan Highway';
+          if (!firstBlockedReason) firstBlockedReason = !unlocked ? 'Wilayah belum terbuka' : !t ? 'Di luar peta' : 'Air membutuhkan jalan jembatan Highway';
         } else {
           validCount += 1;
         }
@@ -686,11 +705,13 @@ export default function App() {
 
       return {
         previewTiles: tiles,
-        previewColor: valid ? 'green' : 'red',
+        previewColor: valid ? ('green' as const) : ('red' as const),
         totalPlacementCost: cost,
         previewValidCount: validCount,
         previewBlockedCount: blockedCount,
         previewReason: valid ? successReason : firstBlockedReason,
+        placementRoadAccess: true,
+        placementFootprint: `${tiles.length} Ruas Jalan`,
       };
     }
 
@@ -727,29 +748,221 @@ export default function App() {
 
       return {
         previewTiles: tiles,
-        previewColor: valid ? 'green' : 'red',
+        previewColor: valid ? ('green' as const) : ('red' as const),
         totalPlacementCost: cost,
         previewValidCount: validCount,
         previewBlockedCount: blockedCount,
-        previewReason: valid ? 'Semua tile kosong dan siap dizonasi' : blockedCount > 0 ? `${blockedCount} tile terhalang` : 'Dana kota tidak mencukupi',
+        previewReason: valid ? `${validCount} petak siap dizonasi` : blockedCount > 0 ? `${blockedCount} petak terhalang / tidak kosong` : 'Dana kota tidak mencukupi',
+        placementRoadAccess: null,
+        placementFootprint: `${tiles.length} Petak (${brushSize}×${brushSize})`,
       };
     }
 
-    return { previewTiles: [], previewColor: 'green', totalPlacementCost: 0, previewValidCount: 0, previewBlockedCount: 0, previewReason: '' };
+    // 3. Single-tile Hover Preview for all other tools
+    if (activeTool === 'POINTER') {
+      return {
+        previewTiles: [] as [number, number][],
+        previewColor: 'green' as const,
+        totalPlacementCost: 0,
+        previewValidCount: 0,
+        previewBlockedCount: 0,
+        previewReason: '',
+        placementRoadAccess: null as boolean | null,
+        placementFootprint: '1×1',
+      };
+    }
+
+    const t = gameState.grid[hy]?.[hx];
+    const unlocked = isTileInUnlockedRegion(hx, hy, gameState.unlockedRegions);
+    const tiles: [number, number][] = [[hx, hy]];
+
+    if (!unlocked || !t) {
+      return {
+        previewTiles: tiles,
+        previewColor: 'red' as const,
+        totalPlacementCost: 0,
+        previewValidCount: 0,
+        previewBlockedCount: 1,
+        previewReason: 'Wilayah terkunci (Beli ekspansi wilayah untuk membuka)',
+        placementRoadAccess: false,
+        placementFootprint: '1×1',
+      };
+    }
+
+    // Check road adjacency for buildings/zones
+    const hasRoadAdjacent = [
+      gameState.grid[hy - 1]?.[hx],
+      gameState.grid[hy + 1]?.[hx],
+      gameState.grid[hy]?.[hx - 1],
+      gameState.grid[hy]?.[hx + 1],
+    ].some((n) => n?.type === TileType.ROAD);
+
+    // Bulldozer tool
+    if (activeTool === 'BULLDOZER') {
+      if (t.type === TileType.EMPTY) {
+        return {
+          previewTiles: tiles,
+          previewColor: 'red' as const,
+          totalPlacementCost: 0,
+          previewValidCount: 0,
+          previewBlockedCount: 1,
+          previewReason: 'Petak kosong (tidak ada struktur untuk dibongkar)',
+          placementRoadAccess: null,
+          placementFootprint: '1×1',
+        };
+      }
+      const baseCost = BUILD_COSTS[t.type] ?? 0;
+      const refund = Math.round(baseCost * 0.5);
+      return {
+        previewTiles: tiles,
+        previewColor: 'green' as const,
+        totalPlacementCost: -refund,
+        previewValidCount: 1,
+        previewBlockedCount: 0,
+        previewReason: `Bongkar ${t.type} · Refund kas +$${refund.toLocaleString()}`,
+        placementRoadAccess: null,
+        placementFootprint: '1×1',
+      };
+    }
+
+    // Road Repair tool
+    if (activeTool === 'ROAD_REPAIR') {
+      if (t.type !== TileType.ROAD) {
+        return {
+          previewTiles: tiles,
+          previewColor: 'red' as const,
+          totalPlacementCost: 0,
+          previewValidCount: 0,
+          previewBlockedCount: 1,
+          previewReason: 'Hanya dapat digunakan pada ruas jalan',
+          placementRoadAccess: null,
+          placementFootprint: '1×1',
+        };
+      }
+      const cond = t.roadCondition ?? 100;
+      const repairCost = ROAD_REPAIR_COST;
+      const canAfford = gameState.money >= repairCost;
+      return {
+        previewTiles: tiles,
+        previewColor: canAfford ? ('green' as const) : ('red' as const),
+        totalPlacementCost: repairCost,
+        previewValidCount: canAfford ? 1 : 0,
+        previewBlockedCount: canAfford ? 0 : 1,
+        previewReason: cond >= 100 ? 'Kondisi jalan 100% (prima)' : canAfford ? `Perbaiki kondisi (${Math.round(cond)}% → 100%)` : 'Dana kota tidak cukup',
+        placementRoadAccess: true,
+        placementFootprint: '1×1',
+      };
+    }
+
+    // Single road placement preview
+    if (activeTool === TileType.ROAD || activeTool === 'TUNNEL_ROAD') {
+      const isWater = Boolean(t.water);
+      const isHighway = activeRoadClass === 'HIGHWAY';
+      if (isWater && (!isHighway || activeTool === 'TUNNEL_ROAD')) {
+        return {
+          previewTiles: tiles,
+          previewColor: 'red' as const,
+          totalPlacementCost: 0,
+          previewValidCount: 0,
+          previewBlockedCount: 1,
+          previewReason: 'Air membutuhkan jalan jembatan Highway',
+          placementRoadAccess: true,
+          placementFootprint: '1×1',
+        };
+      }
+      let cost = activeTool === 'TUNNEL_ROAD' ? TUNNEL_BUILD_COST : ROAD_BUILD_COSTS[activeRoadClass];
+      if (isWater && isHighway) cost = Math.round(cost * GAME_CONFIG.BRIDGE_COST_MULTIPLIER);
+      const canAfford = gameState.money >= cost;
+      const isOccupied = t.type !== TileType.EMPTY && t.type !== TileType.ROAD;
+      if (isOccupied) {
+        return {
+          previewTiles: tiles,
+          previewColor: 'red' as const,
+          totalPlacementCost: cost,
+          previewValidCount: 0,
+          previewBlockedCount: 1,
+          previewReason: 'Petak sudah ditempati struktur lain',
+          placementRoadAccess: true,
+          placementFootprint: '1×1',
+        };
+      }
+      return {
+        previewTiles: tiles,
+        previewColor: canAfford ? ('green' as const) : ('red' as const),
+        totalPlacementCost: cost,
+        previewValidCount: canAfford ? 1 : 0,
+        previewBlockedCount: canAfford ? 0 : 1,
+        previewReason: canAfford ? (t.type === TileType.ROAD ? 'Tingkatkan kelas jalan' : 'Klik & seret untuk membangun jalan') : 'Dana kas kota tidak cukup',
+        placementRoadAccess: true,
+        placementFootprint: '1×1',
+      };
+    }
+
+    // Single Zoning & Buildings
+    const zoning = zoningPlacement(activeTool);
+    const buildableTileType = zoning?.type ?? (activeTool as TileType);
+    const cost = zoning ? zoningToolCost(activeTool) : BUILD_COSTS[buildableTileType] ?? 0;
+    const canAfford = gameState.money >= cost;
+
+    if (t.water) {
+      const allowsWater = buildableTileType === TileType.WATER_PUMP || buildableTileType === TileType.WATER_RESERVOIR;
+      if (!allowsWater) {
+        return {
+          previewTiles: tiles,
+          previewColor: 'red' as const,
+          totalPlacementCost: cost,
+          previewValidCount: 0,
+          previewBlockedCount: 1,
+          previewReason: 'Tidak dapat dibangun di atas air',
+          placementRoadAccess: hasRoadAdjacent,
+          placementFootprint: '1×1',
+        };
+      }
+    }
+
+    if (t.type !== TileType.EMPTY) {
+      return {
+        previewTiles: tiles,
+        previewColor: 'red' as const,
+        totalPlacementCost: cost,
+        previewValidCount: 0,
+        previewBlockedCount: 1,
+        previewReason: `Petak sudah ditempati ${t.type}`,
+        placementRoadAccess: hasRoadAdjacent,
+        placementFootprint: '1×1',
+      };
+    }
+
+    if (!canAfford) {
+      return {
+        previewTiles: tiles,
+        previewColor: 'red' as const,
+        totalPlacementCost: cost,
+        previewValidCount: 0,
+        previewBlockedCount: 1,
+        previewReason: `Dana kas tidak cukup (Butuh $${cost.toLocaleString()})`,
+        placementRoadAccess: hasRoadAdjacent,
+        placementFootprint: '1×1',
+      };
+    }
+
+    const roadAccessText = hasRoadAdjacent ? 'Akses jalan ✓' : '⚠ Butuh akses jalan';
+    return {
+      previewTiles: tiles,
+      previewColor: 'green' as const,
+      totalPlacementCost: cost,
+      previewValidCount: 1,
+      previewBlockedCount: 0,
+      previewReason: `Siap dibangun · ${roadAccessText}`,
+      placementRoadAccess: hasRoadAdjacent,
+      placementFootprint: '1×1',
+    };
   }, [activeRoadClass, activeTool, dragStart, hoveredPos, brushSize, gameState.grid, gameState.money, gameState.unlockedRegions]);
 
   const previewForecast = useMemo(
     () => calculateBuildForecast(activeTool, previewValidCount, activeRoadClass),
     [activeTool, activeRoadClass, previewValidCount],
   );
-  const singleBuildForecast = useMemo(() => {
-    if (!hoveredPos || previewTiles.length > 0 || activeTool === 'POINTER' || activeTool === 'BULLDOZER' || activeTool === 'ROAD_REPAIR' || activeTool === 'TRANSIT_LINE' || activeTool === 'DISTRICT' || isTerrainTool(activeTool) || activeTool === TileType.ROAD || activeTool === 'TUNNEL_ROAD') return null;
-    const [x, y] = hoveredPos;
-    const tile = gameState.grid[y]?.[x];
-    if (!tile || tile.water || tile.type !== TileType.EMPTY || !isTileInUnlockedRegion(x, y, gameState.unlockedRegions)) return null;
-    return calculateBuildForecast(activeTool, 1, activeRoadClass);
-  }, [activeRoadClass, activeTool, gameState.grid, gameState.unlockedRegions, hoveredPos, previewTiles.length]);
-  const localizationCatalog = useMemo(() => createLocalizationCatalog(settings.language), [settings.language]);
 
   // Demolish handler with 50% refund
   const handleDemolish = useCallback((x: number, y: number) => {
@@ -1919,41 +2132,70 @@ export default function App() {
           </div>
         )}
 
-        {previewTiles.length > 0 && (activeTool === TileType.ROAD || activeTool === 'TUNNEL_ROAD' || isZoningTool(activeTool)) && (
-          <div className={`placement-feedback absolute bottom-28 left-1/2 z-40 -translate-x-1/2 rounded-xl border px-3 py-2 text-[11px] shadow-xl backdrop-blur-md ${previewColor === 'green' ? 'border-emerald-400/30 bg-emerald-950/90 text-emerald-100' : 'border-red-400/30 bg-red-950/90 text-red-100'}`} data-valid={previewColor === 'green'} role="status" aria-live="polite">
-            <div className="flex items-center gap-3">
-              <span>{previewValidCount}/{previewTiles.length} petak valid</span>
-              <span>Biaya <b>${totalPlacementCost.toLocaleString()}</b></span>
-              <span>Kapasitas ±{previewValidCount * (activeTool === TileType.ROAD || activeTool === 'TUNNEL_ROAD' ? 4 : activeTool === 'RESIDENTIAL_HIGH' ? 24 : activeTool === 'RESIDENTIAL_MEDIUM' ? 15 : 10)}</span>
-              <span className="feedback-state font-bold">{previewColor === 'green' ? 'Siap dibangun' : 'Lokasi tidak valid'}</span>
+        {previewTiles.length > 0 && activeTool !== 'POINTER' && (
+          <div
+            className={`placement-feedback placement-pill-enter pointer-events-none absolute bottom-28 left-1/2 z-40 -translate-x-1/2 rounded-2xl border px-3.5 py-2 text-[11px] shadow-2xl backdrop-blur-xl transition-all duration-200 ${
+              previewColor === 'green'
+                ? 'border-emerald-500/40 bg-slate-950/92 text-emerald-100 shadow-emerald-950/40'
+                : 'border-rose-500/40 bg-slate-950/92 text-rose-100 shadow-rose-950/40'
+            }`}
+            data-valid={previewColor === 'green'}
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                previewColor === 'green' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+              }`}>
+                {previewColor === 'green' ? '✓ Siap Bangun' : '✕ Tidak Valid'}
+              </span>
+
+              <span className="font-semibold text-slate-200">
+                Biaya: <b className={`font-mono text-xs ${totalPlacementCost > 0 ? (gameState.money >= totalPlacementCost ? 'text-amber-300' : 'text-rose-400') : 'text-emerald-300'}`}>
+                  {totalPlacementCost < 0 ? `+$${Math.abs(totalPlacementCost).toLocaleString()}` : totalPlacementCost === 0 ? 'Gratis' : `$${totalPlacementCost.toLocaleString()}`}
+                </b>
+              </span>
+
+              {placementFootprint && (
+                <span className="rounded bg-white/5 px-2 py-0.5 text-[10px] text-slate-300 border border-white/10 font-mono">
+                  {placementFootprint}
+                </span>
+              )}
+
+              {placementRoadAccess !== null && (
+                <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium border ${
+                  placementRoadAccess
+                    ? 'border-emerald-500/30 bg-emerald-950/50 text-emerald-300'
+                    : 'border-amber-500/40 bg-amber-950/50 text-amber-300'
+                }`}>
+                  {placementRoadAccess ? '✓ Akses Jalan' : '⚠ Butuh Jalan'}
+                </span>
+              )}
+
+              {previewTiles.length > 1 && (
+                <span className="text-[10px] text-slate-400">
+                  ({previewValidCount}/{previewTiles.length} petak valid)
+                </span>
+              )}
             </div>
-            <div className="mt-1 flex items-center gap-2 text-[10px] opacity-85">
-              {previewBlockedCount > 0 && <span>{previewBlockedCount} petak terhalang</span>}
-              {previewReason && <span>{previewReason}</span>}
-            </div>
-            {previewForecast && (
-              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 border-t border-white/10 pt-1 text-[9px] opacity-90">
-                {previewForecast.capacity > 0 && <span>{translate(localizationCatalog, 'forecast.capacity')} +{previewForecast.capacity}</span>}
-                {previewForecast.households > 0 && <span>{translate(localizationCatalog, 'forecast.households')} ±{previewForecast.households}</span>}
-                {previewForecast.jobs > 0 && <span>{translate(localizationCatalog, 'forecast.jobs')} +{previewForecast.jobs}</span>}
-                {previewForecast.trafficDemand > 0 && <span>{translate(localizationCatalog, 'forecast.traffic')} +{previewForecast.trafficDemand}</span>}
-                {previewForecast.estimatedTax > 0 && <span>{translate(localizationCatalog, 'forecast.tax')} ±${previewForecast.estimatedTax}/hari</span>}
-                {previewForecast.maintenance > 0 && <span>{translate(localizationCatalog, 'forecast.maintenance')} -${previewForecast.maintenance}/hari</span>}
-                {previewForecast.pollution > 0 && <span>{translate(localizationCatalog, 'forecast.pollution')} +{previewForecast.pollution}</span>}
+
+            {previewReason && (
+              <div className={`mt-1 text-[11px] font-medium ${previewColor === 'green' ? 'text-slate-300' : 'text-rose-300'}`}>
+                {previewReason}
               </div>
             )}
-          </div>
-        )}
-        {singleBuildForecast && (
-          <div className="absolute bottom-28 left-1/2 z-40 -translate-x-1/2 rounded-xl border border-cyan-400/25 bg-slate-950/90 px-3 py-2 text-[10px] text-cyan-100 shadow-xl backdrop-blur-md">
-            <div className="mb-1 font-semibold text-cyan-200">Forecast tile</div>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              {singleBuildForecast.capacity > 0 && <span>{translate(localizationCatalog, 'forecast.capacity')} +{singleBuildForecast.capacity}</span>}
-              {singleBuildForecast.households > 0 && <span>{translate(localizationCatalog, 'forecast.households')} ±{singleBuildForecast.households}</span>}
-              {singleBuildForecast.jobs > 0 && <span>{translate(localizationCatalog, 'forecast.jobs')} +{singleBuildForecast.jobs}</span>}
-              {singleBuildForecast.estimatedTax > 0 && <span>{translate(localizationCatalog, 'forecast.tax')} ±${singleBuildForecast.estimatedTax}/hari</span>}
-              {singleBuildForecast.maintenance > 0 && <span>{translate(localizationCatalog, 'forecast.maintenance')} -${singleBuildForecast.maintenance}/hari</span>}
-            </div>
+
+            {previewColor === 'green' && previewForecast && (previewForecast.capacity > 0 || previewForecast.households > 0 || previewForecast.jobs > 0 || previewForecast.estimatedTax > 0 || previewForecast.maintenance > 0) && (
+              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 border-t border-white/10 pt-1 text-[10px] text-slate-300">
+                {previewForecast.capacity > 0 && <span className="text-emerald-300 font-medium">Kapasitas +{previewForecast.capacity}</span>}
+                {previewForecast.households > 0 && <span>Rumah ±{previewForecast.households}</span>}
+                {previewForecast.jobs > 0 && <span>Pekerjaan +{previewForecast.jobs}</span>}
+                {previewForecast.trafficDemand > 0 && <span className="text-amber-300/90">Lalin +{previewForecast.trafficDemand}</span>}
+                {previewForecast.estimatedTax > 0 && <span className="text-emerald-300">Pajak ±${previewForecast.estimatedTax}/hari</span>}
+                {previewForecast.maintenance > 0 && <span className="text-rose-300/90">Biaya -${previewForecast.maintenance}/hari</span>}
+                {previewForecast.pollution > 0 && <span className="text-purple-300">Polusi +{previewForecast.pollution}</span>}
+              </div>
+            )}
           </div>
         )}
 
@@ -2084,6 +2326,8 @@ export default function App() {
             commercialDemand: gameState.commercialDemand,
             officeDemand: gameState.officeDemand ?? 0,
             industrialDemand: gameState.industrialDemand,
+            happiness: gameState.happiness,
+            taxRate: gameState.residentialTaxRate,
           }}
           roadGrid={gameState.grid}
         />

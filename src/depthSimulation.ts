@@ -3,6 +3,9 @@ import { RoadGraph, getAdjacentRoadNodeKey } from './traffic';
 import { parcelCapacityMultiplier } from './parcels';
 import { mixedUseJobCapacityMultiplier } from './mixedUse';
 import { getOfficeCapacity, getResidentialCapacity } from './zoning';
+import { maxLevelFor, requirementSet, BuildingEvolutionContext } from './buildingEvolution';
+import { getConstructionStage } from './constructionPresentation';
+import { getOrBuildSpatialRegistry } from './simulationContext';
 
 export const RESIDENTIAL_CAPACITIES = [0, 4, 12, 25, 50, 100];
 export const COMMERCIAL_CAPACITIES = [0, 4, 12, 25, 50, 90];
@@ -73,6 +76,7 @@ export function simulateCityDepthAndEnvironment(
 ): DepthSimulationResult {
   const height = grid.length;
   const width = grid[0].length;
+  const registry = getOrBuildSpatialRegistry(grid);
   const hasRecycling = unlockedUpgrades.includes('recycling');
   const hasGreenRoofs = unlockedUpgrades.includes('green_roofs');
 
@@ -85,63 +89,88 @@ export function simulateCityDepthAndEnvironment(
   // rescan a 7x7 neighbourhood for every tile.
   const parkInfluence = new Uint8Array(size);
 
-  // 1. Calculate Pollution & Noise sources
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const tile = grid[y][x];
+  const applyEmitter = (x: number, y: number, pSrc: number, nSrc: number) => {
+    let pollSource = pSrc;
+    let noiseSource = nSrc;
+    if (hasRecycling) pollSource *= 0.8;
+    if (hasGreenRoofs) pollSource *= 0.85;
 
-      let pollSource = 0;
-      let noiseSource = 0;
-
-      if (tile.type === TileType.POWER_PLANT) {
-        pollSource = 35;
-        noiseSource = 20;
-      } else if (tile.type === TileType.OFFICE) {
-        pollSource = 3;
-        noiseSource = 5;
-      } else if (tile.type === TileType.INDUSTRIAL) {
-        // High level industrial L4/L5 are cleaner high-tech
-        if (tile.level === 1) { pollSource = 8; noiseSource = 8; }
-        else if (tile.level === 2) { pollSource = 18; noiseSource = 15; }
-        else if (tile.level === 3) { pollSource = 28; noiseSource = 22; }
-        else if (tile.level === 4) { pollSource = 12; noiseSource = 10; }
-        else if (tile.level === 5) { pollSource = 5; noiseSource = 5; }
-      } else if (tile.type === TileType.ROAD && tile.traffic > 5) {
-        const rClass = getRoadClass(tile);
-        const roadImpact = rClass === 'HIGHWAY' ? 1.45 : rClass === 'ARTERIAL' ? 1.15 : 0.45;
-        const maxPoll = rClass === 'HIGHWAY' ? 35 : rClass === 'ARTERIAL' ? 22 : 8;
-        const maxNoise = rClass === 'HIGHWAY' ? 48 : rClass === 'ARTERIAL' ? 32 : 16;
-        pollSource = Math.min(maxPoll, Math.round(tile.traffic * 0.6 * roadImpact));
-        noiseSource = Math.min(maxNoise, Math.round(tile.traffic * 0.9 * roadImpact));
-      } else if (tile.type === TileType.WASTE_MANAGEMENT) {
-        pollSource = 15;
-        noiseSource = 10;
-      } else if (tile.type === TileType.BUS_DEPOT) {
-        noiseSource = 5;
-      } else if (tile.type === TileType.TRAM_STATION) {
-        noiseSource = 4;
+    if (pollSource > 0 || noiseSource > 0) {
+      for (let i = 0; i < ENVIRONMENT_OFFSETS.length; i += 1) {
+        const { dx, dy, decay } = ENVIRONMENT_OFFSETS[i];
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+          const idx = ny * width + nx;
+          pollutionMap[idx] += pollSource * decay;
+          noiseMap[idx] += noiseSource * decay;
+        }
       }
+    }
+  };
 
-      // Environmental policies & park absorption
-      if (hasRecycling) pollSource *= 0.8;
-      if (hasGreenRoofs) pollSource *= 0.85;
+  // 1. Calculate Pollution & Noise sources directly from indexed emitter tiles
+  const powerPlants = registry.zonesByType.get(TileType.POWER_PLANT) ?? [];
+  for (let i = 0; i < powerPlants.length; i += 1) applyEmitter(powerPlants[i].x, powerPlants[i].y, 35, 20);
 
-      if (pollSource > 0 || noiseSource > 0) {
-        // Spread radiation in a 3-tile radius using a precomputed stencil.
-        for (const { dx, dy, decay } of ENVIRONMENT_OFFSETS) {
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-            const idx = ny * width + nx;
-            pollutionMap[idx] += pollSource * decay;
-            noiseMap[idx] += noiseSource * decay;
-          }
+  const offices = registry.zonesByType.get(TileType.OFFICE) ?? [];
+  for (let i = 0; i < offices.length; i += 1) applyEmitter(offices[i].x, offices[i].y, 3, 5);
+
+  const industrial = registry.zonesByType.get(TileType.INDUSTRIAL) ?? [];
+  for (let i = 0; i < industrial.length; i += 1) {
+    const tile = industrial[i];
+    let p = 5, n = 5;
+    if (tile.level === 1) { p = 8; n = 8; }
+    else if (tile.level === 2) { p = 18; n = 15; }
+    else if (tile.level === 3) { p = 28; n = 22; }
+    else if (tile.level === 4) { p = 12; n = 10; }
+    applyEmitter(tile.x, tile.y, p, n);
+  }
+
+  const roads = registry.zonesByType.get(TileType.ROAD) ?? [];
+  for (let i = 0; i < roads.length; i += 1) {
+    const tile = roads[i];
+    if ((tile.traffic || 0) > 5) {
+      const rClass = getRoadClass(tile);
+      const roadImpact = rClass === 'HIGHWAY' ? 1.45 : rClass === 'ARTERIAL' ? 1.15 : 0.45;
+      const maxPoll = rClass === 'HIGHWAY' ? 35 : rClass === 'ARTERIAL' ? 22 : 8;
+      const maxNoise = rClass === 'HIGHWAY' ? 48 : rClass === 'ARTERIAL' ? 32 : 16;
+      const p = Math.min(maxPoll, Math.round(tile.traffic * 0.6 * roadImpact));
+      const n = Math.min(maxNoise, Math.round(tile.traffic * 0.9 * roadImpact));
+      applyEmitter(tile.x, tile.y, p, n);
+    }
+  }
+
+  const wastePlants = registry.zonesByType.get(TileType.WASTE_MANAGEMENT) ?? [];
+  for (let i = 0; i < wastePlants.length; i += 1) applyEmitter(wastePlants[i].x, wastePlants[i].y, 15, 10);
+
+  const busDepots = registry.zonesByType.get(TileType.BUS_DEPOT) ?? [];
+  for (let i = 0; i < busDepots.length; i += 1) applyEmitter(busDepots[i].x, busDepots[i].y, 0, 5);
+
+  const tramStations = registry.zonesByType.get(TileType.TRAM_STATION) ?? [];
+  for (let i = 0; i < tramStations.length; i += 1) applyEmitter(tramStations[i].x, tramStations[i].y, 0, 4);
+
+  // 2. Apply Parks absorption directly from indexed parks
+  const parks = registry.zonesByType.get(TileType.PARK) ?? [];
+  for (let i = 0; i < parks.length; i += 1) {
+    const tile = parks[i];
+    const x = tile.x;
+    const y = tile.y;
+    const radius = 3;
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+          const idx = ny * width + nx;
+          parkInfluence[idx] = 1;
+          pollutionMap[idx] = Math.max(0, pollutionMap[idx] - 12);
+          noiseMap[idx] = Math.max(0, noiseMap[idx] - 10);
         }
       }
     }
   }
 
-  // 2. Apply Parks absorption & calculate Land Value, Crime, Health, Education per tile
   let totalLandValue = 0;
   let totalSuitability = 0;
   let suitabilityTiles = 0;
@@ -154,29 +183,6 @@ export function simulateCityDepthAndEnvironment(
   const resLevels = [0, 0, 0, 0, 0, 0];
   const comLevels = [0, 0, 0, 0, 0, 0];
   const indLevels = [0, 0, 0, 0, 0, 0];
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const tile = grid[y][x];
-
-      // Park absorption
-      if (tile.type === TileType.PARK) {
-        const radius = 3;
-        for (let dy = -radius; dy <= radius; dy++) {
-          for (let dx = -radius; dx <= radius; dx++) {
-            const nx = x + dx;
-            const ny = y + dy;
-            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-              const idx = ny * width + nx;
-              parkInfluence[idx] = 1;
-              pollutionMap[idx] = Math.max(0, pollutionMap[idx] - 12);
-              noiseMap[idx] = Math.max(0, noiseMap[idx] - 10);
-            }
-          }
-        }
-      }
-    }
-  }
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -307,32 +313,49 @@ export function simulateBuildingEvolution(
   comDemand: number,
   officeDemand: number,
   indDemand: number,
-  unlockedUpgrades: string[]
+  unlockedUpgrades: string[],
+  options?: {
+    happiness?: number;
+    taxRate?: number;
+    tickStep?: number;
+  },
 ): Array<[number, number]> {
   const height = grid.length;
   const width = grid[0].length;
-  const hasU = (id: string) => unlockedUpgrades.includes(id);
-
-  const maxResLevel = hasU('sky_permits') ? 5 : (hasU('high_dens_res') ? 3 : 2);
-  const maxComLevel = hasU('sky_permits') ? 5 : (hasU('high_dens_com') ? 3 : 2);
-  const maxIndLevel = hasU('sky_permits') ? 5 : (hasU('high_dens_ind') ? 3 : 2);
+  const step = Math.max(1, options?.tickStep ?? 1);
   const changedTiles: Array<[number, number]> = [];
-  const visualSignature = (tile: TileData) => `${tile.type}|${tile.level}|${tile.abandoned ? 1 : 0}|${tile.powered ? 1 : 0}|${tile.watered ? 1 : 0}|${tile.disasterImpact ?? 0}|${tile.elevation}`;
+  const visualSignature = (tile: TileData) => {
+    const stage = getConstructionStage(tile);
+    const progressTier = Math.floor((tile.upgradeProgress ?? 0) / 25);
+    const readyBeacon = (tile.upgradeProgress ?? 0) >= 90 ? 1 : 0;
+    return `${tile.type}|${tile.level}|${tile.abandoned ? 1 : 0}|${tile.powered ? 1 : 0}|${tile.watered ? 1 : 0}|${tile.disasterImpact ?? 0}|${tile.elevation}|${stage}|${progressTier}|${readyBeacon}|${tile.constructionState ?? ''}|${tile.constructionProgress ?? 0}`;
+  };
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const tile = grid[y][x];
+  const evolutionContext: BuildingEvolutionContext = {
+    grid,
+    unlockedUpgrades,
+    residentialDemand: resDemand,
+    commercialDemand: comDemand,
+    officeDemand,
+    industrialDemand: indDemand,
+    happiness: options?.happiness,
+    taxRate: options?.taxRate,
+  };
 
-      if (
-        tile.type !== TileType.RESIDENTIAL &&
-        tile.type !== TileType.COMMERCIAL &&
-        tile.type !== TileType.OFFICE &&
-        tile.type !== TileType.INDUSTRIAL
-      ) {
-        continue;
-      }
+  const reg = getOrBuildSpatialRegistry(grid);
+  const buildingTiles = [
+    ...(reg.zonesByType.get(TileType.RESIDENTIAL) ?? []),
+    ...(reg.zonesByType.get(TileType.COMMERCIAL) ?? []),
+    ...(reg.zonesByType.get(TileType.OFFICE) ?? []),
+    ...(reg.zonesByType.get(TileType.INDUSTRIAL) ?? []),
+  ];
 
-      const beforeVisual = visualSignature(tile);
+  for (let i = 0; i < buildingTiles.length; i += 1) {
+    const tile = buildingTiles[i];
+    const x = tile.x;
+    const y = tile.y;
+
+    const beforeVisual = visualSignature(tile);
 
       const hasRoad = getAdjacentRoadNodeKey(x, y, roadGraph) !== null;
       const isActive = tile.powered && tile.watered && hasRoad;
@@ -355,69 +378,94 @@ export function simulateBuildingEvolution(
         if (demand > 10) {
           tile.abandoned = false;
           tile.upgradeProgress = 0;
+          tile.constructionState = 'COMPLETED';
+          tile.constructionProgress = 100;
+          tile.constructionType = undefined;
         }
         if (visualSignature(tile) !== beforeVisual) changedTiles.push([x, y]);
         continue;
       }
 
+      // Advance new building construction lifecycle deterministically
+      if (tile.constructionType === 'NEW' || (tile.population === 0 && tile.jobs === 0 && (tile.constructionProgress ?? 100) < 100)) {
+        tile.constructionProgress = Math.min(100, (tile.constructionProgress ?? 0) + 20 * step);
+        tile.targetLevel = 1;
+        tile.previousLevel = 0;
+        if (tile.constructionProgress < 15) {
+          tile.constructionState = 'EMPTY_LOT';
+        } else if (tile.constructionProgress < 35) {
+          tile.constructionState = 'FOUNDATION';
+        } else if (tile.constructionProgress < 60) {
+          tile.constructionState = 'FRAME';
+        } else if (tile.constructionProgress < 85) {
+          tile.constructionState = 'STRUCTURE';
+        } else if (tile.constructionProgress < 100) {
+          tile.constructionState = 'FINISHING';
+        } else {
+          tile.constructionState = 'COMPLETED';
+          tile.constructionType = undefined;
+          tile.constructionProgress = 100;
+        }
+      }
+
       const currentLevel = Math.min(5, Math.max(1, tile.level));
+      const maxLevel = maxLevelFor(tile, unlockedUpgrades);
       let currentCap = 0;
       let targetDemand = 0;
-      let maxLevel = 1;
 
       if (tile.type === TileType.RESIDENTIAL) {
         currentCap = getResidentialCapacity(tile, Math.round(RESIDENTIAL_CAPACITIES[currentLevel] * parcelCapacityMultiplier(tile)));
         targetDemand = resDemand;
-        maxLevel = maxResLevel;
       } else if (tile.type === TileType.COMMERCIAL) {
         currentCap = Math.round(COMMERCIAL_CAPACITIES[currentLevel] * parcelCapacityMultiplier(tile) * mixedUseJobCapacityMultiplier(tile));
         targetDemand = comDemand;
-        maxLevel = maxComLevel;
       } else if (tile.type === TileType.OFFICE) {
         currentCap = Math.round(getOfficeCapacity(currentLevel) * parcelCapacityMultiplier(tile));
         targetDemand = officeDemand;
-        maxLevel = maxComLevel;
       } else {
         currentCap = Math.round(INDUSTRIAL_CAPACITIES[currentLevel] * parcelCapacityMultiplier(tile));
         targetDemand = indDemand;
-        maxLevel = maxIndLevel;
       }
 
       const currentOcc = tile.type === TileType.RESIDENTIAL ? tile.population : tile.jobs;
       const occupancyRatio = currentCap > 0 ? currentOcc / currentCap : 0;
 
-      // Evolution Check to Upgrade to Next Level
+      // Authoritative Evolution Check using unified requirementSet
       if (currentLevel < maxLevel && occupancyRatio >= 0.75 && targetDemand > 0) {
-        let reqsMet = false;
-
         const nextLevel = currentLevel + 1;
-        const lv = tile.landValue ?? 30;
-        const pVal = tile.pollution ?? 0;
-        const cVal = tile.crime ?? 30;
-        const edu = tile.education ?? 0;
-        const suitability = tile.suitability ?? tile.landValue ?? 30;
-
-        if (nextLevel === 2) {
-          reqsMet = lv >= 20 && suitability >= 35;
-        } else if (nextLevel === 3) {
-          reqsMet = lv >= 35 && suitability >= 48 && (tile.fireCovered || tile.policeCovered);
-        } else if (nextLevel === 4) {
-          reqsMet = lv >= 50 && suitability >= 62 && tile.fireCovered && tile.policeCovered && (tile.healthCovered || tile.schoolCovered) && pVal < 35;
-        } else if (nextLevel === 5) {
-          reqsMet = lv >= 65 && suitability >= 76 && tile.fireCovered && tile.policeCovered && tile.healthCovered && tile.schoolCovered && tile.wasteCovered && edu >= 50 && pVal < 25 && cVal < 20;
-        }
+        const requirements = requirementSet(tile, nextLevel, occupancyRatio * 100, evolutionContext);
+        const reqsMet = requirements.every((req) => req.met);
 
         if (reqsMet) {
-          tile.upgradeProgress = (tile.upgradeProgress ?? 0) + 25;
+          tile.upgradeProgress = (tile.upgradeProgress ?? 0) + 25 * step;
+          tile.constructionType = 'UPGRADE';
+          tile.previousLevel = currentLevel;
+          tile.targetLevel = nextLevel;
+          tile.constructionProgress = tile.upgradeProgress;
+          tile.constructionState = 'RENOVATING';
           if (tile.upgradeProgress >= 100) {
             tile.level = nextLevel;
+            tile.previousLevel = nextLevel;
             tile.upgradeProgress = 0;
+            tile.constructionProgress = 100;
+            tile.constructionState = 'COMPLETED';
+            tile.constructionType = undefined;
           }
         } else {
           tile.upgradeProgress = Math.max(0, (tile.upgradeProgress ?? 0) - 10);
+          if ((tile.upgradeProgress ?? 0) === 0 && tile.constructionType === 'UPGRADE') {
+            tile.constructionType = undefined;
+            tile.constructionState = 'COMPLETED';
+            tile.constructionProgress = 100;
+          }
         }
       } else {
         tile.upgradeProgress = Math.max(0, (tile.upgradeProgress ?? 0) - 10);
+        if ((tile.upgradeProgress ?? 0) === 0 && tile.constructionType === 'UPGRADE') {
+          tile.constructionType = undefined;
+          tile.constructionState = 'COMPLETED';
+          tile.constructionProgress = 100;
+        }
       }
 
       // Check degradation if conditions severely decay
@@ -431,6 +479,5 @@ export function simulateBuildingEvolution(
       }
       if (visualSignature(tile) !== beforeVisual) changedTiles.push([x, y]);
     }
+    return changedTiles;
   }
-  return changedTiles;
-}

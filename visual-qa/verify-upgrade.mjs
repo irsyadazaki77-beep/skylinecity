@@ -5,11 +5,14 @@ const output = 'visual-qa/upgrade';
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const report = [];
+const fixtures = [{ name: 'desktop', width: 1280, height: 720 }, { name: 'mobile', width: 393, height: 851 }, { name: 'dense', width: 1280, height: 720, dense: true }]
+  .filter(fixture => !process.env.SKYLINE_QA_FIXTURE || fixture.name === process.env.SKYLINE_QA_FIXTURE);
 try {
-  for (const fixture of [{ name: 'desktop', width: 1280, height: 720 }, { name: 'mobile', width: 393, height: 851 }, { name: 'dense', width: 1280, height: 720, dense: true }]) {
+  for (const fixture of fixtures) {
     const page = await browser.newPage({ viewport: { width: fixture.width, height: fixture.height }, hasTouch: fixture.name === 'mobile' });
     page.setDefaultTimeout(30000);
     const row = { ...fixture, errors: [], checks: [] };
+    row.checks.push = (...checks) => { console.log(`${fixture.name}: ${checks.join(', ')}`); return Array.prototype.push.apply(row.checks, checks); };
     report.push(row);
     console.log(`Checking ${fixture.name}`);
     page.on('pageerror', error => row.errors.push(error.message));
@@ -50,11 +53,15 @@ try {
         const cdp = await page.context().newCDPSession(page);
         const before = await snapshot();
         await page.keyboard.press('j');
+        await page.getByRole('button', { name: /Jalan Lokal/i }).first().click();
+        const treasury = await page.locator('.game-hud').innerText();
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 155, y: 360, id: 0 }, { x: 235, y: 360, id: 1 }] });
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 115, y: 380, id: 0 }, { x: 275, y: 380, id: 1 }] });
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
         await page.waitForTimeout(1000);
         expect((await snapshot()).position).not.toEqual(before.position);
+        expect(await page.locator('.game-hud').innerText()).toBe(treasury);
+        await expect(page.getByRole('button', { name: /Pilih/i }).first()).toHaveAttribute('aria-pressed', 'true');
         await expect(page.locator('[aria-labelledby="inspector-tile-title"]')).toHaveCount(0);
         row.checks.push('two-finger pinch/rotate while building cancels placement');
         await page.keyboard.press('Home');
@@ -120,12 +127,35 @@ try {
         await page.getByRole('button', { name: 'Tutup inspeksi petak' }).click();
         row.checks.push('save, page reload, load retains 3D zoning');
         await page.getByRole('button', { name: 'Kecepatan sangat cepat 3x', exact: true }).click();
+        await expect(page.getByRole('button', { name: 'Kecepatan sangat cepat 3x', exact: true })).toHaveAttribute('aria-pressed', 'true');
         await expect.poll(async () => Number(await page.locator('.game-hud').getAttribute('data-city-population')), { timeout: 45000 }).toBeGreaterThan(0);
         await page.getByRole('button', { name: 'Jeda simulasi', exact: true }).click();
         const pausedDay = await page.locator('.game-hud').getAttribute('data-city-day');
         await page.waitForTimeout(1500);
         expect(await page.locator('.game-hud').getAttribute('data-city-day')).toBe(pausedDay);
         row.checks.push('3D simulation growth, fast speed, pause');
+        const residence = await project(35, 27);
+        await page.mouse.click(residence.x, residence.y);
+        const services = page.locator('[aria-labelledby="inspector-tile-title"]');
+        await expect(services).toContainText('Listrik Aktif');
+        await expect(services).toContainText('Air Bersih');
+        await page.getByRole('button', { name: 'Tutup inspeksi petak' }).click();
+        row.checks.push('starter residence receives electricity and water through live network');
+        const canLoseContext = await page.evaluate(() => {
+          const canvas = document.querySelector('.app-world canvas');
+          const extension = canvas?.getContext('webgl2')?.getExtension('WEBGL_lose_context');
+          if (!extension) return false;
+          window.restoreTestContext = () => extension.restoreContext();
+          extension.loseContext();
+          return true;
+        });
+        if (canLoseContext) {
+          await expect(page.getByText('Tampilan 3D sedang dipulihkan', { exact: true })).toBeVisible();
+          await page.evaluate(() => window.restoreTestContext());
+          await expect(page.getByText('Tampilan 3D sedang dipulihkan', { exact: true })).not.toBeVisible();
+          expect(await page.locator('.game-hud').getAttribute('data-city-day')).toBe(pausedDay);
+          row.checks.push('WebGL context loss/restoration preserves city');
+        }
       }
       await page.waitForTimeout(5000);
       row.metrics = await page.evaluate(() => ({ ...window.__SKYLINE_PERF__, overflow: document.documentElement.scrollWidth > innerWidth }));
@@ -134,7 +164,7 @@ try {
       expect(row.metrics.overflow).toBe(false);
     } catch (error) {
       row.failure = String(error);
-      row.ui = await page.evaluate(() => ({ focus: document.activeElement?.tagName, dialogs: [...document.querySelectorAll('[aria-modal="true"]')].map(e => e.textContent.slice(0, 200)) })).catch(() => null);
+      row.ui = await page.evaluate(() => ({ focus: document.activeElement?.tagName, day: document.querySelector('.game-hud')?.getAttribute('data-city-day'), hud: document.querySelector('.game-hud')?.textContent, performance: window.__SKYLINE_PERF__, dialogs: [...document.querySelectorAll('[aria-modal="true"]')].map(e => e.textContent.slice(0, 200)) })).catch(() => null);
       await page.screenshot({ path: `${output}/${fixture.name}-failure.png`, timeout: 10000 }).catch(() => {});
     }
     console.log(JSON.stringify(row));
@@ -142,6 +172,6 @@ try {
   }
 } finally {
   await browser.close();
-  await writeFile(`${output}/report.json`, JSON.stringify(report, null, 2));
+  await writeFile(`${output}/report${process.env.SKYLINE_QA_FIXTURE ? `-${fixtures[0]?.name}` : ''}.json`, JSON.stringify(report, null, 2));
 }
 if (report.some(row => row.failure || row.errors.length)) process.exitCode = 1;

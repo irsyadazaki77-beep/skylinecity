@@ -28,7 +28,7 @@ export enum TileType {
 
 export type ResourceType = 'none' | 'fertile' | 'ore' | 'oil' | 'forest';
 
-export type RoadClass = 'LOCAL' | 'ARTERIAL' | 'HIGHWAY';
+export type RoadClass = 'LOCAL' | 'ARTERIAL' | 'HIGHWAY' | 'AVENUE' | 'ONE_WAY' | 'PEDESTRIAN' | 'SERVICE';
 
 export type IntersectionControl = 'AUTO' | 'SIGNAL' | 'STOP' | 'ROUNDABOUT';
 export type SignalTimingMode = 'ADAPTIVE' | 'FIXED_NS' | 'FIXED_EW';
@@ -384,6 +384,12 @@ export interface TileData {
   flowDx?: number;
   flowDy?: number;
   reservoirLevel?: number;
+  /** Authoritative deterministic construction & upgrade lifecycle */
+  constructionState?: 'EMPTY_LOT' | 'FOUNDATION' | 'FRAME' | 'STRUCTURE' | 'FACADE' | 'FINISHING' | 'COMPLETED' | 'RENOVATING';
+  constructionProgress?: number;
+  targetLevel?: number;
+  previousLevel?: number;
+  constructionType?: 'NEW' | 'UPGRADE';
 }
 
 export interface HistoryRecord {
@@ -666,12 +672,20 @@ export const ROAD_BUILD_COSTS: Record<RoadClass, number> = {
   LOCAL: GAME_CONFIG.ROAD_CLASSES.LOCAL.BUILD_COST,
   ARTERIAL: GAME_CONFIG.ROAD_CLASSES.ARTERIAL.BUILD_COST,
   HIGHWAY: GAME_CONFIG.ROAD_CLASSES.HIGHWAY.BUILD_COST,
+  AVENUE: GAME_CONFIG.ROAD_CLASSES.AVENUE?.BUILD_COST ?? 55,
+  ONE_WAY: GAME_CONFIG.ROAD_CLASSES.ONE_WAY?.BUILD_COST ?? 30,
+  PEDESTRIAN: GAME_CONFIG.ROAD_CLASSES.PEDESTRIAN?.BUILD_COST ?? 20,
+  SERVICE: GAME_CONFIG.ROAD_CLASSES.SERVICE?.BUILD_COST ?? 18,
 };
 
 export const ROAD_MAINTENANCE_COSTS: Record<RoadClass, number> = {
   LOCAL: GAME_CONFIG.ROAD_CLASSES.LOCAL.MAINTENANCE,
   ARTERIAL: GAME_CONFIG.ROAD_CLASSES.ARTERIAL.MAINTENANCE,
   HIGHWAY: GAME_CONFIG.ROAD_CLASSES.HIGHWAY.MAINTENANCE,
+  AVENUE: GAME_CONFIG.ROAD_CLASSES.AVENUE?.MAINTENANCE ?? 5,
+  ONE_WAY: GAME_CONFIG.ROAD_CLASSES.ONE_WAY?.MAINTENANCE ?? 2,
+  PEDESTRIAN: GAME_CONFIG.ROAD_CLASSES.PEDESTRIAN?.MAINTENANCE ?? 1,
+  SERVICE: GAME_CONFIG.ROAD_CLASSES.SERVICE?.MAINTENANCE ?? 1,
 };
 
 export const TERRAFORM_COST = GAME_CONFIG.TERRAFORM_COST;
@@ -742,6 +756,8 @@ export function createTile(x: number, y: number, overrides: Partial<TileData> = 
     transitCovered: false,
     disasterSeverity: 0,
     disasterImpact: 0,
+    constructionState: 'COMPLETED',
+    constructionProgress: 100,
     ...overrides,
   };
 }

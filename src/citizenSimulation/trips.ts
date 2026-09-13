@@ -1,5 +1,5 @@
 import { RoadLaneState, TileData, TileType, TransitLine, TurnMovement } from '../types';
-import { RoadGraph, getAdjacentRoadNodeKey, getCrosswalkTurnFriction, getRoadNodeKey, getTimeSlicedDischargeRatio, getTurnMovement, getTurnPenalty } from '../traffic';
+import { BoundedRouteCache, RoadGraph, getAdjacentRoadNodeKey, getCrosswalkTurnFriction, getRoadNodeKey, getTimeSlicedDischargeRatio, getTurnMovement, getTurnPenalty } from '../traffic';
 import { SeededRandom } from './prng';
 import { TransitAvailability } from '../transit';
 import type { FreightTrip } from '../logistics';
@@ -25,6 +25,11 @@ export function findRoadPath(
   if (startKey === endKey) {
     const node = roadGraph.nodes.get(startKey);
     return node ? [[node.x, node.y]] : [];
+  }
+
+  const directKey = !assignmentLoads ? `DIRECT:${startKey}->${endKey}` : null;
+  if (directKey && roadGraph.pathCache?.has(directKey)) {
+    return roadGraph.pathCache.get(directKey)!;
   }
 
   type SearchState = { id: string; previousKey?: string; currentKey: string; cost: number };
@@ -135,10 +140,17 @@ export function findRoadPath(
     curr = parent.get(curr);
   }
 
-  return pathKeys.filter((key, index) => index === 0 || key !== pathKeys[index - 1]).map((key) => {
+  const resolvedPath: [number, number][] = pathKeys.filter((key, index) => index === 0 || key !== pathKeys[index - 1]).map((key) => {
     const node = roadGraph.nodes.get(key)!;
     return [node.x, node.y];
   });
+  if (directKey) {
+    if (!roadGraph.pathCache) roadGraph.pathCache = new Map();
+    if (roadGraph.pathCache.size <= 8000) {
+      roadGraph.pathCache.set(directKey, resolvedPath);
+    }
+  }
+  return resolvedPath;
 }
 
 export interface TransitRouteAccess {
@@ -279,11 +291,18 @@ export function generateCitizenTrips(
     }
   }
 
-  // Many citizens share the same residence/workplace road pairs. Cache
-  // shortest paths within this tick so large cities avoid repeating BFS for
-  // every individual commuter.
-  const pathCache = new Map<string, [number, number][]>();
+  // Ensure bounded route cache with LRU eviction
+  if (!roadGraph.pathCache) {
+    roadGraph.pathCache = new BoundedRouteCache(2048);
+  }
+  const pathCache = roadGraph.pathCache;
   const assignmentLoads = new Map<string, number>();
+
+  // OD pair path lookup cache for this tick to avoid duplicate path searches
+  const tickODPathCache = new Map<string, [number, number][]>();
+
+  // Maximum detailed visual trips retained to avoid unbounded array serialization
+  const MAX_REPRESENTATIVE_TRIPS = 1000;
 
   for (const citizen of citizens.values()) {
     const household = households.get(citizen.householdId);
@@ -353,12 +372,13 @@ export function generateCitizenTrips(
 
     if (originRoad && destRoad) {
       const cacheKey = `${mode}:${originRoad}->${destRoad}`;
-      const cachedPath = pathCache.get(cacheKey);
+      let cachedPath = tickODPathCache.get(cacheKey) ?? pathCache.get(cacheKey);
       if (cachedPath) {
         path = cachedPath;
       } else {
         path = findRoadPath(originRoad, destRoad, roadGraph, assignmentLoads);
         pathCache.set(cacheKey, path);
+        tickODPathCache.set(cacheKey, path);
       }
       if (mode === TransitMode.CAR) {
         for (const [rx, ry] of path) {
@@ -389,19 +409,21 @@ export function generateCitizenTrips(
       workCommuteCount++;
     }
 
-    trips.push({
-      id: `trip-${citizen.id}-${purpose}`,
-      citizenId: citizen.id,
-      householdId: household.id,
-      origin,
-      destination,
-      purpose,
-      path,
-      travelTime,
-      mode,
-      transitLineIds: mode === TransitMode.TRANSIT && transitRoute.lineIds.length > 0 ? transitRoute.lineIds : undefined,
-      transfers: mode === TransitMode.TRANSIT ? transitRoute.transfers : undefined,
-    });
+    if (trips.length < MAX_REPRESENTATIVE_TRIPS) {
+      trips.push({
+        id: `trip-${citizen.id}-${purpose}`,
+        citizenId: citizen.id,
+        householdId: household.id,
+        origin,
+        destination,
+        purpose,
+        path,
+        travelTime,
+        mode,
+        transitLineIds: mode === TransitMode.TRANSIT && transitRoute.lineIds.length > 0 ? transitRoute.lineIds : undefined,
+        transfers: mode === TransitMode.TRANSIT ? transitRoute.transfers : undefined,
+      });
+    }
   }
 
   const averageCommuteTime = workCommuteCount > 0

@@ -220,4 +220,30 @@ test.describe('Skyline Simulator - real core workflows', () => {
     await page.keyboard.press('Escape');
     await expect(infoPanel).not.toBeVisible();
   });
+
+  test('pause rejects a delayed worker result and resume continues from the visible day', async ({ page }) => {
+    await page.addInitScript(() => {
+      const NativeWorker = window.Worker;
+      window.Worker = class extends NativeWorker {
+        set onmessage(handler: ((event: MessageEvent) => void) | null) {
+          super.onmessage = (event: MessageEvent) => {
+            if (event.data?.type === 'TICK_COMPLETED') {
+              (window as Window & { pendingTick?: boolean }).pendingTick = true;
+              setTimeout(() => handler?.(event), 800);
+            } else handler?.(event);
+          };
+        }
+      };
+    });
+    await startNewCity(page);
+    await open2D(page);
+    await page.getByRole('button', { name: 'Kecepatan sangat cepat 3x', exact: true }).click();
+    await page.waitForFunction(() => (window as Window & { pendingTick?: boolean }).pendingTick);
+    await page.getByRole('button', { name: 'Jeda simulasi', exact: true }).click();
+    const day = await page.locator('.game-hud').getAttribute('data-city-day');
+    await page.waitForTimeout(1400);
+    await expect(page.locator('.game-hud')).toHaveAttribute('data-city-day', day!);
+    await page.getByRole('button', { name: 'Kecepatan normal 1x', exact: true }).click();
+    await expect.poll(async () => Number(await page.locator('.game-hud').getAttribute('data-city-day'))).toBeGreaterThan(Number(day));
+  });
 });

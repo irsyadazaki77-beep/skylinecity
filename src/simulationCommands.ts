@@ -90,6 +90,11 @@ function applyBuildTile(state: CityState, command: SimulationCommand): void {
   tile.jobs = 0;
   tile.abandoned = false;
   tile.upgradeProgress = 0;
+  tile.constructionType = 'NEW';
+  tile.constructionProgress = 0;
+  tile.constructionState = 'EMPTY_LOT';
+  tile.targetLevel = 1;
+  tile.previousLevel = 0;
   state.money -= cost;
 }
 
@@ -106,6 +111,11 @@ function applyZoneLand(state: CityState, command: SimulationCommand): void {
   tile.zoneDensity = payload.zoneDensity;
   tile.abandoned = false;
   tile.parcelStatus = 'ZONED';
+  tile.constructionType = 'NEW';
+  tile.constructionProgress = 0;
+  tile.constructionState = 'EMPTY_LOT';
+  tile.targetLevel = 1;
+  tile.previousLevel = 0;
   state.money -= cost;
 }
 

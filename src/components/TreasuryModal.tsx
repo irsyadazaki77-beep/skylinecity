@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { CityState, TileType, MAINTENANCE_COSTS } from '../types';
+import { CityState, TileType, MAINTENANCE_COSTS, ROAD_MAINTENANCE_COSTS, getRoadClass } from '../types';
 import { FreightCommodity } from '../logistics';
 import { X, TrendingUp, Percent, Landmark } from 'lucide-react';
 import { useModalFocus } from './ui/useModalFocus';
@@ -57,7 +57,7 @@ export function TreasuryModal({ isOpen, onClose, gameState, setTaxRates, onCreat
   grid.forEach((row) => {
     row.forEach((tile) => {
       const upkeep = MAINTENANCE_COSTS[tile.type] || 0;
-      if (tile.type === TileType.ROAD) roadUpkeep += upkeep;
+      if (tile.type === TileType.ROAD) roadUpkeep += ROAD_MAINTENANCE_COSTS[getRoadClass(tile)] || upkeep;
       else if (tile.type === TileType.POWER_PLANT) powerUpkeep += upkeep;
       else if (tile.type === TileType.WATER_PUMP) waterUpkeep += upkeep;
       else if (

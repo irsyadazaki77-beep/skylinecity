@@ -168,7 +168,7 @@ export function CameraController({ building = false, resetRevision = 0, reducedM
       ref={controlsRef}
       makeDefault
       enableDamping
-      mouseButtons={{ LEFT: building ? undefined : THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.PAN, RIGHT: undefined }}
+      mouseButtons={{ LEFT: building ? undefined : THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE }}
       touches={{ ONE: building ? undefined : THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE }}
       screenSpacePanning={false}
       dampingFactor={0.08}

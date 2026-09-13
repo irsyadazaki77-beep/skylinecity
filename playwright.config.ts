@@ -23,7 +23,9 @@ export default defineConfig({
     trace: isCI ? 'retain-on-failure' : 'off',
     screenshot: 'only-on-failure',
   },
-  webServer: {
+  // Opt-in for an explicitly started fresh production server, useful on
+  // Windows hosts whose process-tree teardown hangs after all tests finish.
+  webServer: process.env.SKYLINE_E2E_EXTERNAL_SERVER === '1' ? undefined : {
     // E2E validates the same production bundle that is released. Local runs
     // Use an isolated port so a stale dev server cannot make E2E hang or
     // accidentally validate a different bundle.

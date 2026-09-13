@@ -35,6 +35,7 @@ export interface RoadNode {
 
 export interface RoadGraph {
   nodes: Map<string, RoadNode>;
+  pathCache?: BoundedRouteCache | Map<string, [number, number][]>;
 }
 
 export interface TrafficSimulationResult {
@@ -379,8 +380,269 @@ export function buildRoadGraph(
               : GAME_CONFIG.ROAD_NETWORK.UNSIGNALIZED_INTERSECTION_DELAY;
   }
 
-  return { nodes };
+  return { nodes, pathCache: new Map() };
 }
+
+export class BoundedRouteCache {
+  private capacity: number;
+  private cache = new Map<string, [number, number][]>();
+
+  constructor(capacity = 2048) {
+    this.capacity = capacity;
+  }
+
+  get(key: string): [number, number][] | undefined {
+    const item = this.cache.get(key);
+    if (item) {
+      this.cache.delete(key);
+      this.cache.set(key, item);
+    }
+    return item;
+  }
+
+  set(key: string, value: [number, number][]): void {
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    } else if (this.cache.size >= this.capacity) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey !== undefined) this.cache.delete(oldestKey);
+    }
+    this.cache.set(key, value);
+  }
+
+  has(key: string): boolean {
+    return this.cache.has(key);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  get size(): number {
+    return this.cache.size;
+  }
+}
+
+/**
+ * Incrementally updates dynamic traffic, condition, and signal telemetry on an existing RoadGraph
+ * without reconstructing nodes or topology adjacency maps.
+ */
+export function updateRoadGraphDynamic(
+  roadGraph: RoadGraph,
+  grid: TileData[][],
+  unlockedUpgrades: string[] = [],
+  timeOfDay = 12,
+  persistedSignalStates: Record<string, SignalPhaseState> = {},
+): void {
+  const hasSmartLights = unlockedUpgrades.includes('smart_lights');
+  const asphaltBonus = unlockedUpgrades.includes('asphalt_roads')
+    ? GAME_CONFIG.ROAD_NETWORK.ASPHALT_CAPACITY_BONUS
+    : 0;
+
+  for (const node of roadGraph.nodes.values()) {
+    const tile = grid[node.y]?.[node.x];
+    if (!tile || tile.type !== TileType.ROAD) continue;
+
+    const roadCondition = Math.max(0.25, Math.min(1, (tile.roadCondition ?? 100) / 100));
+    const profile = GAME_CONFIG.ROAD_CLASSES[node.roadClass];
+    node.capacity = (profile.CAPACITY + asphaltBonus) * roadCondition;
+    node.speedMultiplier = profile.SPEED_MULTIPLIER * (1 + (1 - roadCondition) * 0.8);
+    node.traffic = tile.traffic || 0;
+    node.laneUtilization = tile.laneUtilization ?? 0;
+    node.laneChangePressure = tile.laneChangePressure ?? 0;
+    node.queuePressure = tile.queuePressure ?? 0;
+    node.elevation = tile.elevation;
+    node.roadStructure = tile.roadStructure ?? 'GROUND';
+
+    const control = node.intersectionControl;
+    const hasHorizontalApproach = node.neighbors.some((key) => roadGraph.nodes.get(key)?.x !== node.x);
+    const hasVerticalApproach = node.neighbors.some((key) => roadGraph.nodes.get(key)?.y !== node.y);
+    const basePhase = (node.x + node.y) % 2 === 0 ? 'NORTH_SOUTH' : 'EAST_WEST';
+    const oppositePhase = basePhase === 'NORTH_SOUTH' ? 'EAST_WEST' : 'NORTH_SOUTH';
+    const phaseSlot = Math.floor((((timeOfDay % 24) + 24) % 24 + node.signalOffsetHours) / 6) % 2;
+    const timePhase = phaseSlot === 0 ? basePhase : oppositePhase;
+    const horizontalPressure = node.neighbors
+      .map((key) => roadGraph.nodes.get(key))
+      .filter((candidate): candidate is RoadNode => Boolean(candidate) && candidate.x !== node.x)
+      .reduce((sum, candidate) => sum + candidate.traffic, 0);
+    const verticalPressure = node.neighbors
+      .map((key) => roadGraph.nodes.get(key))
+      .filter((candidate): candidate is RoadNode => Boolean(candidate) && candidate.x === node.x)
+      .reduce((sum, candidate) => sum + candidate.traffic, 0);
+    const pressurePhase = node.signalTimingMode === 'ADAPTIVE' && horizontalPressure > verticalPressure * 1.15
+      ? 'EAST_WEST'
+      : node.signalTimingMode === 'ADAPTIVE' && verticalPressure > horizontalPressure * 1.15
+        ? 'NORTH_SOUTH'
+        : timePhase;
+    node.signalPhase = control === 'ROUNDABOUT' || control === 'STOP' || !node.signalized || (!hasHorizontalApproach || !hasVerticalApproach)
+      ? 'ALL'
+      : node.signalTimingMode === 'FIXED_NS'
+        ? 'NORTH_SOUTH'
+        : node.signalTimingMode === 'FIXED_EW'
+          ? 'EAST_WEST'
+          : pressurePhase;
+    node.signalCycleSeconds = node.signalized ? (hasSmartLights ? 48 : 64) : 0;
+    node.signalGreenSeconds = node.signalized ? Math.round(node.signalCycleSeconds * 0.40) : 0;
+    if (node.signalized) {
+      const derivedSignalState = deriveSignalState(
+        node.signalPhase,
+        node.signalCycleSeconds,
+        timeOfDay + node.signalOffsetHours,
+      );
+      const persistedSignalState = persistedSignalStates[node.key];
+      node.signalState = persistedSignalState ?? derivedSignalState;
+      node.signalStage = node.signalState.stage;
+      node.signalGreenSeconds = node.signalState.greenSeconds;
+      node.pedestrianCrossing = node.signalState.pedestrianCrossing;
+    } else {
+      node.signalStage = 'PERMISSIVE';
+      node.pedestrianCrossing = false;
+      node.signalState = createPermissiveSignalState();
+    }
+    tile.signalStage = node.signalStage;
+    tile.pedestrianCrossing = node.pedestrianCrossing;
+  }
+}
+
+/**
+ * Incrementally updates only the road nodes affected by a build or bulldoze operation
+ * without rescanning untouched portions of the city grid.
+ */
+export function updateRoadGraphIncremental(
+  roadGraph: RoadGraph,
+  grid: TileData[][],
+  changedCoords: Iterable<readonly [number, number]>,
+  unlockedUpgrades: string[] = [],
+  timeOfDay = 12,
+  persistedSignalStates: Record<string, SignalPhaseState> = {},
+): void {
+  const hasSmartLights = unlockedUpgrades.includes('smart_lights');
+  const asphaltBonus = unlockedUpgrades.includes('asphalt_roads')
+    ? GAME_CONFIG.ROAD_NETWORK.ASPHALT_CAPACITY_BONUS
+    : 0;
+
+  const affectedKeys = new Set<string>();
+
+  for (const [x, y] of changedCoords) {
+    const key = getRoadNodeKey(x, y);
+    const tile = grid[y]?.[x];
+    const isRoad = tile && tile.type === TileType.ROAD;
+
+    if (isRoad) {
+      affectedKeys.add(key);
+      let node = roadGraph.nodes.get(key);
+      if (!node) {
+        const roadClass = getRoadClass(tile);
+        const profile = GAME_CONFIG.ROAD_CLASSES[roadClass];
+        const roadCondition = Math.max(0.25, Math.min(1, (tile.roadCondition ?? 100) / 100));
+        node = {
+          key,
+          x,
+          y,
+          roadClass,
+          elevation: tile.elevation,
+          roadStructure: tile.roadStructure ?? 'GROUND',
+          lanes: profile.LANES,
+          capacity: (profile.CAPACITY + asphaltBonus) * roadCondition,
+          speedMultiplier: profile.SPEED_MULTIPLIER * (1 + (1 - roadCondition) * 0.8),
+          traffic: tile.traffic || 0,
+          laneUtilization: tile.laneUtilization ?? 0,
+          laneChangePressure: tile.laneChangePressure ?? 0,
+          queuePressure: tile.queuePressure ?? 0,
+          neighbors: [],
+          isIntersection: false,
+          signalized: false,
+          intersectionDelay: 1,
+          signalPhase: 'ALL',
+          signalCycleSeconds: 0,
+          signalGreenSeconds: 0,
+          signalState: createPermissiveSignalState(),
+          intersectionControl: tile.intersectionControl ?? 'AUTO',
+          signalTimingMode: tile.signalTimingMode ?? 'ADAPTIVE',
+          signalOffsetHours: Math.max(0, Math.min(5, tile.signalOffsetHours ?? 0)),
+          signalStage: 'PERMISSIVE',
+          pedestrianCrossing: false,
+          prohibitedTurns: [...(tile.prohibitedTurns ?? [])],
+        };
+        roadGraph.nodes.set(key, node);
+      }
+
+      node.neighbors = [];
+      for (const [dx, dy] of DIRECTIONS) {
+        const nKey = getRoadNodeKey(x + dx, y + dy);
+        if (roadGraph.nodes.has(nKey)) {
+          node.neighbors.push(nKey);
+          const nNode = roadGraph.nodes.get(nKey)!;
+          if (!nNode.neighbors.includes(key)) {
+            nNode.neighbors.push(key);
+          }
+          affectedKeys.add(nKey);
+        }
+      }
+    } else {
+      const node = roadGraph.nodes.get(key);
+      if (node) {
+        for (const nKey of node.neighbors) {
+          const nNode = roadGraph.nodes.get(nKey);
+          if (nNode) {
+            nNode.neighbors = nNode.neighbors.filter((k) => k !== key);
+            affectedKeys.add(nKey);
+          }
+        }
+        roadGraph.nodes.delete(key);
+      }
+    }
+  }
+
+  for (const aKey of affectedKeys) {
+    const node = roadGraph.nodes.get(aKey);
+    if (!node) continue;
+    const hasDifferentClassBranch = node.neighbors.some((nKey) => roadGraph.nodes.get(nKey)?.roadClass !== node.roadClass);
+    node.isIntersection = node.neighbors.length >= 3 && (node.roadClass !== 'HIGHWAY' || hasDifferentClassBranch || node.intersectionControl !== 'AUTO');
+    const connectedPriorityRoad = [node, ...node.neighbors.map((nKey) => roadGraph.nodes.get(nKey))]
+      .some((candidate) => candidate?.roadClass !== 'LOCAL');
+    const control = node.intersectionControl;
+    node.signalized = node.isIntersection && (
+      control === 'SIGNAL' ||
+      (control === 'AUTO' && (hasSmartLights || connectedPriorityRoad))
+    );
+  }
+
+  if (roadGraph.pathCache) {
+    roadGraph.pathCache.clear();
+  }
+
+  updateRoadGraphDynamic(roadGraph, grid, unlockedUpgrades, timeOfDay, persistedSignalStates);
+}
+
+/**
+ * Returns a cached RoadGraph if topology hasn't changed, updating dynamic state in-place.
+ * Uses incremental topology update if changed coordinates are provided.
+ */
+export function getOrBuildRoadGraph(
+  cachedGraph: RoadGraph | null,
+  grid: TileData[][],
+  topologyDirty: boolean,
+  unlockedUpgrades: string[] = [],
+  timeOfDay = 12,
+  persistedSignalStates: Record<string, SignalPhaseState> = {},
+  changedCoords?: Iterable<readonly [number, number]>,
+): RoadGraph {
+  if (cachedGraph) {
+    if (!topologyDirty) {
+      updateRoadGraphDynamic(cachedGraph, grid, unlockedUpgrades, timeOfDay, persistedSignalStates);
+      return cachedGraph;
+    }
+    if (changedCoords) {
+      updateRoadGraphIncremental(cachedGraph, grid, changedCoords, unlockedUpgrades, timeOfDay, persistedSignalStates);
+      return cachedGraph;
+    }
+  }
+  const graph = buildRoadGraph(grid, unlockedUpgrades, timeOfDay, persistedSignalStates);
+  graph.pathCache = new BoundedRouteCache(2048);
+  return graph;
+}
+
 
 function directionBetween(from: RoadNode, to: RoadNode): { dx: number; dy: number } {
   return { dx: Math.sign(to.x - from.x), dy: Math.sign(to.y - from.y) };
