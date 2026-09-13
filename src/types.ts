@@ -445,6 +445,7 @@ export interface GameSettings {
   experimentalFeatures?: boolean;
   highContrast?: boolean;
   colorblindMode?: 'none' | 'deuteranopia' | 'protanopia' | 'tritanopia';
+  unlimitedMoney?: boolean;
 }
 
 export interface CityState {
@@ -640,6 +641,8 @@ export interface CityState {
   scenarioObjectiveValues?: Record<string, number>;
   /** Persisted deterministic signal clocks, keyed by `${x},${y}` intersection key. */
   signalStates?: Record<string, SignalPhaseState>;
+  /** Unlimited money mode toggle */
+  unlimitedMoney?: boolean;
 }
 
 export const BUILD_COSTS: Record<TileType, number> = {

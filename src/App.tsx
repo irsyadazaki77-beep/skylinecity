@@ -290,6 +290,11 @@ export default function App() {
   }, [settings.experimentalFeatures]);
 
   useEffect(() => {
+    const unlimited = Boolean(settings.unlimitedMoney);
+    setGameState((current) => current.unlimitedMoney === unlimited ? current : { ...current, unlimitedMoney: unlimited });
+  }, [settings.unlimitedMoney]);
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (cameraFocus) {
@@ -614,6 +619,7 @@ export default function App() {
       };
     }
     const [hx, hy] = hoveredPos;
+    const isUnlimitedMoney = Boolean(settings.unlimitedMoney || gameState.unlimitedMoney);
 
     // 1. Road drag line calculation
     if ((activeTool === TileType.ROAD || activeTool === 'TUNNEL_ROAD') && dragStart) {
@@ -693,7 +699,7 @@ export default function App() {
           if (!firstBlockedReason) firstBlockedReason = 'Tile sudah ditempati bangunan/zona';
         }
       }
-      if (gameState.money < cost) {
+      if (!isUnlimitedMoney && gameState.money < cost) {
         valid = false;
         if (!firstBlockedReason) firstBlockedReason = 'Dana kota tidak mencukupi';
       }
@@ -744,7 +750,7 @@ export default function App() {
         }
       }
       if (blockedCount > 0) valid = false;
-      if (gameState.money < cost || cost === 0) valid = false;
+      if ((!isUnlimitedMoney && gameState.money < cost) || cost === 0) valid = false;
 
       return {
         previewTiles: tiles,
@@ -841,7 +847,7 @@ export default function App() {
       }
       const cond = t.roadCondition ?? 100;
       const repairCost = ROAD_REPAIR_COST;
-      const canAfford = gameState.money >= repairCost;
+      const canAfford = isUnlimitedMoney || gameState.money >= repairCost;
       return {
         previewTiles: tiles,
         previewColor: canAfford ? ('green' as const) : ('red' as const),
@@ -872,7 +878,7 @@ export default function App() {
       }
       let cost = activeTool === 'TUNNEL_ROAD' ? TUNNEL_BUILD_COST : ROAD_BUILD_COSTS[activeRoadClass];
       if (isWater && isHighway) cost = Math.round(cost * GAME_CONFIG.BRIDGE_COST_MULTIPLIER);
-      const canAfford = gameState.money >= cost;
+      const canAfford = isUnlimitedMoney || gameState.money >= cost;
       const isOccupied = t.type !== TileType.EMPTY && t.type !== TileType.ROAD;
       if (isOccupied) {
         return {
@@ -902,7 +908,7 @@ export default function App() {
     const zoning = zoningPlacement(activeTool);
     const buildableTileType = zoning?.type ?? (activeTool as TileType);
     const cost = zoning ? zoningToolCost(activeTool) : BUILD_COSTS[buildableTileType] ?? 0;
-    const canAfford = gameState.money >= cost;
+    const canAfford = isUnlimitedMoney || gameState.money >= cost;
 
     if (t.water) {
       const allowsWater = buildableTileType === TileType.WATER_PUMP || buildableTileType === TileType.WATER_RESERVOIR;
@@ -957,7 +963,7 @@ export default function App() {
       placementRoadAccess: hasRoadAdjacent,
       placementFootprint: '1×1',
     };
-  }, [activeRoadClass, activeTool, dragStart, hoveredPos, brushSize, gameState.grid, gameState.money, gameState.unlockedRegions]);
+  }, [activeRoadClass, activeTool, dragStart, hoveredPos, brushSize, gameState.grid, gameState.money, gameState.unlimitedMoney, gameState.unlockedRegions, settings.unlimitedMoney]);
 
   const previewForecast = useMemo(
     () => calculateBuildForecast(activeTool, previewValidCount, activeRoadClass),
@@ -1026,6 +1032,7 @@ export default function App() {
     if (!tileUnlocked) return;
     const currentTile = gameState.grid[y]?.[x];
     if (!currentTile) return;
+    const isUnlimitedMoney = Boolean(settings.unlimitedMoney || gameState.unlimitedMoney);
 
     if (activeTool === 'POINTER') {
       setSelectedTile(currentTile);
@@ -1041,7 +1048,7 @@ export default function App() {
       const brushTiles = getTerrainBrushTiles(x, y, brushSize, gameState.grid[0]?.length ?? 0, gameState.grid.length);
       const editableTiles = brushTiles.filter(([tx, ty]) => !gameState.grid[ty][tx].water);
       const estimatedCost = editableTiles.length * TERRAFORM_COST;
-      if (editableTiles.length === 0 || gameState.money < estimatedCost) return;
+      if (editableTiles.length === 0 || (!isUnlimitedMoney && gameState.money < estimatedCost)) return;
 
       const previewGrid = cloneGrid(gameState.grid);
       const changedTiles = applyTerrainTool(previewGrid, x, y, activeTool, brushSize);
@@ -1175,7 +1182,7 @@ export default function App() {
         return;
       } else {
         // Commit drag road path
-        if (previewTiles.length > 0 && previewColor === 'green' && gameState.money >= totalPlacementCost) {
+        if (previewTiles.length > 0 && previewColor === 'green' && (isUnlimitedMoney || gameState.money >= totalPlacementCost)) {
           playSound('build');
           recordEdit(gameState, 'BUILD');
           updateGrid((grid) => {
@@ -1199,7 +1206,7 @@ export default function App() {
             }
           });
           setGameState((current) => {
-            const next = { ...current, money: current.money - totalPlacementCost };
+            const next = { ...current, money: isUnlimitedMoney ? current.money : current.money - totalPlacementCost };
             return previewTiles.reduce((queued, [px, py]) => {
               const original = gameState.grid[py]?.[px];
               const structure = original?.water
@@ -1233,7 +1240,7 @@ export default function App() {
     // Zoning Brush Placement (Residential, Commercial, Industrial)
     const isZoning = isZoningTool(activeTool);
     if (isZoning && brushSize > 1) {
-      if (previewTiles.length > 0 && previewColor === 'green' && gameState.money >= totalPlacementCost) {
+      if (previewTiles.length > 0 && previewColor === 'green' && (isUnlimitedMoney || gameState.money >= totalPlacementCost)) {
         playSound('build');
         recordEdit(gameState, 'ZONE');
         const zoning = zoningPlacement(activeTool);
@@ -1256,7 +1263,7 @@ export default function App() {
           }
         });
         setGameState((current) => {
-          const next = { ...current, money: current.money - totalPlacementCost };
+          const next = { ...current, money: isUnlimitedMoney ? current.money : current.money - totalPlacementCost };
           return previewTiles.reduce(
             (queued, [px, py]) => queueSimulationCommand(
               queued,
@@ -1276,7 +1283,7 @@ export default function App() {
     }
 
     if (activeTool === 'ROAD_REPAIR') {
-      const repair = repairRoadCondition(currentTile, gameState.money);
+      const repair = repairRoadCondition(currentTile, isUnlimitedMoney ? 999999 : gameState.money);
       if (!repair.success) {
         setNotifications((items) => [{
           id: `road-repair-failed-${Date.now()}`,
@@ -1298,7 +1305,7 @@ export default function App() {
         grid[y][x] = repair.tile;
       });
       setGameState((current) => queueSimulationCommand(
-        { ...current, money: current.money - repair.cost },
+        { ...current, money: isUnlimitedMoney ? current.money : current.money - repair.cost },
         createSimulationCommand('REPAIR_ROAD', current.day, {
           x,
           y,
@@ -1323,7 +1330,7 @@ export default function App() {
     const zoning = zoningPlacement(activeTool);
     const buildableTileType = zoning?.type ?? activeTool as TileType;
     const cost = zoning ? zoningToolCost(activeTool) : BUILD_COSTS[buildableTileType];
-    if (!cost || gameState.money < cost) return;
+    if (!cost || (!isUnlimitedMoney && gameState.money < cost)) return;
 
     const requiredUpgrade = activeTool === TileType.BUS_DEPOT
       ? 'bus_network'
@@ -1419,7 +1426,7 @@ export default function App() {
       };
     });
     setGameState((current) => queueSimulationCommand(
-      { ...current, money: current.money - cost },
+      { ...current, money: isUnlimitedMoney ? current.money : current.money - cost },
       createSimulationCommand('BUILD_TILE', current.day, {
         x,
         y,
@@ -1429,7 +1436,7 @@ export default function App() {
       }),
     ));
     setSelectedTile(null);
-  }, [activeRoadClass, activeTool, dragStart, previewTiles, previewColor, totalPlacementCost, brushSize, mapExpansionMode, transitLineDraft, districtPlacementConfig, gameState, handleDemolish, handleUnlockRegion, playSound, recordEdit, updateGrid]);
+  }, [activeRoadClass, activeTool, dragStart, previewTiles, previewColor, totalPlacementCost, brushSize, mapExpansionMode, transitLineDraft, districtPlacementConfig, gameState, handleDemolish, handleUnlockRegion, playSound, recordEdit, updateGrid, settings.unlimitedMoney]);
 
   const handlePointerEnter = useCallback((x: number, y: number) => {
     setHoveredPos([x, y]);
@@ -1464,11 +1471,12 @@ export default function App() {
     const tile = gameState.grid[y]?.[x];
     const fleetDepot = Boolean(tile && [TileType.FIRE_STATION, TileType.POLICE_STATION, TileType.CLINIC].includes(tile.type));
     if (!tile || !fleetDepot) return;
+    const isUnlimited = Boolean(settings.unlimitedMoney || gameState.unlimitedMoney);
     const key = `${x},${y}`;
     const condition = gameState.serviceDepotCondition?.[key] ?? 100;
     const activeOrder = (gameState.serviceMaintenanceOrders ?? []).some((order) => `${order.facility.x},${order.facility.y}` === key);
     const cost = Math.max(25, Math.ceil((100 - condition) * 4));
-    if (condition >= 99.5 || activeOrder || gameState.money < cost) return;
+    if (condition >= 99.5 || activeOrder || (!isUnlimited && gameState.money < cost)) return;
     recordEdit(gameState, 'SERVICE');
     setGameState((current) => {
       const tile = current.grid[y]?.[x];
@@ -1478,34 +1486,35 @@ export default function App() {
       const condition = current.serviceDepotCondition?.[key] ?? 100;
       const activeOrder = (current.serviceMaintenanceOrders ?? []).some((order) => `${order.facility.x},${order.facility.y}` === key);
       const cost = Math.max(25, Math.ceil((100 - condition) * 4));
-      if (condition >= 99.5 || activeOrder || current.money < cost) return current;
+      if (condition >= 99.5 || activeOrder || (!isUnlimited && current.money < cost)) return current;
       const order = { id: `maintenance-${x}-${y}-${current.day}`, facility: { x, y }, remainingTicks: 2, cost, createdDay: current.day };
       return queueSimulationCommand({
         ...current,
-        money: current.money - cost,
+        money: isUnlimited ? current.money : current.money - cost,
         serviceMaintenanceOrders: [
           ...(current.serviceMaintenanceOrders ?? []),
           order,
         ],
       }, createSimulationCommand('ORDER_SERVICE_MAINTENANCE', current.day, { order, cost }));
     });
-  }, [gameState, recordEdit]);
+  }, [gameState, recordEdit, settings.unlimitedMoney]);
 
   const handleUpgradeService = useCallback((x: number, y: number, upgradeId: string) => {
     const upgrade = getServiceUpgrade(upgradeId);
     if (!upgrade) return;
+    const isUnlimited = Boolean(settings.unlimitedMoney || gameState.unlimitedMoney);
     recordEdit(gameState, 'SERVICE');
     setGameState((current) => {
       const tile = current.grid[y]?.[x];
-      if (!tile || !upgrade.facilityTypes.includes(tile.type) || tile.serviceUpgrades?.includes(upgradeId) || current.money < upgrade.buildCost) return current;
+      if (!tile || !upgrade.facilityTypes.includes(tile.type) || tile.serviceUpgrades?.includes(upgradeId) || (!isUnlimited && current.money < upgrade.buildCost)) return current;
       const grid = cloneGrid(current.grid);
       grid[y][x] = { ...grid[y][x], serviceUpgrades: [...(grid[y][x].serviceUpgrades ?? []), upgradeId] };
       return queueSimulationCommand(
-        { ...current, grid, money: current.money - upgrade.buildCost },
+        { ...current, grid, money: isUnlimited ? current.money : current.money - upgrade.buildCost },
         createSimulationCommand('UPGRADE_SERVICE', current.day, { x, y, upgradeId, cost: upgrade.buildCost }),
       );
     });
-  }, [gameState, recordEdit]);
+  }, [gameState, recordEdit, settings.unlimitedMoney]);
 
   const handleStartRecoveryProject = useCallback((x: number, y: number) => {
     const tile = gameState.grid[y]?.[x];
@@ -1544,13 +1553,13 @@ export default function App() {
 
   const handleSetTaxRates = useCallback((residential: number, commercial: number, industrial: number) => {
     const rates: Array<['residential' | 'commercial' | 'industrial', number]> = [
-      ['residential', Math.max(1, Math.min(20, residential))],
-      ['commercial', Math.max(1, Math.min(20, commercial))],
-      ['industrial', Math.max(1, Math.min(20, industrial))],
+      ['residential', residential],
+      ['commercial', commercial],
+      ['industrial', industrial],
     ];
     if (rates.every(([type, value]) => {
-      const current = type === 'residential' ? gameState.residentialTaxRate : type === 'commercial' ? gameState.commercialTaxRate : gameState.industrialTaxRate;
-      return current === value;
+      const key = `${type}TaxRate` as 'residentialTaxRate' | 'commercialTaxRate' | 'industrialTaxRate';
+      return gameState[key] === value;
     })) return;
     recordEdit(gameState, 'POLICY');
     setGameState((current) => rates.reduce((next, [type, value]) => {
@@ -1563,12 +1572,13 @@ export default function App() {
   }, [gameState, recordEdit]);
 
   const handleUnlockTech = (id: string, cost: number) => {
-    if (gameState.money < cost || gameState.unlockedUpgrades.includes(id)) return;
+    const isUnlimited = Boolean(settings.unlimitedMoney || gameState.unlimitedMoney);
+    if ((!isUnlimited && gameState.money < cost) || gameState.unlockedUpgrades.includes(id)) return;
     const node = TECH_NODES.find((item) => item.id === id);
     if (!node || gameState.milestoneLevel < node.requiredMilestoneLevel || (node.prerequisiteId && !gameState.unlockedUpgrades.includes(node.prerequisiteId))) return;
     recordEdit(gameState, 'TECH');
     setGameState((current) => queueSimulationCommand(
-      { ...current, money: current.money - cost, unlockedUpgrades: [...current.unlockedUpgrades, id] },
+      { ...current, money: isUnlimited ? current.money : current.money - cost, unlockedUpgrades: [...current.unlockedUpgrades, id] },
       createSimulationCommand('UNLOCK_TECH', current.day, { id, cost }),
     ));
   };
@@ -1647,10 +1657,11 @@ export default function App() {
 
   const handleCreateTradeContract = useCallback((commodity: FreightCommodity, direction: 'IMPORT' | 'EXPORT') => {
     const fee = direction === 'IMPORT' ? 180 : 120;
-    if (gameState.money < fee) return;
+    const isUnlimited = Boolean(settings.unlimitedMoney || gameState.unlimitedMoney);
+    if (!isUnlimited && gameState.money < fee) return;
     recordEdit(gameState);
     setGameState((current) => {
-      if (current.money < fee) return current;
+      if (!isUnlimited && current.money < fee) return current;
       const contract = {
         id: `contract-${commodity.toLowerCase()}-${direction.toLowerCase()}-${current.day}-${(current.tradeContracts?.length ?? 0) + 1}`,
         commodity,
@@ -1662,11 +1673,11 @@ export default function App() {
         active: true,
       };
       return queueSimulationCommand(
-        { ...current, money: current.money - fee, tradeContracts: [...(current.tradeContracts ?? []), contract] },
+        { ...current, money: isUnlimited ? current.money : current.money - fee, tradeContracts: [...(current.tradeContracts ?? []), contract] },
         createSimulationCommand('CREATE_TRADE_CONTRACT', current.day, { contract, fee }),
       );
     });
-  }, [gameState, recordEdit]);
+  }, [gameState, recordEdit, settings.unlimitedMoney]);
 
   const resetCity = () => {
     setTutorialSessionKey(`new:${Date.now()}`);
@@ -2120,6 +2131,7 @@ export default function App() {
           onOpenSettings={() => setPanel('settings')}
           onNewGame={resetCity}
           language={settings.language}
+          unlimitedMoney={Boolean(settings.unlimitedMoney || gameState.unlimitedMoney)}
         />
 
         {activeTool === 'TRANSIT_LINE' && (
@@ -2151,7 +2163,7 @@ export default function App() {
               </span>
 
               <span className="font-semibold text-slate-200">
-                Biaya: <b className={`font-mono text-xs ${totalPlacementCost > 0 ? (gameState.money >= totalPlacementCost ? 'text-amber-300' : 'text-rose-400') : 'text-emerald-300'}`}>
+                Biaya: <b className={`font-mono text-xs ${totalPlacementCost > 0 ? ((settings.unlimitedMoney || gameState.unlimitedMoney || gameState.money >= totalPlacementCost) ? 'text-amber-300' : 'text-rose-400') : 'text-emerald-300'}`}>
                   {totalPlacementCost < 0 ? `+$${Math.abs(totalPlacementCost).toLocaleString()}` : totalPlacementCost === 0 ? 'Gratis' : `$${totalPlacementCost.toLocaleString()}`}
                 </b>
               </span>
@@ -2359,6 +2371,19 @@ export default function App() {
         setTaxRates={handleSetTaxRates}
         onCreateTradeContract={handleCreateTradeContract}
         experimentalFeatures={settings.experimentalFeatures ?? false}
+        onToggleUnlimitedMoney={() => {
+          const next = !settings.unlimitedMoney;
+          setSettings((s) => {
+            const updated = { ...s, unlimitedMoney: next };
+            try {
+              localStorage.setItem('skyline_settings', JSON.stringify(updated));
+            } catch (e) {
+              recordDiagnosticError(e, 'SETTINGS_WRITE_ERROR');
+            }
+            return updated;
+          });
+          setGameState((current) => ({ ...current, unlimitedMoney: next }));
+        }}
       />
       <TechTreeModal
         isOpen={panel === 'tech'} 
@@ -2368,6 +2393,7 @@ export default function App() {
         milestoneLevel={gameState.milestoneLevel} 
         onUnlockTech={handleUnlockTech}
         language={settings.language}
+        unlimitedMoney={Boolean(settings.unlimitedMoney || gameState.unlimitedMoney)}
       />
       <PoliciesModal
         isOpen={panel === 'policies'} 

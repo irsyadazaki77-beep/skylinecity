@@ -12,6 +12,7 @@ interface TechTreeModalProps {
   milestoneLevel: number;
   onUnlockTech: (id: string, cost: number) => void;
   language?: SupportedLanguage;
+  unlimitedMoney?: boolean;
 }
 
 export function TechTreeModal({
@@ -22,6 +23,7 @@ export function TechTreeModal({
   milestoneLevel,
   onUnlockTech,
   language = 'id',
+  unlimitedMoney = false,
 }: TechTreeModalProps) {
   const [selectedCategory, setSelectedCategory] = useState<
     'Infrastructure' | 'Utilities' | 'Zoning' | 'Economy' | 'Environment'
@@ -119,7 +121,7 @@ export function TechTreeModal({
               const isUnlocked = unlockedUpgrades.includes(node.id);
               const prereqMet = !node.prerequisiteId || unlockedUpgrades.includes(node.prerequisiteId);
               const milestoneMet = milestoneLevel >= node.requiredMilestoneLevel;
-              const canAfford = money >= node.cost;
+              const canAfford = unlimitedMoney || money >= node.cost;
 
               const prereqNode = node.prerequisiteId ? TECH_NODES.find((t) => t.id === node.prerequisiteId) : null;
               const milestoneName = MILESTONES[node.requiredMilestoneLevel]?.name || 'Desa';

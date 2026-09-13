@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { CityState, TileType, MAINTENANCE_COSTS, ROAD_MAINTENANCE_COSTS, getRoadClass } from '../types';
 import { FreightCommodity } from '../logistics';
-import { X, TrendingUp, Percent, Landmark } from 'lucide-react';
+import { X, TrendingUp, Percent, Landmark, Infinity as InfinityIcon, Sparkles } from 'lucide-react';
 import { useModalFocus } from './ui/useModalFocus';
 
 interface TreasuryModalProps {
@@ -11,9 +11,10 @@ interface TreasuryModalProps {
   setTaxRates: (res: number, com: number, ind: number) => void;
   onCreateTradeContract?: (commodity: FreightCommodity, direction: 'IMPORT' | 'EXPORT') => void;
   experimentalFeatures?: boolean;
+  onToggleUnlimitedMoney?: () => void;
 }
 
-export function TreasuryModal({ isOpen, onClose, gameState, setTaxRates, onCreateTradeContract, experimentalFeatures = false }: TreasuryModalProps) {
+export function TreasuryModal({ isOpen, onClose, gameState, setTaxRates, onCreateTradeContract, experimentalFeatures = false, onToggleUnlimitedMoney }: TreasuryModalProps) {
   const dialogRef = useModalFocus<HTMLDivElement>(isOpen);
 
   useEffect(() => {
@@ -122,11 +123,34 @@ export function TreasuryModal({ isOpen, onClose, gameState, setTaxRates, onCreat
         <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1">
           {/* Main Financial Balance Cards */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="bg-white/[0.04] p-3.5 rounded-xl border border-white/10 flex flex-col">
-              <span className="text-[11px] font-medium text-slate-400">Kas Kota</span>
-              <span className="font-mono text-xl font-bold text-white mt-1">
-                ${money.toLocaleString()}
-              </span>
+            <div className="bg-white/[0.04] p-3.5 rounded-xl border border-white/10 flex flex-col justify-between relative overflow-hidden">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-slate-400">Kas Kota</span>
+                  {gameState.unlimitedMoney && (
+                    <span className="inline-flex items-center gap-1 rounded bg-amber-400/20 px-1.5 py-0.2 text-[9px] font-bold text-amber-300 border border-amber-400/40">
+                      <InfinityIcon size={10} /> Unlimited
+                    </span>
+                  )}
+                </div>
+                <span className="font-mono text-xl font-bold text-amber-300 mt-1 flex items-center gap-1">
+                  {gameState.unlimitedMoney ? <><InfinityIcon size={20} className="text-amber-400 inline" /> <span className="text-sm font-normal text-slate-300">($∞)</span></> : `$${money.toLocaleString()}`}
+                </span>
+              </div>
+              {onToggleUnlimitedMoney && (
+                <button
+                  type="button"
+                  onClick={onToggleUnlimitedMoney}
+                  className={`mt-2 min-h-[28px] px-2 py-1 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition-all ${
+                    gameState.unlimitedMoney
+                      ? 'bg-amber-400 text-slate-950 hover:bg-amber-300 shadow-sm'
+                      : 'bg-white/10 text-slate-300 hover:bg-white/15 hover:text-white border border-white/10'
+                  }`}
+                  title="Aktifkan / Nonaktifkan mode Uang Unlimited"
+                >
+                  <Sparkles size={11} /> {gameState.unlimitedMoney ? 'Mode Bebas Aktif' : 'Aktifkan Uang ∞'}
+                </button>
+              )}
             </div>
 
             <div className="bg-white/[0.04] p-3.5 rounded-xl border border-white/10 flex flex-col">

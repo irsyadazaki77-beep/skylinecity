@@ -265,7 +265,8 @@ export function canUnlockRegion(
   rx: number,
   ry: number,
   unlockedRegions: string[],
-  currentMoney: number
+  currentMoney: number,
+  unlimitedMoney: boolean = false
 ): { canUnlock: boolean; cost: number; reason?: string } {
   const key = getRegionKey(rx, ry);
   const cost = getRegionUnlockCost(unlockedRegions.length);
@@ -287,7 +288,7 @@ export function canUnlockRegion(
     return { canUnlock: false, cost, reason: 'Region must be adjacent to an existing unlocked district' };
   }
 
-  if (currentMoney < cost) {
+  if (!unlimitedMoney && currentMoney < cost) {
     return { canUnlock: false, cost, reason: `Insufficient municipal funds ($${cost} required)` };
   }
 

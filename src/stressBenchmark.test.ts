@@ -8,7 +8,7 @@ function createDenseGrid(size: number) {
   for (let y = 0; y < size; y++) {
     const row: any[] = [];
     for (let x = 0; x < size; x++) {
-      row.push(createTile(x, y, TileType.EMPTY));
+      row.push(createTile(x, y));
     }
     grid.push(row);
   }
@@ -45,7 +45,7 @@ function createDenseGrid(size: number) {
   grid[1][2].type = TileType.WATER_PUMP;
   grid[1][3].type = TileType.FIRE_STATION;
   grid[2][1].type = TileType.POLICE_STATION;
-  grid[2][2].type = TileType.HOSPITAL;
+  grid[2][2].type = TileType.CLINIC;
   grid[2][3].type = TileType.SCHOOL;
 
   return grid;

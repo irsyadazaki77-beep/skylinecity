@@ -485,14 +485,15 @@ export function unlockRegion(
   rx: number,
   ry: number
 ): { success: boolean; newState: CityState; cost?: number; error?: string } {
-  const check = canUnlockRegion(rx, ry, state.unlockedRegions, state.money);
+  const isUnlimited = Boolean(state.unlimitedMoney);
+  const check = canUnlockRegion(rx, ry, state.unlockedRegions, state.money, isUnlimited);
   if (!check.canUnlock) {
     return { success: false, newState: state, cost: check.cost, error: check.reason };
   }
   const key = `${rx},${ry}`;
   const newState: CityState = {
     ...state,
-    money: state.money - check.cost,
+    money: isUnlimited ? state.money : state.money - check.cost,
     unlockedRegions: [...state.unlockedRegions, key],
   };
   return { success: true, newState, cost: check.cost };

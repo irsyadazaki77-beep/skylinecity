@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   experimentalFeatures: false,
   highContrast: false,
   colorblindMode: 'none',
+  unlimitedMoney: false,
 };
 
 export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings, gameState }: SettingsModalProps) {
@@ -119,6 +120,11 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings, gam
                   label={translate(catalog, 'settings.autosave')}
                   checked={localSettings.autosave}
                   onChange={(val) => saveSettings({ ...localSettings, autosave: val })}
+                />
+                <ToggleField
+                  label={translate(catalog, 'settings.unlimitedMoney')}
+                  checked={Boolean(localSettings.unlimitedMoney)}
+                  onChange={(val) => saveSettings({ ...localSettings, unlimitedMoney: val })}
                 />
               </div>
             </div>

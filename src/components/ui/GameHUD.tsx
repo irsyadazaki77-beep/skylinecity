@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bell, Smile, Target, Calendar } from 'lucide-react';
+import { Bell, Smile, Target, Calendar, Infinity as InfinityIcon } from 'lucide-react';
 import { getNextLivingCityUnlock, MILESTONES } from '../../progression';
 import { GameMenu } from './GameMenu';
 import type { SupportedLanguage } from '../../localization';
@@ -25,6 +25,7 @@ interface GameHUDProps {
   onOpenSettings: () => void;
   onNewGame: () => void;
   language?: SupportedLanguage;
+  unlimitedMoney?: boolean;
 }
 
 export function GameHUD({
@@ -48,6 +49,7 @@ export function GameHUD({
   onOpenSettings,
   onNewGame,
   language = 'id',
+  unlimitedMoney = false,
 }: GameHUDProps) {
   const safePopulation = Math.max(0, isNaN(population) || !isFinite(population) ? 0 : population);
   const safeMoney = isNaN(money) || !isFinite(money) ? 0 : money;
@@ -147,15 +149,26 @@ export function GameHUD({
           onClick={onOpenEconomy}
           title={language === 'en' ? 'Click to open Treasury & Tax overview' : 'Klik untuk membuka laporan kas dan pajak'}
         >
-          <span className="text-[10px] md:text-[11px] text-slate-400 font-medium tracking-wide">
+          <span className="text-[10px] md:text-[11px] text-slate-400 font-medium tracking-wide flex items-center gap-1">
             {language === 'en' ? 'Treasury' : 'Kas Kota'}
+            {unlimitedMoney && (
+              <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] px-1 rounded font-bold uppercase tracking-wider">
+                ∞
+              </span>
+            )}
           </span>
           <div className="flex items-center gap-1.5 font-mono text-sm md:text-base font-bold tabular-nums">
-            <span className="text-amber-300">${safeMoney.toLocaleString()}</span>
+            {unlimitedMoney ? (
+              <span className="text-amber-300 flex items-center gap-1">
+                $<InfinityIcon size={16} className="inline stroke-[2.5]" />
+              </span>
+            ) : (
+              <span className="text-amber-300">${safeMoney.toLocaleString()}</span>
+            )}
             <span className={`text-[10px] sm:text-[11px] font-bold ${safeNetIncome >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
               {safeNetIncome >= 0 ? '+' : ''}${safeNetIncome.toLocaleString()}
             </span>
-            {moneyDelta !== null && (
+            {moneyDelta !== null && !unlimitedMoney && (
               <span className={`floating-ticker absolute -top-3.5 left-1/2 -translate-x-1/2 text-[10px] font-bold ${moneyDelta > 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
                 {moneyDelta > 0 ? `+$${moneyDelta.toLocaleString()}` : `-$${Math.abs(moneyDelta).toLocaleString()}`}
               </span>
